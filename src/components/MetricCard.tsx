@@ -26,7 +26,10 @@ export const MetricCard: React.FC<MetricCardProps> = ({
     amber: 'bg-amber-50 text-amber-700 border-amber-100',
     rose: 'bg-rose-50 text-rose-700 border-rose-100',
     sky: 'bg-sky-50 text-sky-700 border-sky-100',
-    indigo: 'bg-indigo-50 text-indigo-700 border-indigo-100'
+    indigo: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+    purple: 'bg-purple-50 text-purple-700 border-purple-100',
+    teal: 'bg-teal-50 text-teal-700 border-teal-100',
+    blue: 'bg-blue-50 text-blue-700 border-blue-100'
   }[accentColor] || 'bg-slate-50 text-slate-700 border-slate-100';
 
   const dotAccentClasses = {
@@ -34,7 +37,10 @@ export const MetricCard: React.FC<MetricCardProps> = ({
     amber: 'bg-amber-500',
     rose: 'bg-rose-500',
     sky: 'bg-sky-500',
-    indigo: 'bg-indigo-500'
+    indigo: 'bg-indigo-500',
+    purple: 'bg-purple-500',
+    teal: 'bg-teal-500',
+    blue: 'bg-blue-500'
   }[accentColor] || 'bg-slate-500';
 
   return (

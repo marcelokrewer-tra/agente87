@@ -41,16 +41,27 @@ import {
 export default function App() {
   // Global parsed Sales Records
   const [allRecords, setAllRecords] = useState<SalesRecord[]>(() => parseTSV(INITIAL_RAW_DATA));
+
+  const getEnterpriseLabel = (emp: string) => {
+    switch(emp.toUpperCase()) {
+      case 'CUT': return 'Tramontina Cutelaria';
+      case 'GAR': return 'Tramontina Ferramentas';
+      case 'MUL': return 'Tramontina Multi';
+      case 'FAR': return 'Tramontina Farroupilha';
+      default: return `Tramontina ${emp}`;
+    }
+  };
   
   // Dashboard Core Navigation Tabs
   const [activeTab, setActiveTab] = useState<'geral' | 'coordenadores' | 'representantes' | 'detalhado' | 'importar'>('geral');
   
   // Filter States
   const [selectedCoordinator, setSelectedCoordinator] = useState<string>('All');
-  const [selectedEnterprise, setSelectedEnterprise] = useState<string>('All');
+  const [selectedEnterprises, setSelectedEnterprises] = useState<string[]>(['All']);
   const [selectedProductLine, setSelectedProductLine] = useState<string>('All');
   const [searchText, setSearchText] = useState<string>('');
   const [progressThreshold, setProgressThreshold] = useState<string>('All'); // 'All', '100+', '75-99', 'under-75'
+  const [showPreviewMetrics, setShowPreviewMetrics] = useState<boolean>(true);
   
   // Detailed Modal for Representative Product Group breakdown
   const [selectedRepDetailId, setSelectedRepDetailId] = useState<number | null>(null);
@@ -66,7 +77,7 @@ export default function App() {
   // Reset all active filters
   const resetFilters = () => {
     setSelectedCoordinator('All');
-    setSelectedEnterprise('All');
+    setSelectedEnterprises(['All']);
     setSelectedProductLine('All');
     setSearchText('');
     setProgressThreshold('All');
@@ -103,8 +114,8 @@ export default function App() {
       // Coordinator filter
       if (selectedCoordinator !== 'All' && r.coordName !== selectedCoordinator) return false;
       
-      // Enterprise filter (EMP)
-      if (selectedEnterprise !== 'All' && r.emp !== selectedEnterprise) return false;
+      // Enterprise filter (EMP) - supports multiple selections
+      if (!selectedEnterprises.includes('All') && selectedEnterprises.length > 0 && !selectedEnterprises.includes(r.emp)) return false;
       
       // Product Line filter (LINHA)
       if (selectedProductLine !== 'All' && r.linha !== selectedProductLine) return false;
@@ -128,7 +139,7 @@ export default function App() {
 
       return true;
     });
-  }, [allRecords, selectedCoordinator, selectedEnterprise, selectedProductLine, searchText, progressThreshold]);
+  }, [allRecords, selectedCoordinator, selectedEnterprises, selectedProductLine, searchText, progressThreshold]);
 
   // Dynamic Statistics computed from currently filtered subset
   const totals = useMemo(() => {
@@ -195,6 +206,11 @@ export default function App() {
       currency: 'BRL',
       maximumFractionDigits: 0
     }).format(val);
+  };
+
+  const formatDefasagem = (val: number) => {
+    const formatted = formatCurrency(Math.abs(val));
+    return (val < 0 ? '-' : val > 0 ? '+' : '') + formatted;
   };
 
   const formatPercent = (val: number) => {
@@ -574,87 +590,135 @@ export default function App() {
         
         {/* LEFT COMPACT FILTER CONTROLS SIDEBAR */}
         <section className="lg:col-span-1 space-y-5">
-          <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-lg space-y-5 text-slate-300">
-            <div className="flex justify-between items-center pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 bg-indigo-500 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.6)]"></div>
-                <h3 className="font-bold text-white text-xs uppercase tracking-wider flex items-center gap-2">
-                  <SlidersHorizontal className="w-4 h-4 text-indigo-450" />
-                  Ajustes e Filtros
-                </h3>
-              </div>
-              {(selectedCoordinator !== 'All' || selectedEnterprise !== 'All' || selectedProductLine !== 'All' || searchText !== '' || progressThreshold !== 'All') && (
-                <span className="h-2 w-2 rounded-full bg-indigo-400 block animate-pulse" />
-              )}
+          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm space-y-6 text-slate-700">
+            {/* Logo area */}
+            <div className="pb-4 border-b border-slate-150 flex flex-col gap-1">
+              <span className="text-xl font-black italic text-[#001A9C] tracking-tight uppercase flex items-center gap-1.5 leading-none">
+                <Building className="w-5 h-5 text-[#001A9C]" />
+                Tramontina
+              </span>
+              <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-450">
+                Agente 87 - Ferramentas
+              </span>
             </div>
 
             {/* Keyword Search */}
             <div className="space-y-1.5">
-              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Buscar Representante</label>
               <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
+                <Search className="w-4 h-4 absolute left-3 top-3.5 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Nome, ID ou Grupo..."
+                  placeholder="Buscar representante..."
                   value={searchText}
                   onChange={(e) => {
                     setSearchText(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="w-full pl-9 pr-4 py-2 text-xs bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 text-white placeholder-slate-500"
+                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-800 text-xs placeholder-slate-400 font-medium transition-all"
                 />
               </div>
             </div>
 
-            {/* Coordinator Selector */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Coordenador</label>
-              <div className="relative">
-                <select
-                  value={selectedCoordinator}
-                  onChange={(e) => {
-                    setSelectedCoordinator(e.target.value);
+            {/* Coordinator Selector List */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Coordenador</label>
+              <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCoordinator('All');
                     setCurrentPage(1);
                   }}
-                  className="w-full text-xs bg-slate-800 border border-slate-700 py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 text-white cursor-pointer appearance-none"
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                    selectedCoordinator === 'All'
+                      ? 'bg-[#001A9C] text-white shadow-xs'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
                 >
-                  <option value="All" className="bg-slate-900 text-white">Todos os Coordenadores ({distinctCoordinators.length})</option>
-                  {distinctCoordinators.map(c => (
-                    <option key={c} value={c} className="bg-slate-900 text-white">{c}</option>
-                  ))}
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
-                  <ChevronRight className="w-4 h-4 rotate-90" />
-                </div>
+                  <span className={`w-1.5 h-1.5 rounded-full ${selectedCoordinator === 'All' ? 'bg-white' : 'bg-slate-300'}`} />
+                  Todos
+                </button>
+                {distinctCoordinators.map(c => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => {
+                      setSelectedCoordinator(c);
+                      setCurrentPage(1);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                      selectedCoordinator === c
+                        ? 'bg-[#001A9C] text-white shadow-xs'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${selectedCoordinator === c ? 'bg-white' : 'bg-[#001A9C]'}`} />
+                    {c}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Product Line Filter (LINHA) */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Empresa (Filial / Divisão)</label>
-              <div className="relative">
-                <select
-                  value={selectedEnterprise}
-                  onChange={(e) => {
-                    setSelectedEnterprise(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="w-full text-xs bg-slate-800 border border-slate-700 py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 text-white cursor-pointer appearance-none"
-                >
-                  <option value="All" className="bg-slate-900 text-white">Todas as Filiais ({distinctEnterprises.length})</option>
-                  {distinctEnterprises.map(e => (
-                    <option key={e} value={e} className="bg-slate-900 text-white">{e}</option>
-                  ))}
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
-                  <ChevronRight className="w-4 h-4 rotate-90" />
-                </div>
+            {/* Enterprise Filter (EMP) Checkboxes */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Filiais / Divisões (EMP)</label>
+              <div className="space-y-2.5 pt-1">
+                {/* "Todos" Checkbox */}
+                <label className="flex items-center gap-2.5 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={selectedEnterprises.includes('All')}
+                    onChange={() => {
+                      if (selectedEnterprises.includes('All')) {
+                        setSelectedEnterprises([]);
+                      } else {
+                        setSelectedEnterprises(['All']);
+                      }
+                      setCurrentPage(1);
+                    }}
+                    className="w-4 h-4 rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C]/20 cursor-pointer accent-[#001A9C]"
+                  />
+                  <span>Todos</span>
+                </label>
+
+                {/* Individual dynamic enterprises as checkboxes */}
+                {distinctEnterprises.map(e => {
+                  const isChecked = selectedEnterprises.includes(e) || selectedEnterprises.includes('All');
+                  return (
+                    <label key={e} className="flex items-center gap-2.5 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          let updated = [...selectedEnterprises];
+                          if (updated.includes('All')) {
+                            updated = [e];
+                          } else {
+                            if (updated.includes(e)) {
+                              updated = updated.filter(item => item !== e);
+                            } else {
+                              updated.push(e);
+                            }
+                          }
+                          
+                          if (updated.length === 0 || updated.length === distinctEnterprises.length) {
+                            updated = ['All'];
+                          }
+                          setSelectedEnterprises(updated);
+                          setCurrentPage(1);
+                        }}
+                        className="w-4 h-4 rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C]/20 cursor-pointer accent-[#001A9C]"
+                      />
+                      <span>{getEnterpriseLabel(e)}</span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Product Business Segment Line */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Linha de Negócio</label>
+            {/* Line of business filter */}
+            <div className="space-y-1.5 pt-1 border-t border-slate-100">
+              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Linha de Negócio</label>
               <div className="relative">
                 <select
                   value={selectedProductLine}
@@ -662,28 +726,28 @@ export default function App() {
                     setSelectedProductLine(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="w-full text-xs bg-slate-800 border border-slate-700 py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 text-white cursor-pointer appearance-none"
+                  className="w-full text-xs bg-slate-50 border border-slate-200 py-1.5 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 cursor-pointer appearance-none font-semibold"
                 >
-                  <option value="All" className="bg-slate-900 text-white">Todas as Linhas ({distinctProductLines.length})</option>
+                  <option value="All">Todas as Linhas ({distinctProductLines.length})</option>
                   {distinctProductLines.map(l => (
-                    <option key={l} value={l} className="bg-slate-900 text-white">{l}</option>
+                    <option key={l} value={l}>{l}</option>
                   ))}
                 </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
-                  <ChevronRight className="w-4 h-4 rotate-90" />
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
+                  <ChevronRight className="w-3.5 h-3.5 rotate-90" />
                 </div>
               </div>
             </div>
 
             {/* Achievement Rate Filter */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Desempenho da Cota (% Total)</label>
+            <div className="space-y-2 border-t border-slate-100 pt-3">
+              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Desempenho (% Total)</label>
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { id: 'All', label: 'Todos' },
                   { id: '100+', label: 'Meta 100%+' },
-                  { id: '75-99', label: 'Meta 75-99%' },
-                  { id: 'under-75', label: 'Abaixo de 75%' }
+                  { id: '75-99', label: '75-99%' },
+                  { id: 'under-75', label: 'Abaixo 75%' }
                 ].map(opt => (
                   <button
                     key={opt.id}
@@ -692,10 +756,10 @@ export default function App() {
                       setProgressThreshold(opt.id);
                       setCurrentPage(1);
                     }}
-                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all text-center cursor-pointer ${
+                    className={`px-2 py-1.5 rounded-lg text-xs font-semibold border transition-all text-center cursor-pointer ${
                       progressThreshold === opt.id 
-                        ? 'bg-indigo-600 border-indigo-600 text-white font-bold shadow-xs' 
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700 hover:text-white'
+                        ? 'bg-[#001A9C] border-[#001A9C] text-white font-bold shadow-xs' 
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                     }`}
                   >
                     {opt.label}
@@ -704,17 +768,10 @@ export default function App() {
               </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 font-medium">
+            {/* Filter stats footer */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-450 font-bold">
               <span>Registros filtrados:</span>
-              <strong className="text-white text-xs font-sans font-extrabold">{filteredRecords.length} / {allRecords.length}</strong>
-            </div>
-
-            {/* Metadata sync footer indicator */}
-            <div className="pt-2">
-              <div className="p-3 bg-slate-800/40 rounded-xl border border-slate-800 flex flex-col justify-start">
-                <span className="text-[9px] font-extrabold text-slate-500 uppercase tracking-widest leading-none">Última Sincronização</span>
-                <span className="text-[10px] font-mono font-medium text-emerald-400 mt-1.5">Completa • Tempo Real</span>
-              </div>
+              <strong className="text-slate-800 text-xs font-sans font-extrabold">{filteredRecords.length} / {allRecords.length}</strong>
             </div>
           </div>
 
@@ -736,39 +793,143 @@ export default function App() {
         <section className="lg:col-span-3 space-y-6">
           
           {/* Bento row of Core metrics cards (Filtered live) */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* ROW 1: QUOTAS */}
             <MetricCard
-              title="Faturado Líquido (CD+VP)"
+              title="Cota Total"
+              value={formatCurrency(totals.quotaTotal)}
+              subtitle="Alvo global consolidado"
+              icon={<Target className="w-5 h-5 text-blue-600" />}
+              accentColor="blue"
+            />
+            <MetricCard
+              title="Cota CD"
+              value={formatCurrency(totals.quotaCD)}
+              subtitle="Canal de Distribuição"
+              icon={<Target className="w-5 h-5 text-purple-600" />}
+              accentColor="purple"
+            />
+            <MetricCard
+              title="Cota VP"
+              value={formatCurrency(totals.quotaVP)}
+              subtitle="Venda Direta / Promotores"
+              icon={<Target className="w-5 h-5 text-teal-600" />}
+              accentColor="teal"
+            />
+
+            {/* ROW 2: VENDAS (FATURADO) */}
+            <MetricCard
+              title="Faturado Total"
               value={formatCurrency(totals.faturadoTotal)}
-              subtitle={`Total apurado consolidado`}
-              icon={<TrendingUp className="w-5 h-5" />}
-              accentColor="emerald"
+              subtitle="Volume consolidado apurado"
+              icon={<DollarSign className="w-5 h-5 text-blue-600" />}
+              accentColor="blue"
             />
             <MetricCard
-              title="Atingimento Geral"
+              title="Faturado CD"
+              value={formatCurrency(totals.faturadoCD)}
+              subtitle="Volume Canal CD"
+              icon={<DollarSign className="w-5 h-5 text-purple-600" />}
+              accentColor="purple"
+            />
+            <MetricCard
+              title="Faturado VP"
+              value={formatCurrency(totals.faturadoVP)}
+              subtitle="Volume Canal VP"
+              icon={<DollarSign className="w-5 h-5 text-teal-600" />}
+              accentColor="teal"
+            />
+
+            {/* ROW 3: % ATINGIMENTO */}
+            <MetricCard
+              title="% Atingimento Total"
               value={formatPercent(totals.achTotal)}
-              subtitle={`Meta global: ${formatCurrency(totals.quotaTotal)}`}
-              icon={<Target className="w-5 h-5" />}
-              accentColor="sky"
-              trend={{
-                value: (totals.achTotal >= 100) ? "Excedente" : `${(100 - totals.achTotal).toFixed(1)}% faltantes`,
-                isPositive: totals.achTotal >= 100
-              }}
+              subtitle="Atingimento global consolidado"
+              icon={<TrendingUp className="w-5 h-5 text-blue-600" />}
+              accentColor="blue"
             />
             <MetricCard
-              title="Defasagem Líquida"
-              value={(totals.defasagem >= 0 ? '+' : '') + formatCurrency(totals.defasagem)}
-              subtitle={`${totals.defasagem >= 0 ? 'Superávit' : 'Déficit'} em relação à cota`}
-              icon={<ShieldAlert className="w-5 h-5" />}
-              accentColor={totals.defasagem >= 0 ? 'emerald' : 'rose'}
+              title="% Atingimento CD"
+              value={formatPercent(totals.achCD)}
+              subtitle="Atingimento Canal CD"
+              icon={<TrendingUp className="w-5 h-5 text-purple-600" />}
+              accentColor="purple"
             />
             <MetricCard
-              title="Valor de Venda"
-              value={formatCurrency(totals.valorVendaTotal)}
-              subtitle={`Ating. venda: ${formatPercent(totals.achSale)}`}
-              icon={<DollarSign className="w-5 h-5" />}
-              accentColor="amber"
+              title="% Atingimento VP"
+              value={formatPercent(totals.achVP)}
+              subtitle="Atingimento Canal VP"
+              icon={<TrendingUp className="w-5 h-5 text-teal-600" />}
+              accentColor="teal"
             />
+
+            {/* ROW 4: DEFASAGEM */}
+            <MetricCard
+              title="Defasagem Total"
+              value={formatDefasagem(totals.defasagem)}
+              subtitle="Gap consolidado"
+              icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
+              accentColor="rose"
+            />
+            <MetricCard
+              title="Defasagem CD"
+              value={formatDefasagem(totals.faturadoCD - totals.quotaCD)}
+              subtitle="Gap Canal CD"
+              icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
+              accentColor="rose"
+            />
+            <MetricCard
+              title="Defasagem VP"
+              value={formatDefasagem(totals.faturadoVP - totals.quotaVP)}
+              subtitle="Gap Canal VP"
+              icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
+              accentColor="rose"
+            />
+          </div>
+
+          {/* PREVIEW METRICS SECTION */}
+          <div className="bg-amber-50/40 border border-amber-200 p-5 rounded-2xl space-y-4">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-amber-600" />
+                <span className="text-[10px] font-extrabold text-amber-800 uppercase tracking-widest">
+                  Métricas de Prévia (Consolidado)
+                </span>
+              </div>
+              <button
+                onClick={() => setShowPreviewMetrics(!showPreviewMetrics)}
+                className="text-xs font-bold text-[#001A9C] hover:underline cursor-pointer"
+              >
+                {showPreviewMetrics ? 'Ocultar Detalhes' : 'Mostrar Detalhes'}
+              </button>
+            </div>
+
+            {showPreviewMetrics && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Card 1: Prévia */}
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
+                  <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">PRÉVIA</span>
+                  <div className="text-lg font-black text-slate-900">{formatCurrency(totals.faturadoEPendente)}</div>
+                  <p className="text-[10px] text-slate-500 font-medium">Faturamento Líquido + Pedidos Pendentes</p>
+                </div>
+
+                {/* Card 2: Vendas do Dia */}
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
+                  <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">VENDAS NO DIA DA PRÉVIA</span>
+                  <div className="text-lg font-black text-slate-900">{formatCurrency(totals.valorVendaTotal)}</div>
+                  <p className="text-[10px] text-slate-500 font-medium">Apurado na data da prévia</p>
+                </div>
+
+                {/* Card 3: Defasagem Prévia */}
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
+                  <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">DEFASAGEM DA PRÉVIA</span>
+                  <div className={`text-lg font-black ${totals.faturadoEPendente - totals.quotaTotal >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {formatDefasagem(totals.faturadoEPendente - totals.quotaTotal)}
+                  </div>
+                  <p className="text-[10px] text-slate-500 font-medium">Em relação à cota consolidada</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Navigation controller layout bar */}
@@ -785,18 +946,10 @@ export default function App() {
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer relative ${
                   activeTab === tab.id 
-                    ? 'text-slate-900 bg-slate-900/5 font-extrabold' 
-                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                    ? 'text-slate-900 bg-slate-950/[0.04] border border-slate-950/[0.02] font-extrabold shadow-2xs' 
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent'
                 }`}
               >
-                {/* Floating pill transition */}
-                {activeTab === tab.id && (
-                  <motion.div 
-                    layoutId="activeTabControl"
-                    className="absolute inset-0 bg-slate-950/[0.04] border border-slate-950/[0.02] rounded-xl pointer-events-none"
-                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
-                  />
-                )}
                 {tab.icon}
                 <span>{tab.label}</span>
               </button>
