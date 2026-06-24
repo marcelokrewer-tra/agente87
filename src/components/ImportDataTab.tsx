@@ -230,7 +230,7 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
           <h2 className="text-lg font-bold text-slate-800">Importação Dinâmica de Planilhas (TSV / Excel)</h2>
           <p className="text-sm text-slate-500">
             Atualmente, o dashboard está rodando com <strong className="text-slate-800">{currentRecordsCount} registros</strong>.
-            Você pode atualizar os dados colando o relatório de faturamento copiado diretamente do Excel, ou alternar entre os presets fornecidos.
+            Você pode atualizar os dados colando o relatório de vendas copiado diretamente do Excel, ou alternar entre os presets fornecidos.
           </p>
         </div>
       </div>
@@ -266,7 +266,7 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
               Conjunto Reduzido (Foco)
             </h3>
             <p className="text-xs text-slate-500 mt-1">
-              Carrega os 35 principais registros que mostram os principais representantes, faturamento CD/VP e coordenadorias.
+              Carrega os 35 principais registros que mostram os principais representantes, vendas CD/VP e coordenadorias.
             </p>
           </div>
           <button

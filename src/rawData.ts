@@ -33,8 +33,30 @@ export function parseTSV(tsvText: string): SalesRecord[] {
     const repId = parseInt(cols[1]?.trim()) || 0;
     const repName = cols[2]?.trim() || '';
     
-    // Check if it's the total row or invalid Rep row
-    if (!repName || repName.toLowerCase().includes("total") || !repId) {
+    const repNameLower = repName.toLowerCase().trim();
+    const lineLower = line.toLowerCase();
+    
+    // Check if it's a total row, invalid row, or summary/totals row from Excel/Google Sheets.
+    // Real representative rows must have a valid non-zero numeric ID.
+    // If repId is 0 or NaN, or if repName is empty, it's not a valid representative data row.
+    if (!repId || isNaN(repId) || !repName) {
+      continue;
+    }
+    
+    // Explicit check for exact matches of total/soma keywords in repName or tab separators,
+    // avoiding partial substring matches that skip real people like "Geraldo".
+    const isExplicitTotalRow = 
+      repNameLower === "total" ||
+      repNameLower === "soma" ||
+      repNameLower === "total geral" ||
+      repNameLower === "soma geral" ||
+      repNameLower === "resumo" ||
+      repNameLower === "resultado" ||
+      repNameLower === "total de vendas" ||
+      lineLower.includes("\ttotal\t") ||
+      lineLower.includes("\tsoma\t");
+      
+    if (isExplicitTotalRow) {
       continue;
     }
     
@@ -47,28 +69,29 @@ export function parseTSV(tsvText: string): SalesRecord[] {
     
     const quotaCD = parsePortugueseNumber(cols[9]);
     const faturadoCD = parsePortugueseNumber(cols[10]);
-    const pctCD = parsePortugueseNumber(cols[11]);
+    const valorVendaCD = parsePortugueseNumber(cols[23] || '0');
+    const pctCD = quotaCD > 0 ? (valorVendaCD / quotaCD) * 100 : 0;
     
     const quotaVP = parsePortugueseNumber(cols[12]);
     const faturadoVP = parsePortugueseNumber(cols[13]);
-    const pctVP = parsePortugueseNumber(cols[14]);
+    const valorVendaVP = parsePortugueseNumber(cols[24] || '0');
+    const pctVP = quotaVP > 0 ? (valorVendaVP / quotaVP) * 100 : 0;
     
     const quotaTotal = parsePortugueseNumber(cols[15]);
     const faturadoTotal = parsePortugueseNumber(cols[16]);
-    const pctTotal = parsePortugueseNumber(cols[17]);
+    const valorVendaTotal = parsePortugueseNumber(cols[25] || '0');
+    const pctTotal = quotaTotal > 0 ? (valorVendaTotal / quotaTotal) * 100 : 0;
     
     const pendenteCD = parsePortugueseNumber(cols[18] || '0');
     const pendenteVP = parsePortugueseNumber(cols[19] || '0');
     
     const faturadoEPendente = parsePortugueseNumber(cols[20] || '0');
-    const pctFaturadoEPendente = parsePortugueseNumber(cols[21] || '0');
+    const pctFaturadoEPendente = quotaTotal > 0 ? (faturadoEPendente / quotaTotal) * 100 : 0;
     
-    const defasagem = parsePortugueseNumber(cols[22] || '0');
+    // defasagem: subtrair venda (valorVendaTotal) pelo valor da cota (quotaTotal)
+    const defasagem = valorVendaTotal - quotaTotal;
     
-    const valorVendaCD = parsePortugueseNumber(cols[23] || '0');
-    const valorVendaVP = parsePortugueseNumber(cols[24] || '0');
-    const valorVendaTotal = parsePortugueseNumber(cols[25] || '0');
-    const pctVenda = parsePortugueseNumber(cols[26] || '0');
+    const pctVenda = quotaTotal > 0 ? (valorVendaTotal / quotaTotal) * 100 : 0;
     
     records.push({
       id: `${repId}-${emp}-${groupId}-${lineIdx++}`,

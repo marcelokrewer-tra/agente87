@@ -10,6 +10,7 @@ import {
 import { MetricCard } from './components/MetricCard';
 import { KPIGauge } from './components/KPIGauge';
 import { ImportDataTab } from './components/ImportDataTab';
+import { TramontinaLogo } from './components/TramontinaLogo';
 import { 
   TrendingUp, 
   Users, 
@@ -152,7 +153,6 @@ export default function App() {
     let pendenteCD = 0;
     let pendenteVP = 0;
     let faturadoEPendente = 0;
-    let defasagem = 0;
     let valorVendaCD = 0;
     let valorVendaVP = 0;
     let valorVendaTotal = 0;
@@ -167,16 +167,16 @@ export default function App() {
       pendenteCD += r.pendenteCD;
       pendenteVP += r.pendenteVP;
       faturadoEPendente += r.faturadoEPendente;
-      defasagem += r.defasagem;
       valorVendaCD += r.valorVendaCD;
       valorVendaVP += r.valorVendaVP;
       valorVendaTotal += r.valorVendaTotal;
     });
 
-    const achCD = quotaCD > 0 ? (faturadoCD / quotaCD) * 100 : 0;
-    const achVP = quotaVP > 0 ? (faturadoVP / quotaVP) * 100 : 0;
-    const achTotal = quotaTotal > 0 ? (faturadoTotal / quotaTotal) * 100 : 0;
+    const achCD = quotaCD > 0 ? (valorVendaCD / quotaCD) * 100 : 0;
+    const achVP = quotaVP > 0 ? (valorVendaVP / quotaVP) * 100 : 0;
+    const achTotal = quotaTotal > 0 ? (valorVendaTotal / quotaTotal) * 100 : 0;
     const achSale = quotaTotal > 0 ? (valorVendaTotal / quotaTotal) * 100 : 0;
+    const defasagem = valorVendaTotal - quotaTotal;
 
     return {
       quotaCD,
@@ -229,7 +229,7 @@ export default function App() {
         groups[r.coordName] = { quota: 0, faturado: 0, name: r.coordName, reps: new Set() };
       }
       groups[r.coordName].quota += r.quotaTotal;
-      groups[r.coordName].faturado += r.faturadoTotal;
+      groups[r.coordName].faturado += r.valorVendaTotal;
       groups[r.coordName].reps.add(r.repId);
     });
 
@@ -252,8 +252,8 @@ export default function App() {
     
     filteredRecords.forEach(r => {
       if (!groups[r.emp]) groups[r.emp] = 0;
-      groups[r.emp] += r.faturadoTotal;
-      totalAll += r.faturadoTotal;
+      groups[r.emp] += r.valorVendaTotal;
+      totalAll += r.valorVendaTotal;
     });
 
     return Object.entries(groups)
@@ -280,7 +280,6 @@ export default function App() {
       let fCD = 0;
       let fVP = 0;
       let vVenda = 0;
-      let defasagemTotal = 0;
       
       records.forEach(r => {
         qTotal += r.quotaTotal;
@@ -288,20 +287,21 @@ export default function App() {
         fCD += r.faturadoCD;
         fVP += r.faturadoVP;
         vVenda += r.valorVendaTotal;
-        defasagemTotal += r.defasagem;
       });
+
+      const defasagemVal = vVenda - qTotal;
 
       return {
         repId: first.repId,
         repName: first.repName,
         coordName: first.coordName,
         totalQuota: qTotal,
-        totalFaturado: fTotal,
+        totalFaturado: vVenda,
         totalFaturadoCD: fCD,
         totalFaturadoVP: fVP,
         totalVendido: vVenda,
-        defasagem: defasagemTotal,
-        pctTotal: qTotal > 0 ? (fTotal / qTotal) * 100 : 0,
+        defasagem: defasagemVal,
+        pctTotal: qTotal > 0 ? (vVenda / qTotal) * 100 : 0,
         pctVenda: qTotal > 0 ? (vVenda / qTotal) * 100 : 0,
         recordsCount: records.length,
         items: records
@@ -367,7 +367,7 @@ export default function App() {
   const exportToCSV = () => {
     const headers = [
       'Representante ID', 'Nome Representante', 'Coordenador', 'Empresa (Filial)', 
-      'Linha', 'Grupo', 'Cota Total', 'Faturado Total', '% Atingimento', 'Defasagem', 'Valor Venda Total'
+      'Linha', 'Grupo', 'Cota Total', 'Vendas Total', '% Atingimento', 'Defasagem', 'Valor Venda Total'
     ];
     
     const csvRows = [
@@ -405,25 +405,25 @@ export default function App() {
     
     let quota = 0;
     let faturado = 0;
-    let defasagem = 0;
     let valorVenda = 0;
     
     items.forEach(i => {
       quota += i.quotaTotal;
       faturado += i.faturadoTotal;
-      defasagem += i.defasagem;
       valorVenda += i.valorVendaTotal;
     });
+
+    const defasagem = valorVenda - quota;
 
     return {
       repId: selectedRepDetailId,
       repName: items[0].repName,
       coordName: items[0].coordName,
       quota,
-      faturado,
+      faturado: valorVenda,
       defasagem,
       valorVenda,
-      percent: quota > 0 ? (faturado / quota) * 100 : 0,
+      percent: quota > 0 ? (valorVenda / quota) * 100 : 0,
       rows: items
     };
   }, [allRecords, selectedRepDetailId]);
@@ -471,7 +471,7 @@ export default function App() {
                   <span className="block text-sm font-bold text-slate-800 mt-1">{formatCurrency(repDetailData.quota)}</span>
                 </div>
                 <div className="p-3 bg-white border border-slate-100 rounded-xl shadow-xs">
-                  <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide">Faturado Total</span>
+                  <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide">Vendas Total</span>
                   <span className="block text-sm font-bold text-slate-800 mt-1">{formatCurrency(repDetailData.faturado)}</span>
                 </div>
                 <div className="p-3 bg-white border border-slate-100 rounded-xl shadow-xs">
@@ -496,7 +496,7 @@ export default function App() {
 
                 <div className="space-y-3.5">
                   {repDetailData.rows.map((row, idx) => {
-                    const rowAch = row.quotaTotal > 0 ? (row.faturadoTotal / row.quotaTotal) * 100 : 0;
+                    const rowAch = row.quotaTotal > 0 ? (row.valorVendaTotal / row.quotaTotal) * 100 : 0;
                     return (
                       <div key={row.id || idx} className="p-4 bg-slate-50 hover:bg-slate-100/70 rounded-xl border border-slate-100 transition-colors space-y-3">
                         <div className="flex justify-between items-start">
@@ -529,7 +529,7 @@ export default function App() {
                           
                           <div className="flex justify-between items-center text-[11px] text-slate-500">
                             <span>Quo: <strong>{formatCurrency(row.quotaTotal)}</strong></span>
-                            <span>Fat: <strong className="text-slate-800">{formatCurrency(row.faturadoTotal)}</strong></span>
+                            <span>Vnd: <strong className="text-slate-800">{formatCurrency(row.valorVendaTotal)}</strong></span>
                             <span>Def: <strong className={row.defasagem >= 0 ? 'text-emerald-600' : 'text-rose-500'}>{formatCurrency(row.defasagem)}</strong></span>
                           </div>
                         </div>
@@ -543,60 +543,17 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Decorative top strip */}
-      <div className="h-2 bg-gradient-to-r from-red-500 via-orange-500 to-indigo-600" />
-
-      {/* Corporate header title */}
-      <header className="bg-white border-b border-slate-200 py-4 px-4 md:px-8 shadow-xs">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Building className="w-5 h-5 text-red-600 animate-pulse" />
-              <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">TRAMONTINA S/A • COMERCIAL</span>
-            </div>
-            <h1 className="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-              KPIs de Faturamento & Vendas
-              <span className="bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded border border-slate-200 font-extrabold tracking-normal font-mono">
-                {allRecords.length} lançamentos
-              </span>
-            </h1>
-            <p className="text-xs text-slate-400 font-semibold">
-              Dashboard integrado CD e VP, cota de representantes, margem de faturamento, pendentes e defasagem.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 shrink-0 bg-white p-2 rounded-xl border border-slate-200 self-start md:self-center shadow-xs">
-            <span className="text-[10px] font-extrabold text-slate-500 uppercase pb-0.5 pl-2 leading-none">Visualização:</span>
-            <button 
-              onClick={resetFilters} 
-              className="px-3 py-1.5 text-xs font-bold bg-white hover:bg-slate-100 text-slate-700 rounded-lg border border-slate-200 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-[0.98]"
-            >
-              <Filter className="w-3.5 h-3.5 text-slate-400" />
-              Limpar Filtros
-            </button>
-            <button 
-              onClick={exportToCSV}
-              className="px-3 py-1.5 text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg border border-indigo-200 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-[0.98]"
-            >
-              <Download className="w-3.5 h-3.5" />
-              Exportar (.CSV)
-            </button>
-          </div>
-        </div>
-      </header>
-
       {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 md:px-8 mt-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <main className="max-w-7xl mx-auto px-4 md:px-8 pt-8 grid grid-cols-1 lg:grid-cols-4 gap-6">
         
         {/* LEFT COMPACT FILTER CONTROLS SIDEBAR */}
         <section className="lg:col-span-1 space-y-5">
           <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm space-y-6 text-slate-700">
             {/* Logo area */}
-            <div className="pb-4 border-b border-slate-150 flex flex-col gap-1">
-              <span className="text-xl font-black italic text-[#001A9C] tracking-tight uppercase flex items-center gap-1.5 leading-none">
-                <Building className="w-5 h-5 text-[#001A9C]" />
-                Tramontina
-              </span>
+            <div className="pb-4 border-b border-slate-150 flex flex-col gap-2">
+              <div className="flex items-center">
+                <TramontinaLogo className="h-5 w-auto text-[#001A9C]" fillColor="#001A9C" />
+              </div>
               <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-450">
                 Agente 87 - Ferramentas
               </span>
@@ -783,7 +740,7 @@ export default function App() {
               Gestão de Defasagem
             </h4>
             <p className="text-[11px] text-indigo-100/80 leading-relaxed font-normal">
-              A <strong>Defasagem</strong> representa a diferença matemática líquida entre o volume faturado e a cota total estipulada em reais. 
+              A <strong>Defasagem</strong> representa a diferença matemática líquida entre o volume de vendas e a cota total estipulada em reais. 
               Gaps negativos vermelhos necessitam de ação imediatas de prospecção e liberação de pendentes.
             </p>
           </div>
@@ -817,25 +774,25 @@ export default function App() {
               accentColor="teal"
             />
 
-            {/* ROW 2: VENDAS (FATURADO) */}
+            {/* ROW 2: VENDAS */}
             <MetricCard
-              title="Faturado Total"
-              value={formatCurrency(totals.faturadoTotal)}
-              subtitle="Volume consolidado apurado"
+              title="Vendas Total"
+              value={formatCurrency(totals.valorVendaTotal)}
+              subtitle="Volume de vendas consolidado"
               icon={<DollarSign className="w-5 h-5 text-blue-600" />}
               accentColor="blue"
             />
             <MetricCard
-              title="Faturado CD"
-              value={formatCurrency(totals.faturadoCD)}
-              subtitle="Volume Canal CD"
+              title="Vendas CD"
+              value={formatCurrency(totals.valorVendaCD)}
+              subtitle="Volume de vendas CD"
               icon={<DollarSign className="w-5 h-5 text-purple-600" />}
               accentColor="purple"
             />
             <MetricCard
-              title="Faturado VP"
-              value={formatCurrency(totals.faturadoVP)}
-              subtitle="Volume Canal VP"
+              title="Vendas VP"
+              value={formatCurrency(totals.valorVendaVP)}
+              subtitle="Volume de vendas VP"
               icon={<DollarSign className="w-5 h-5 text-teal-600" />}
               accentColor="teal"
             />
@@ -873,14 +830,14 @@ export default function App() {
             />
             <MetricCard
               title="Defasagem CD"
-              value={formatDefasagem(totals.faturadoCD - totals.quotaCD)}
+              value={formatDefasagem(totals.valorVendaCD - totals.quotaCD)}
               subtitle="Gap Canal CD"
               icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
               accentColor="rose"
             />
             <MetricCard
               title="Defasagem VP"
-              value={formatDefasagem(totals.faturadoVP - totals.quotaVP)}
+              value={formatDefasagem(totals.valorVendaVP - totals.quotaVP)}
               subtitle="Gap Canal VP"
               icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
               accentColor="rose"
@@ -910,7 +867,7 @@ export default function App() {
                 <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
                   <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">PRÉVIA</span>
                   <div className="text-lg font-black text-slate-900">{formatCurrency(totals.faturadoEPendente)}</div>
-                  <p className="text-[10px] text-slate-500 font-medium">Faturamento Líquido + Pedidos Pendentes</p>
+                  <p className="text-[10px] text-slate-500 font-medium">Vendas Líquidas + Pedidos Pendentes</p>
                 </div>
 
                 {/* Card 2: Vendas do Dia */}
@@ -973,7 +930,7 @@ export default function App() {
                       <LineChart className="w-4.5 h-4.5 text-indigo-500" />
                       Atingimento por Coordenadoria (CD + VP Misto)
                     </h3>
-                    <p className="text-xs text-slate-400 mt-1">Cota estipulada em reais comparada ao real faturado bruto por equipe.</p>
+                    <p className="text-xs text-slate-400 mt-1">Cota estipulada em reais comparada ao total de vendas por equipe.</p>
                   </div>
 
                   <div className="space-y-4 pt-1">
@@ -989,7 +946,7 @@ export default function App() {
                             </span>
                             <div className="text-right">
                               <span className="font-extrabold text-slate-900">{formatPercent(item.percent)}</span>
-                              <span className="text-[10px] text-slate-400 block mt-0.5">Fat: {formatCurrency(item.faturado)}</span>
+                              <span className="text-[10px] text-slate-400 block mt-0.5">Vnd: {formatCurrency(item.faturado)}</span>
                             </div>
                           </div>
 
@@ -1025,9 +982,9 @@ export default function App() {
                   <div>
                     <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
                       <Layers className="w-4.5 h-4.5 text-indigo-500" />
-                      Faturamento por Filial (EMP)
+                      Vendas por Filial (EMP)
                     </h3>
-                    <p className="text-xs text-slate-400 mt-1">Participação de cada prefixo corporativo no faturamento.</p>
+                    <p className="text-xs text-slate-400 mt-1">Participação de cada prefixo corporativo nas vendas totais.</p>
                   </div>
 
                   <div className="space-y-3.5 pt-2">
@@ -1109,7 +1066,7 @@ export default function App() {
 
                           <div className="text-right">
                             <span className="text-xs font-extrabold text-emerald-600 block">{formatPercent(rep.pctTotal)}</span>
-                            <span className="text-[10px] text-slate-400 block mt-0.5">Fat: {formatCurrency(rep.totalFaturado)}</span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5">Vnd: {formatCurrency(rep.totalFaturado)}</span>
                           </div>
                         </div>
                       );
@@ -1225,7 +1182,7 @@ export default function App() {
                           <span className="block font-bold text-slate-700">{formatCurrency(rep.totalQuota)}</span>
                         </div>
                         <div className="space-y-1">
-                          <span className="block text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Faturado CD / VP</span>
+                          <span className="block text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Vendas CD / VP</span>
                           <span className="block font-bold text-slate-900">{formatCurrency(rep.totalFaturado)}</span>
                         </div>
                         <div className="space-y-1">
@@ -1291,7 +1248,7 @@ export default function App() {
                       <th className="py-3 px-4 font-semibold">Coordenadoria</th>
                       <th className="py-3 px-2 font-semibold text-center">Nº Reps</th>
                       <th className="py-3 px-2 font-semibold text-right">Cota Global</th>
-                      <th className="py-3 px-2 font-semibold text-right">Faturado CD/VP</th>
+                      <th className="py-3 px-2 font-semibold text-right">Vendas CD/VP</th>
                       <th className="py-3 px-2 font-semibold text-right">Defasagem</th>
                       <th className="py-3 px-2 font-semibold text-center">Status</th>
                       <th className="py-3 px-4 font-semibold text-right">Ações</th>
@@ -1365,7 +1322,7 @@ export default function App() {
                 {/* Header row in explorer */}
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                   <div>
-                    <h3 className="font-bold text-slate-900 text-base">Registros de Faturamento Detalhados</h3>
+                    <h3 className="font-bold text-slate-900 text-base">Registros de Vendas Detalhados</h3>
                     <p className="text-xs text-slate-400 mt-0.5">Mostrando {sortedDetails.length} linhas filtradas. Clique nos cabeçalhos para ordenar.</p>
                   </div>
                   
@@ -1402,7 +1359,7 @@ export default function App() {
                           <span className="flex items-center gap-1 justify-end">Cota Planejada <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
                         </th>
                         <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('faturadoTotal')}>
-                          <span className="flex items-center gap-1 justify-end">Faturado <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
+                          <span className="flex items-center gap-1 justify-end">Vendas <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
                         </th>
                         <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('pctTotal')}>
                           <span className="flex items-center gap-1 justify-end">% Ating. <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
