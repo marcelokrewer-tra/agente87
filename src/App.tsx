@@ -6,7 +6,19 @@ import {
 } from './rawData';
 import { 
   SalesRecord 
-} from './types';
+ } from './types';
+import {
+  getLocalPeriodsIndex,
+  saveLocalPeriod,
+  getLocalPeriodData,
+  deleteLocalPeriod
+} from './lib/storage';
+import {
+  getFirebaseConfig,
+  fetchPeriodsFromFirestore,
+  fetchPeriodDataFromFirestore
+} from './lib/firebase';
+import { FirebaseSetupModal } from './components/FirebaseSetupModal';
 import { MetricCard } from './components/MetricCard';
 import { KPIGauge } from './components/KPIGauge';
 import { ImportDataTab } from './components/ImportDataTab';
@@ -53,42 +65,101 @@ export default function App() {
   const [availablePeriods, setAvailablePeriods] = useState<Array<{ id: string; year: number; month: number; recordsCount: number }>>([]);
   const [isLoadingPeriod, setIsLoadingPeriod] = useState<boolean>(false);
   const [periodFetchError, setPeriodFetchError] = useState<string | null>(null);
+  const [usingLocalStorageFallback, setUsingLocalStorageFallback] = useState<boolean>(false);
+
+  // Firebase integration states
+  const [isFirebaseModalOpen, setIsFirebaseModalOpen] = useState<boolean>(false);
+  const [isFirebaseConnected, setIsFirebaseConnected] = useState<boolean>(false);
+
+  const checkFirebaseStatus = () => {
+    setIsFirebaseConnected(getFirebaseConfig() !== null);
+  };
 
   const fetchAvailablePeriods = async () => {
+    // 1. Prioritize Firebase Firestore if configured
+    if (getFirebaseConfig()) {
+      try {
+        setIsLoadingPeriod(true);
+        const data = await fetchPeriodsFromFirestore();
+        setAvailablePeriods(data);
+        setUsingLocalStorageFallback(false);
+        return;
+      } catch (err) {
+        console.error("Error fetching periods from Firestore, retrying local:", err);
+      } finally {
+        setIsLoadingPeriod(false);
+      }
+    }
+
+    // 2. Fallback to Express backend or LocalStorage
     try {
       const response = await fetch('/api/monthly-data');
       if (response.ok) {
         const data = await response.json();
         setAvailablePeriods(data);
+        setUsingLocalStorageFallback(false);
+      } else {
+        setUsingLocalStorageFallback(true);
+        setAvailablePeriods(getLocalPeriodsIndex());
       }
     } catch (err) {
-      console.error("Error fetching available periods:", err);
+      console.warn("API unavailable, using localStorage:", err);
+      setUsingLocalStorageFallback(true);
+      setAvailablePeriods(getLocalPeriodsIndex());
     }
   };
 
   const fetchPeriodData = async (year: number, month: number) => {
     setIsLoadingPeriod(true);
     setPeriodFetchError(null);
+
+    // 1. Prioritize Firebase Firestore if configured
+    if (getFirebaseConfig()) {
+      try {
+        const records = await fetchPeriodDataFromFirestore(year, month);
+        setAllRecords(records);
+        setUsingLocalStorageFallback(false);
+      } catch (err: any) {
+        console.error("Firestore error loading period records:", err);
+        setPeriodFetchError(`Erro Firestore: ${err.message || 'Verifique as regras do banco de dados.'}`);
+        setAllRecords([]);
+      } finally {
+        setIsLoadingPeriod(false);
+      }
+      return;
+    }
+
+    // 2. Fallback to Express backend or LocalStorage
     try {
       const response = await fetch(`/api/monthly-data/${year}/${month}`);
       if (response.ok) {
         const data = await response.json();
         setAllRecords(data.records || []);
+        setUsingLocalStorageFallback(false);
       } else {
-        throw new Error(`Erro ao carregar dados do período: ${response.statusText}`);
+        setUsingLocalStorageFallback(true);
+        setAllRecords(getLocalPeriodData(year, month));
       }
     } catch (err: any) {
-      console.error("Error fetching period data:", err);
-      setPeriodFetchError(err.message || String(err));
+      console.warn("Error fetching period data, using localStorage fallback:", err);
+      setUsingLocalStorageFallback(true);
+      setAllRecords(getLocalPeriodData(year, month));
     } finally {
       setIsLoadingPeriod(false);
     }
   };
 
-  // Fetch available periods on mount
+  // Check Firebase on mount and load available periods
   useEffect(() => {
+    checkFirebaseStatus();
     fetchAvailablePeriods();
   }, []);
+
+  // Re-fetch when Firebase status shifts or active period shifts
+  useEffect(() => {
+    fetchAvailablePeriods();
+    fetchPeriodData(selectedYear, selectedMonth);
+  }, [isFirebaseConnected]);
 
   // Fetch period data when year or month changes
   useEffect(() => {
@@ -665,19 +736,56 @@ export default function App() {
               </div>
 
               {/* Status Indicator inside selection box */}
-              <div className="pt-1 flex items-center justify-between text-[10px] font-bold">
-                <span className="text-slate-400 uppercase tracking-wider">Status:</span>
-                {allRecords.length > 0 ? (
-                  <span className="text-emerald-600 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
-                    Ativo ({allRecords.length} reg)
-                  </span>
-                ) : (
-                  <span className="text-amber-500 flex items-center gap-1" title="Sem dados salvos no banco">
-                    <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />
-                    Sem dados salvos
-                  </span>
-                )}
+              <div className="pt-1 flex flex-col gap-1.5 text-[10px] font-bold">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400 uppercase tracking-wider">Status:</span>
+                  {allRecords.length > 0 ? (
+                    <span className="text-emerald-600 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                      Ativo ({allRecords.length} reg)
+                    </span>
+                  ) : (
+                    <span className="text-amber-500 flex items-center gap-1" title="Sem dados salvos no banco">
+                      <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />
+                      Sem dados salvos
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between text-[9px] text-slate-400 border-t border-slate-100 pt-1.5">
+                  <span className="uppercase tracking-wider">Armazenamento:</span>
+                  {usingLocalStorageFallback ? (
+                    <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[9px] font-bold" title="Ambiente estático. Os dados são guardados apenas no seu navegador.">
+                      Navegador (Vercel)
+                    </span>
+                  ) : (
+                    <span className="text-[#001A9C] bg-blue-50 px-1.5 py-0.5 rounded text-[9px] font-bold" title="Servidor ativo. Os dados estão salvos na nuvem compartilhada.">
+                      Servidor Cloud
+                    </span>
+                  )}
+                </div>
+
+                {/* Firebase Connection Trigger Button */}
+                <div className="pt-2.5 border-t border-slate-100 flex flex-col gap-1.5">
+                  {isFirebaseConnected ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsFirebaseModalOpen(true)}
+                      className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] font-extrabold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer border border-emerald-150 transition-all shadow-2xs"
+                    >
+                      <Database className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                      Banco Cloud Ativo 🟢
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setIsFirebaseModalOpen(true)}
+                      className="w-full py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-[10px] font-extrabold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer border border-indigo-150 transition-all"
+                    >
+                      <Database className="w-3.5 h-3.5 text-indigo-600" />
+                      Conectar Firebase Cloud
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1689,6 +1797,12 @@ export default function App() {
           Projetado com tipografia pairing Plus Jakarta Sans & JetBrains Mono • Dados dinâmicos auto-indexados via React 19.
         </p>
       </footer>
+
+      <FirebaseSetupModal 
+        isOpen={isFirebaseModalOpen}
+        onClose={() => setIsFirebaseModalOpen(false)}
+        onConnectionStatusChange={checkFirebaseStatus}
+      />
     </div>
   );
 }

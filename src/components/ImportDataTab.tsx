@@ -2,6 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { SalesRecord } from '../types';
 import { parseTSV, INITIAL_RAW_DATA } from '../rawData';
+import {
+  saveLocalPeriod,
+  deleteLocalPeriod,
+  getLocalPeriodsIndex
+} from '../lib/storage';
+import {
+  getFirebaseConfig,
+  savePeriodToFirestore,
+  deletePeriodFromFirestore
+} from '../lib/firebase';
 import { 
   FileSpreadsheet, 
   Upload, 
@@ -162,7 +172,7 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
 
   const saveToDatabase = async () => {
     if (parsedRecords.length === 0) {
-      setErrorStatus("Carregue ou cole os dados antes de salvar na memória pública.");
+      setErrorStatus("Carregue ou cole os dados antes de salvar na memória.");
       return;
     }
 
@@ -170,32 +180,70 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
     setErrorStatus(null);
     setSuccessStatus(null);
 
-    try {
-      const response = await fetch('/api/monthly-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          year: selectedYear,
-          month: selectedMonth,
-          records: parsedRecords
-        })
-      });
+    // 1. If Firebase is configured, write directly to Firestore!
+    const firebaseCfg = getFirebaseConfig();
+    if (firebaseCfg) {
+      try {
+        await savePeriodToFirestore(selectedYear, selectedMonth, parsedRecords);
+        setSuccessStatus(`✨ Sucesso! Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram salvos com sucesso na nuvem do Firebase Firestore e estão públicos para qualquer dispositivo!`);
+        onDataSaved(selectedYear, selectedMonth, parsedRecords);
+        setParsedRecords([]);
+        setTsvText('');
+      } catch (err: any) {
+        console.error("Firestore save error:", err);
+        setErrorStatus(`Erro ao salvar no Firestore Cloud: ${err.message || err}`);
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
 
-      if (!response.ok) {
-        throw new Error(`Erro na rede: ${response.statusText}`);
+    // 2. Otherwise fall back to local server / localStorage
+    try {
+      let isLocalFallback = false;
+      let errorMsg = '';
+
+      try {
+        const response = await fetch('/api/monthly-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            year: selectedYear,
+            month: selectedMonth,
+            records: parsedRecords
+          })
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success) {
+            setSuccessStatus(`Sucesso! Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram gravados com sucesso na memória pública do servidor.`);
+            onDataSaved(selectedYear, selectedMonth, parsedRecords);
+            setParsedRecords([]);
+            setTsvText('');
+            return;
+          } else {
+            errorMsg = result.error || 'Erro desconhecido ao salvar.';
+          }
+        } else {
+          isLocalFallback = true;
+        }
+      } catch (err: any) {
+        console.warn("API save failed, falling back to localStorage:", err);
+        isLocalFallback = true;
       }
 
-      const result = await response.json();
-      if (result.success) {
-        setSuccessStatus(`Sucesso! Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram gravados com sucesso na memória pública do servidor e estão acessíveis por todos.`);
+      if (isLocalFallback) {
+        saveLocalPeriod(selectedYear, selectedMonth, parsedRecords);
+        setSuccessStatus(`⚠️ Ambiente estático (Vercel) detectado. Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram salvos localmente no seu navegador! Para persistência pública global, conecte o Firebase no botão da barra lateral.`);
         onDataSaved(selectedYear, selectedMonth, parsedRecords);
-        setParsedRecords([]); // Clear parsed records to show we saved them
+        setParsedRecords([]);
         setTsvText('');
       } else {
-        throw new Error(result.error || 'Erro desconhecido ao salvar.');
+        throw new Error(errorMsg || 'Erro na rede ou ao salvar.');
       }
     } catch (err: any) {
-      setErrorStatus(`Erro ao salvar na memória pública: ${err.message || err}`);
+      setErrorStatus(`Erro ao salvar: ${err.message || err}`);
     } finally {
       setIsSaving(false);
     }
@@ -210,25 +258,61 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
     setErrorStatus(null);
     setSuccessStatus(null);
 
-    try {
-      const response = await fetch(`/api/monthly-data/${selectedYear}/${selectedMonth}`, {
-        method: 'DELETE'
-      });
+    // 1. If Firebase is configured, delete directly from Firestore
+    const firebaseCfg = getFirebaseConfig();
+    if (firebaseCfg) {
+      try {
+        await deletePeriodFromFirestore(selectedYear, selectedMonth);
+        setSuccessStatus(`Os dados do período de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram excluídos com sucesso do Firebase Firestore Cloud.`);
+        onRefreshPeriods();
+        onDataSaved(selectedYear, selectedMonth, []);
+      } catch (err: any) {
+        console.error("Firestore delete error:", err);
+        setErrorStatus(`Erro ao excluir do Firestore: ${err.message || err}`);
+      } finally {
+        setIsDeleting(false);
+      }
+      return;
+    }
 
-      if (!response.ok) {
-        throw new Error(`Erro na rede: ${response.status}`);
+    // 2. Otherwise fall back to local server / localStorage
+    try {
+      let isLocalFallback = false;
+      let errorMsg = '';
+
+      try {
+        const response = await fetch(`/api/monthly-data/${selectedYear}/${selectedMonth}`, {
+          method: 'DELETE'
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success) {
+            setSuccessStatus(`Os dados do período de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram excluídos com sucesso da memória.`);
+            onRefreshPeriods();
+            onDataSaved(selectedYear, selectedMonth, []);
+            return;
+          } else {
+            errorMsg = result.error || 'Erro desconhecido ao excluir.';
+          }
+        } else {
+          isLocalFallback = true;
+        }
+      } catch (err: any) {
+        console.warn("API delete failed, falling back to localStorage:", err);
+        isLocalFallback = true;
       }
 
-      const result = await response.json();
-      if (result.success) {
-        setSuccessStatus(`Os dados do período de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram excluídos com sucesso da memória.`);
+      if (isLocalFallback) {
+        deleteLocalPeriod(selectedYear, selectedMonth);
+        setSuccessStatus(`Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram excluídos do armazenamento local do seu navegador.`);
         onRefreshPeriods();
-        onDataSaved(selectedYear, selectedMonth, []); // Reset to empty records
+        onDataSaved(selectedYear, selectedMonth, []);
       } else {
-        throw new Error(result.error || 'Erro desconhecido ao excluir.');
+        throw new Error(errorMsg || 'Erro na rede ou ao excluir.');
       }
     } catch (err: any) {
-      setErrorStatus(`Erro ao excluir período da memória: ${err.message || err}`);
+      setErrorStatus(`Erro ao excluir período: ${err.message || err}`);
     } finally {
       setIsDeleting(false);
     }
