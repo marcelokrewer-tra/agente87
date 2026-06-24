@@ -16,7 +16,12 @@ import {
 import {
   getFirebaseConfig,
   fetchPeriodsFromFirestore,
-  fetchPeriodDataFromFirestore
+  fetchPeriodDataFromFirestore,
+  fetchPreviewsFromFirestore,
+  savePreviewsToFirestore,
+  getLocalPreviews,
+  saveLocalPreviews,
+  RepresentativePreview
 } from './lib/firebase';
 import { FirebaseSetupModal } from './components/FirebaseSetupModal';
 import { MetricCard } from './components/MetricCard';
@@ -109,9 +114,25 @@ export default function App() {
     }
   };
 
+  const fetchPreviewsData = async (year: number, month: number) => {
+    if (getFirebaseConfig()) {
+      try {
+        const data = await fetchPreviewsFromFirestore(year, month);
+        setPreviews(data);
+        return;
+      } catch (err) {
+        console.error("Firestore error loading previews, trying local fallback:", err);
+      }
+    }
+    setPreviews(getLocalPreviews(year, month));
+  };
+
   const fetchPeriodData = async (year: number, month: number) => {
     setIsLoadingPeriod(true);
     setPeriodFetchError(null);
+    
+    // Load previews for this period
+    fetchPreviewsData(year, month);
 
     // 1. Prioritize Firebase Firestore if configured
     if (getFirebaseConfig()) {
@@ -182,7 +203,80 @@ export default function App() {
   ] as const;
   
   // Dashboard Core Navigation Tabs
-  const [activeTab, setActiveTab] = useState<'geral' | 'coordenadores' | 'representantes' | 'detalhado' | 'importar'>('geral');
+  const [activeTab, setActiveTab] = useState<'geral' | 'coordenadores' | 'representantes' | 'detalhado' | 'previa' | 'importar'>('geral');
+  const [previews, setPreviews] = useState<RepresentativePreview[]>([]);
+  const [isSavingPreviews, setIsSavingPreviews] = useState<boolean>(false);
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+
+  const handlePastePreviews = (text: string) => {
+    const lines = text.split('\n');
+    const newPreviews: RepresentativePreview[] = [];
+    
+    lines.forEach(line => {
+      if (!line.trim()) return;
+      const parts = line.split(/\t|;|,(?!\d)/);
+      if (parts.length >= 2) {
+        const repId = parts[0].trim();
+        const rawPrevia = parts[1].trim();
+        const rawVendaDia = parts[2] ? parts[2].trim() : "0";
+        
+        if (repId.toLowerCase().includes('representante') || repId.toLowerCase().includes('código') || repId.toLowerCase().includes('repid')) {
+          return;
+        }
+        
+        const parseBrazilianNumber = (val: string): number => {
+          let cleaned = val.replace(/\s/g, '').replace('R$', '');
+          if (cleaned.includes(',') && cleaned.includes('.')) {
+            cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+          } else if (cleaned.includes(',')) {
+            cleaned = cleaned.replace(',', '.');
+          }
+          const num = parseFloat(cleaned);
+          return isNaN(num) ? 0 : num;
+        };
+        
+        const previaValue = parseBrazilianNumber(rawPrevia);
+        const vendaDiaPrevia = parseBrazilianNumber(rawVendaDia);
+        
+        if (repId) {
+          newPreviews.push({
+            repId,
+            previaValue,
+            vendaDiaPrevia
+          });
+        }
+      }
+    });
+    
+    if (newPreviews.length > 0) {
+      setPreviews(prev => {
+        const map = new Map<string, RepresentativePreview>();
+        prev.forEach(p => map.set(p.repId, p));
+        newPreviews.forEach(p => map.set(p.repId, p));
+        return Array.from(map.values());
+      });
+      return true;
+    }
+    return false;
+  };
+
+  const handleSavePreviews = async () => {
+    setIsSavingPreviews(true);
+    setSaveSuccessMessage(null);
+    try {
+      if (getFirebaseConfig()) {
+        await savePreviewsToFirestore(selectedYear, selectedMonth, previews);
+      }
+      saveLocalPreviews(selectedYear, selectedMonth, previews);
+      setSaveSuccessMessage("Configurações de prévia salvas com sucesso!");
+      setTimeout(() => setSaveSuccessMessage(null), 3000);
+    } catch (err: any) {
+      console.error("Error saving previews:", err);
+      alert("Erro ao salvar prévias: " + err.message);
+    } finally {
+      setIsSavingPreviews(false);
+    }
+  };
   
   // Filter States
   const [selectedCoordinator, setSelectedCoordinator] = useState<string>('All');
@@ -434,6 +528,43 @@ export default function App() {
       };
     }).sort((a, b) => b.totalFaturado - a.totalFaturado);
   }, [filteredRecords]);
+
+  // Find preview for each rep
+  const repPreviewsMap = useMemo(() => {
+    const map = new Map<string, { previaValue: number; vendaDiaPrevia: number }>();
+    previews.forEach(p => {
+      map.set(p.repId, { previaValue: p.previaValue, vendaDiaPrevia: p.vendaDiaPrevia });
+    });
+    return map;
+  }, [previews]);
+
+  // Preview totals based on mapped previews
+  const previewTotals = useMemo(() => {
+    let totalExpectativa = 0;
+    let totalVendaDiaPrevia = 0;
+    let totalVendaAtual = 0;
+    let hasAnyPreview = false;
+
+    repsAggregated.forEach(rep => {
+      const prev = repPreviewsMap.get(rep.repId);
+      if (prev) {
+        totalExpectativa += prev.previaValue;
+        totalVendaDiaPrevia += prev.vendaDiaPrevia;
+        totalVendaAtual += rep.totalVendido;
+        hasAnyPreview = true;
+      }
+    });
+
+    const defasagemPrevia = totalVendaAtual - totalVendaDiaPrevia - totalExpectativa;
+
+    return {
+      totalExpectativa,
+      totalVendaDiaPrevia,
+      totalVendaAtual,
+      defasagemPrevia,
+      hasAnyPreview
+    };
+  }, [repsAggregated, repPreviewsMap]);
 
   // Top 5 Stars of the team
   const topPerformers = useMemo(() => {
@@ -1074,29 +1205,66 @@ export default function App() {
                 </div>
 
                 {showPreviewMetrics && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Card 1: Prévia */}
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                      <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">PRÉVIA</span>
-                      <div className="text-lg font-black text-slate-900">{formatCurrency(totals.faturadoEPendente)}</div>
-                      <p className="text-[10px] text-slate-500 font-medium">Vendas Líquidas + Pedidos Pendentes</p>
-                    </div>
+                  <div className="space-y-3">
+                    {previewTotals.hasAnyPreview ? (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* Card 1: Prévia */}
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
+                          <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">EXPECTATIVA DE PRÉVIA</span>
+                          <div className="text-lg font-black text-slate-900">{formatCurrency(previewTotals.totalExpectativa)}</div>
+                          <p className="text-[10px] text-slate-500 font-medium">Soma das expectativas estipuladas</p>
+                        </div>
 
-                    {/* Card 2: Vendas do Dia */}
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                      <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">VENDAS NO DIA DA PRÉVIA</span>
-                      <div className="text-lg font-black text-slate-900">{formatCurrency(totals.valorVendaTotal)}</div>
-                      <p className="text-[10px] text-slate-500 font-medium">Apurado na data da prévia</p>
-                    </div>
+                        {/* Card 2: Vendas do Dia */}
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
+                          <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">VENDAS NO DIA DA PRÉVIA</span>
+                          <div className="text-lg font-black text-slate-900">{formatCurrency(previewTotals.totalVendaDiaPrevia)}</div>
+                          <p className="text-[10px] text-slate-500 font-medium">Soma apurada no dia da prévia</p>
+                        </div>
 
-                    {/* Card 3: Defasagem Prévia */}
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                      <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">DEFASAGEM DA PRÉVIA</span>
-                      <div className={`text-lg font-black ${totals.faturadoEPendente - totals.quotaTotal >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {formatDefasagem(totals.faturadoEPendente - totals.quotaTotal)}
+                        {/* Card 3: Defasagem Prévia */}
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
+                          <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">DEFASAGEM DA PRÉVIA</span>
+                          <div className={`text-lg font-black ${previewTotals.defasagemPrevia >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            {formatDefasagem(previewTotals.defasagemPrevia)}
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-medium">Venda Atual ({formatCurrency(previewTotals.totalVendaAtual)}) - Dia Prévia - Expectativa</p>
+                        </div>
                       </div>
-                      <p className="text-[10px] text-slate-500 font-medium">Em relação à cota consolidada</p>
-                    </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {/* Card 1: Prévia */}
+                          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
+                            <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">PRÉVIA</span>
+                            <div className="text-lg font-black text-slate-900">{formatCurrency(totals.faturadoEPendente)}</div>
+                            <p className="text-[10px] text-slate-500 font-medium">Vendas Líquidas + Pedidos Pendentes</p>
+                          </div>
+
+                          {/* Card 2: Vendas do Dia */}
+                          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
+                            <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">VENDAS NO DIA DA PRÉVIA</span>
+                            <div className="text-lg font-black text-slate-900">{formatCurrency(totals.valorVendaTotal)}</div>
+                            <p className="text-[10px] text-slate-500 font-medium">Apurado na data da prévia</p>
+                          </div>
+
+                          {/* Card 3: Defasagem Prévia */}
+                          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
+                            <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">DEFASAGEM DA PRÉVIA</span>
+                            <div className={`text-lg font-black ${totals.faturadoEPendente - totals.quotaTotal >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {formatDefasagem(totals.faturadoEPendente - totals.quotaTotal)}
+                            </div>
+                            <p className="text-[10px] text-slate-500 font-medium">Em relação à cota consolidada</p>
+                          </div>
+                        </div>
+                        <div className="bg-amber-50 border border-amber-100 p-3 rounded-xl flex items-start gap-2 text-[11px] text-amber-800 font-semibold shadow-2xs">
+                          <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-extrabold">Configuração pendente:</span> Nenhuma expectativa de prévia foi definida para este período. As métricas acima estão mostrando a previsão automatizada (Faturado + Pendente). Acesse a guia <strong className="underline cursor-pointer" onClick={() => setActiveTab('previa')}>Configurar Prévia</strong> para inserir os valores oficiais por representante.
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1110,6 +1278,7 @@ export default function App() {
               { id: 'representantes', label: 'Representantes', icon: <User className="w-4 h-4" /> },
               { id: 'coordenadores', label: 'Coordenadores', icon: <Users className="w-4 h-4" /> },
               { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> },
+              { id: 'previa', label: 'Expectativa de Prévia', icon: <Target className="w-4 h-4" /> },
               { id: 'importar', label: 'Importar Planilha (Excel)', icon: <FileSpreadsheet className="w-4 h-4" /> }
             ].map(tab => (
               <button
@@ -1736,6 +1905,262 @@ export default function App() {
                     </div>
                   </div>
                 )}
+
+              </div>
+            </motion.div>
+          )}
+
+          {/* TAB 4.5: CONFIGURE PREVIEW EXPECTATIONS */}
+          {activeTab === 'previa' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <div className="bg-white border border-slate-100 p-6 rounded-2xl shadow-xs space-y-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-lg flex items-center gap-2">
+                      <Target className="w-5 h-5 text-indigo-500" />
+                      Expectativa de Prévia ({selectedMonth}/{selectedYear})
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Configure a expectativa (previsão) e as vendas do dia da prévia por representante comercial.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      onClick={handleSavePreviews}
+                      disabled={isSavingPreviews}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
+                    >
+                      <Database className="w-4 h-4" />
+                      {isSavingPreviews ? 'Salvando...' : 'Salvar Dados Permanente'}
+                    </button>
+                  </div>
+                </div>
+
+                {saveSuccessMessage && (
+                  <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl text-emerald-800 text-xs font-bold animate-fade-in">
+                    {saveSuccessMessage}
+                  </div>
+                )}
+
+                {/* Grid for Quick manual insert or Excel Paste */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
+                  
+                  {/* Left block: Excel Paste area */}
+                  <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/60 space-y-3.5">
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                        <FileSpreadsheet className="w-4.5 h-4.5 text-emerald-600" />
+                        Colar do Excel (Importação Rápida)
+                      </h4>
+                      <p className="text-[11px] text-slate-400 mt-0.5 animate-pulse">
+                        Copie e cole colunas do Excel sem cabeçalhos. A ordem esperada é: <br />
+                        <span className="font-semibold text-slate-600 font-mono">CÓD_REPRESENTANTE</span> | <span className="font-semibold text-slate-600 font-mono">VALOR_EXPECTATIVA</span> | <span className="font-semibold text-slate-600 font-mono">VALOR_DIA_PRÉVIA</span>
+                      </p>
+                    </div>
+
+                    <textarea
+                      placeholder="Exemplo de linhas:&#10;439&#9;150000&#9;45000&#10;512&#9;95000&#9;23000"
+                      rows={6}
+                      className="w-full text-xs font-mono p-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 placeholder:text-slate-300"
+                      id="tsv_preview_input"
+                    />
+
+                    <button
+                      onClick={() => {
+                        const el = document.getElementById('tsv_preview_input') as HTMLTextAreaElement;
+                        if (el && el.value.trim()) {
+                          const parsed = handlePastePreviews(el.value);
+                          if (parsed) {
+                            el.value = '';
+                            alert('Dados colados com sucesso! Não esqueça de clicar em "Salvar Dados Permanente" para gravar.');
+                          } else {
+                            alert('Nenhum dado válido encontrado. Verifique a formatação das colunas.');
+                          }
+                        } else {
+                          alert('Por favor, cole algum dado no campo de texto.');
+                        }
+                      }}
+                      className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-2xs"
+                    >
+                      Processar e Mesclar Dados
+                    </button>
+                  </div>
+
+                  {/* Right block: Manual entry form */}
+                  <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/60 space-y-4">
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                        <PlusSquare className="w-4.5 h-4.5 text-indigo-500" />
+                        Inserir/Atualizar Manualmente
+                      </h4>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Adicione ou altere individualmente a expectativa de um representante para este período.
+                      </p>
+                    </div>
+
+                    <form onSubmit={(e) => {
+                      e.preventDefault();
+                      const form = e.currentTarget;
+                      const repId = (form.elements.namedItem('repId') as HTMLSelectElement).value;
+                      const previaValueRaw = (form.elements.namedItem('previaValue') as HTMLInputElement).value;
+                      const vendaDiaPreviaRaw = (form.elements.namedItem('vendaDiaPrevia') as HTMLInputElement).value;
+                      
+                      if (!repId) {
+                        alert('Selecione um representante.');
+                        return;
+                      }
+
+                      const valPrevia = parseFloat(previaValueRaw) || 0;
+                      const valVendaDia = parseFloat(vendaDiaPreviaRaw) || 0;
+
+                      setPreviews(prev => {
+                        const map = new Map<string, RepresentativePreview>();
+                        prev.forEach(p => map.set(p.repId, p));
+                        map.set(repId, { repId, previaValue: valPrevia, vendaDiaPrevia: valVendaDia });
+                        return Array.from(map.values());
+                      });
+
+                      form.reset();
+                      alert('Representante adicionado/atualizado na lista temporária! Não esqueça de clicar em "Salvar Dados Permanente".');
+                    }} className="space-y-3">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Representante</label>
+                        <select
+                          name="repId"
+                          required
+                          className="w-full text-xs bg-white border border-slate-200 py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700 font-semibold cursor-pointer"
+                        >
+                          <option value="">Selecione...</option>
+                          {repsAggregated.map(r => (
+                            <option key={r.repId} value={r.repId}>
+                              #{r.repId} - {r.repName} ({r.coordName})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Expectativa (R$)</label>
+                          <input
+                            type="number"
+                            name="previaValue"
+                            placeholder="Ex: 50000"
+                            step="any"
+                            required
+                            className="w-full text-xs bg-white border border-slate-200 py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Venda no Dia (R$)</label>
+                          <input
+                            type="number"
+                            name="vendaDiaPrevia"
+                            placeholder="Ex: 12000"
+                            step="any"
+                            required
+                            className="w-full text-xs bg-white border border-slate-200 py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl transition-all cursor-pointer shadow-2xs"
+                      >
+                        Confirmar Item
+                      </button>
+                    </form>
+                  </div>
+                </div>
+
+                {/* Table listing current configurations */}
+                <div className="pt-4 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <h4 className="font-bold text-slate-800 text-sm">
+                      Lista de Expectativas Atual ({previews.length})
+                    </h4>
+                    {previews.length > 0 && (
+                      <button
+                        onClick={() => {
+                          if (confirm('Tem certeza que deseja limpar todas as configurações desta lista?')) {
+                            setPreviews([]);
+                          }
+                        }}
+                        className="text-xs font-bold text-rose-600 hover:underline cursor-pointer"
+                      >
+                        Limpar Todos
+                      </button>
+                    )}
+                  </div>
+
+                  {previews.length > 0 ? (
+                    <div className="border border-slate-100 rounded-xl overflow-hidden shadow-2xs">
+                      <table className="w-full text-left border-collapse bg-white">
+                        <thead>
+                          <tr className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                            <th className="py-3 px-4">Representante</th>
+                            <th className="py-3 px-4 text-right">Expectativa (Prévia)</th>
+                            <th className="py-3 px-4 text-right">Venda Dia da Prévia</th>
+                            <th className="py-3 px-4 text-right">Venda Atual</th>
+                            <th className="py-3 px-4 text-right">Defasagem Calculada</th>
+                            <th className="py-3 px-4 text-center">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="text-xs divide-y divide-slate-100">
+                          {previews.map((prev) => {
+                            const matchingRep = repsAggregated.find(r => r.repId === prev.repId);
+                            const repName = matchingRep ? matchingRep.repName : "Inexistente no período";
+                            const coordName = matchingRep ? matchingRep.coordName : "";
+                            const vendaAtual = matchingRep ? matchingRep.totalVendido : 0;
+                            const defasagem = vendaAtual - prev.vendaDiaPrevia - prev.previaValue;
+
+                            return (
+                              <tr key={prev.repId} className="hover:bg-slate-50/50">
+                                <td className="py-3 px-4">
+                                  <div className="font-bold text-slate-800">#{prev.repId}</div>
+                                  <div className="text-[10px] text-slate-400 font-medium">{repName} {coordName && `(${coordName})`}</div>
+                                </td>
+                                <td className="py-3 px-4 text-right font-semibold text-slate-700">
+                                  {formatCurrency(prev.previaValue)}
+                                </td>
+                                <td className="py-3 px-4 text-right font-semibold text-slate-700">
+                                  {formatCurrency(prev.vendaDiaPrevia)}
+                                </td>
+                                <td className="py-3 px-4 text-right font-bold text-indigo-650">
+                                  {formatCurrency(vendaAtual)}
+                                </td>
+                                <td className={`py-3 px-4 text-right font-black ${defasagem >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {formatDefasagem(defasagem)}
+                                </td>
+                                <td className="py-3 px-4 text-center">
+                                  <button
+                                    onClick={() => {
+                                      setPreviews(current => current.filter(item => item.repId !== prev.repId));
+                                    }}
+                                    className="p-1 text-rose-500 hover:text-rose-700 rounded transition-colors cursor-pointer"
+                                    title="Remover"
+                                  >
+                                    <X className="w-4 h-4 mx-auto" />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="border border-dashed border-slate-200 rounded-xl p-8 text-center text-slate-400 text-xs">
+                      Nenhuma expectativa de prévia configurada para este período. Use os painéis acima para colar dados do Excel ou inserir manualmente.
+                    </div>
+                  )}
+                </div>
 
               </div>
             </motion.div>

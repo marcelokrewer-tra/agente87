@@ -214,3 +214,58 @@ export const deletePeriodFromFirestore = async (year: number, month: number): Pr
   const periodDocRef = doc(db, 'sales_periods', periodId);
   await deleteDoc(periodDocRef);
 };
+
+// 10. Previews persistence (Firestore & LocalStorage)
+export interface RepresentativePreview {
+  repId: string;
+  previaValue: number;
+  vendaDiaPrevia: number;
+}
+
+export const fetchPreviewsFromFirestore = async (year: number, month: number): Promise<RepresentativePreview[]> => {
+  try {
+    const db = getDb();
+    const periodId = `${year}-${String(month).padStart(2, '0')}`;
+    const docRef = doc(db, 'sales_periods', periodId, 'previews', 'data');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data().previews || [];
+    }
+  } catch (error) {
+    console.error("Error fetching previews from Firestore:", error);
+  }
+  return [];
+};
+
+export const savePreviewsToFirestore = async (year: number, month: number, previews: RepresentativePreview[]): Promise<void> => {
+  const db = getDb();
+  const periodId = `${year}-${String(month).padStart(2, '0')}`;
+  const docRef = doc(db, 'sales_periods', periodId, 'previews', 'data');
+  await setDoc(docRef, {
+    previews,
+    updatedAt: new Date().toISOString()
+  });
+};
+
+export const getLocalPreviews = (year: number, month: number): RepresentativePreview[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const periodId = `${year}-${String(month).padStart(2, '0')}`;
+    const stored = localStorage.getItem(`tramontina_previews_${periodId}`);
+    return stored ? JSON.parse(stored) : [];
+  } catch (e) {
+    console.error("Error reading local previews", e);
+    return [];
+  }
+};
+
+export const saveLocalPreviews = (year: number, month: number, previews: RepresentativePreview[]): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    const periodId = `${year}-${String(month).padStart(2, '0')}`;
+    localStorage.setItem(`tramontina_previews_${periodId}`, JSON.stringify(previews));
+  } catch (e) {
+    console.error("Error saving local previews", e);
+  }
+};
+
