@@ -166,23 +166,27 @@ export default function App() {
     fetchPeriodData(selectedYear, selectedMonth);
   }, [selectedYear, selectedMonth]);
 
-  const getEnterpriseLabel = (emp: string) => {
-    switch(emp.toUpperCase()) {
-      case 'CUT': return 'Tramontina Cutelaria';
-      case 'GAR': return 'Tramontina Ferramentas';
-      case 'MUL': return 'Tramontina Multi';
-      case 'FAR': return 'Tramontina Farroupilha';
-      default: return `Tramontina ${emp}`;
-    }
-  };
+  // Product Group mappings as requested by the user
+  const PRODUCT_GROUP_MAPPING = {
+    "Cut Geral Monet.": "Tramontina Cutelaria",
+    "Garibaldi Master Mon": "Tramontina Master",
+    "Garibaldi Pro Monet": "Tramontina Pro",
+    "Sem Grupo": "Tramontina Multi"
+  } as const;
+
+  const ALLOWED_PRODUCT_GROUPS = [
+    "Tramontina Cutelaria",
+    "Tramontina Master",
+    "Tramontina Pro",
+    "Tramontina Multi"
+  ] as const;
   
   // Dashboard Core Navigation Tabs
   const [activeTab, setActiveTab] = useState<'geral' | 'coordenadores' | 'representantes' | 'detalhado' | 'importar'>('geral');
   
   // Filter States
   const [selectedCoordinator, setSelectedCoordinator] = useState<string>('All');
-  const [selectedEnterprises, setSelectedEnterprises] = useState<string[]>(['All']);
-  const [selectedProductLine, setSelectedProductLine] = useState<string>('All');
+  const [selectedProductGroups, setSelectedProductGroups] = useState<string[]>(['All']);
   const [searchText, setSearchText] = useState<string>('');
   const [progressThreshold, setProgressThreshold] = useState<string>('All'); // 'All', '100+', '75-99', 'under-75'
   const [showPreviewMetrics, setShowPreviewMetrics] = useState<boolean>(true);
@@ -201,8 +205,7 @@ export default function App() {
   // Reset all active filters
   const resetFilters = () => {
     setSelectedCoordinator('All');
-    setSelectedEnterprises(['All']);
-    setSelectedProductLine('All');
+    setSelectedProductGroups(['All']);
     setSearchText('');
     setProgressThreshold('All');
   };
@@ -213,23 +216,20 @@ export default function App() {
     allRecords.forEach(r => {
       if (r.coordName) coords.add(r.coordName);
     });
-    return Array.from(coords).sort();
+    const allowedCoords = ["Adriano Almeida", "Dionatan", "Juan Almeida", "Julio Warken"];
+    return Array.from(coords)
+      .filter(name => allowedCoords.includes(name))
+      .sort();
   }, [allRecords]);
 
-  const distinctEnterprises = useMemo(() => {
-    const emps = new Set<string>();
+  // Extract distinct product groups present in the data matching allowed filter options
+  const distinctProductGroups = useMemo(() => {
+    const present = new Set<string>();
     allRecords.forEach(r => {
-      if (r.emp) emps.add(r.emp);
+      const mapped = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING];
+      if (mapped) present.add(mapped);
     });
-    return Array.from(emps).sort();
-  }, [allRecords]);
-
-  const distinctProductLines = useMemo(() => {
-    const lines = new Set<string>();
-    allRecords.forEach(r => {
-      if (r.linha) lines.add(r.linha);
-    });
-    return Array.from(lines).sort();
+    return ALLOWED_PRODUCT_GROUPS.filter(g => present.has(g));
   }, [allRecords]);
 
   // Compute filtered records based on interactive panel
@@ -238,11 +238,13 @@ export default function App() {
       // Coordinator filter
       if (selectedCoordinator !== 'All' && r.coordName !== selectedCoordinator) return false;
       
-      // Enterprise filter (EMP) - supports multiple selections
-      if (!selectedEnterprises.includes('All') && selectedEnterprises.length > 0 && !selectedEnterprises.includes(r.emp)) return false;
-      
-      // Product Line filter (LINHA)
-      if (selectedProductLine !== 'All' && r.linha !== selectedProductLine) return false;
+      // Product Group filter
+      if (!selectedProductGroups.includes('All') && selectedProductGroups.length > 0) {
+        const mappedGroupName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING];
+        if (!mappedGroupName || !selectedProductGroups.includes(mappedGroupName)) {
+          return false;
+        }
+      }
       
       // Search matching (by rep name or ID)
       if (searchText.trim() !== '') {
@@ -263,7 +265,7 @@ export default function App() {
 
       return true;
     });
-  }, [allRecords, selectedCoordinator, selectedEnterprises, selectedProductLine, searchText, progressThreshold]);
+  }, [allRecords, selectedCoordinator, selectedProductGroups, searchText, progressThreshold]);
 
   // Dynamic Statistics computed from currently filtered subset
   const totals = useMemo(() => {
@@ -368,20 +370,21 @@ export default function App() {
       .sort((a,b) => b.faturado - a.faturado);
   }, [filteredRecords]);
 
-  // Group by Enterprise (EMP) to build structural segmentation charts
+  // Group by Product Group (using the mapped groupName) to build structural segmentation charts
   const enterpriseDonutData = useMemo(() => {
     const groups: { [key: string]: number } = {};
     let totalAll = 0;
     
     filteredRecords.forEach(r => {
-      if (!groups[r.emp]) groups[r.emp] = 0;
-      groups[r.emp] += r.valorVendaTotal;
+      const mappedName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING] || "Outros";
+      if (!groups[mappedName]) groups[mappedName] = 0;
+      groups[mappedName] += r.valorVendaTotal;
       totalAll += r.valorVendaTotal;
     });
 
     return Object.entries(groups)
-      .map(([emp, val]) => ({
-        name: emp || 'Outros',
+      .map(([name, val]) => ({
+        name: name,
         value: val,
         share: totalAll > 0 ? (val / totalAll) * 100 : 0
       }))
@@ -846,20 +849,20 @@ export default function App() {
               </div>
             </div>
 
-            {/* Enterprise Filter (EMP) Checkboxes */}
+            {/* Product Group Filter (Grupo de Produtos) Checkboxes */}
             <div className="space-y-2">
-              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Filiais / Divisões (EMP)</label>
+              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Grupo de Produtos</label>
               <div className="space-y-2.5 pt-1">
                 {/* "Todos" Checkbox */}
                 <label className="flex items-center gap-2.5 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors">
                   <input
                     type="checkbox"
-                    checked={selectedEnterprises.includes('All')}
+                    checked={selectedProductGroups.includes('All')}
                     onChange={() => {
-                      if (selectedEnterprises.includes('All')) {
-                        setSelectedEnterprises([]);
+                      if (selectedProductGroups.includes('All')) {
+                        setSelectedProductGroups([]);
                       } else {
-                        setSelectedEnterprises(['All']);
+                        setSelectedProductGroups(['All']);
                       }
                       setCurrentPage(1);
                     }}
@@ -868,61 +871,38 @@ export default function App() {
                   <span>Todos</span>
                 </label>
 
-                {/* Individual dynamic enterprises as checkboxes */}
-                {distinctEnterprises.map(e => {
-                  const isChecked = selectedEnterprises.includes(e) || selectedEnterprises.includes('All');
+                {/* Individual dynamic allowed groups as checkboxes */}
+                {distinctProductGroups.map(g => {
+                  const isChecked = selectedProductGroups.includes(g) || selectedProductGroups.includes('All');
                   return (
-                    <label key={e} className="flex items-center gap-2.5 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors">
+                    <label key={g} className="flex items-center gap-2.5 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors">
                       <input
                         type="checkbox"
                         checked={isChecked}
                         onChange={() => {
-                          let updated = [...selectedEnterprises];
+                          let updated = [...selectedProductGroups];
                           if (updated.includes('All')) {
-                            updated = [e];
+                            updated = [g];
                           } else {
-                            if (updated.includes(e)) {
-                              updated = updated.filter(item => item !== e);
+                            if (updated.includes(g)) {
+                              updated = updated.filter(item => item !== g);
                             } else {
-                              updated.push(e);
+                              updated.push(g);
                             }
                           }
                           
-                          if (updated.length === 0 || updated.length === distinctEnterprises.length) {
+                          if (updated.length === 0 || updated.length === distinctProductGroups.length) {
                             updated = ['All'];
                           }
-                          setSelectedEnterprises(updated);
+                          setSelectedProductGroups(updated);
                           setCurrentPage(1);
                         }}
                         className="w-4 h-4 rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C]/20 cursor-pointer accent-[#001A9C]"
                       />
-                      <span>{getEnterpriseLabel(e)}</span>
+                      <span>{g}</span>
                     </label>
                   );
                 })}
-              </div>
-            </div>
-
-            {/* Line of business filter */}
-            <div className="space-y-1.5 pt-1 border-t border-slate-100">
-              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Linha de Negócio</label>
-              <div className="relative">
-                <select
-                  value={selectedProductLine}
-                  onChange={(e) => {
-                    setSelectedProductLine(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="w-full text-xs bg-slate-50 border border-slate-200 py-1.5 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 cursor-pointer appearance-none font-semibold"
-                >
-                  <option value="All">Todas as Linhas ({distinctProductLines.length})</option>
-                  {distinctProductLines.map(l => (
-                    <option key={l} value={l}>{l}</option>
-                  ))}
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
-                  <ChevronRight className="w-3.5 h-3.5 rotate-90" />
-                </div>
               </div>
             </div>
 
@@ -1276,9 +1256,9 @@ export default function App() {
                   <div>
                     <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
                       <Layers className="w-4.5 h-4.5 text-indigo-500" />
-                      Vendas por Filial (EMP)
+                      Vendas por Grupo de Produtos
                     </h3>
-                    <p className="text-xs text-slate-400 mt-1">Participação de cada prefixo corporativo nas vendas totais.</p>
+                    <p className="text-xs text-slate-400 mt-1">Participação de cada grupo de produtos nas vendas totais.</p>
                   </div>
 
                   <div className="space-y-3.5 pt-2">
