@@ -4,7 +4,6 @@ import { motion } from 'motion/react';
 interface MetricCardProps {
   title: string;
   value: string;
-  subtitle?: string;
   icon: React.ReactNode;
   trend?: {
     value: string;
@@ -16,7 +15,6 @@ interface MetricCardProps {
 export const MetricCard: React.FC<MetricCardProps> = ({
   title,
   value,
-  subtitle,
   icon,
   trend,
   accentColor = 'sky'
@@ -58,16 +56,13 @@ export const MetricCard: React.FC<MetricCardProps> = ({
           <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">{title}</p>
           <h3 className="text-xl font-black text-slate-900 tracking-tight font-sans transition-all group-hover:scale-[1.01]">{value}</h3>
           
-          {(subtitle || trend) && (
+          {trend && (
             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-              {trend && (
-                <span className={`text-[10px] px-1.5 py-0.25 rounded font-extrabold ${
-                  trend.isPositive ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                }`}>
-                  {trend.isPositive ? '+' : ''}{trend.value}
-                </span>
-              )}
-              {subtitle && <span className="text-[11px] text-slate-400 font-medium">{subtitle}</span>}
+              <span className={`text-[10px] px-1.5 py-0.25 rounded font-extrabold ${
+                trend.isPositive ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+              }`}>
+                {trend.isPositive ? '+' : ''}{trend.value}
+              </span>
             </div>
           )}
         </div>

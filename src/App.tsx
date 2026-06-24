@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   INITIAL_RAW_DATA, 
@@ -21,7 +21,11 @@ import {
   savePreviewsToFirestore,
   getLocalPreviews,
   saveLocalPreviews,
-  RepresentativePreview
+  RepresentativePreview,
+  fetchRepNamesFromFirestore,
+  saveRepNamesToFirestore,
+  getLocalRepNames,
+  saveLocalRepNames
 } from './lib/firebase';
 import { FirebaseSetupModal } from './components/FirebaseSetupModal';
 import { MetricCard } from './components/MetricCard';
@@ -44,6 +48,7 @@ import {
   Download, 
   LayoutDashboard, 
   User, 
+  UserCog,
   Filter, 
   ArrowUpDown, 
   PlusSquare, 
@@ -57,12 +62,40 @@ import {
   Calendar,
   Database,
   RefreshCw,
-  Sparkles
+  Sparkles,
+  Lock,
+  Trash2,
+  Plus,
+  UploadCloud,
+  Check
 } from 'lucide-react';
 
 export default function App() {
+  // Authentication states
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('kpi_authenticated') === 'true';
+  });
+  const [passwordInput, setPasswordInput] = useState<string>('');
+  const [authError, setAuthError] = useState<string>('');
+
+  const handleAuthSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordInput === '8701') {
+      setIsAuthenticated(true);
+      localStorage.setItem('kpi_authenticated', 'true');
+      setAuthError('');
+    } else {
+      setAuthError('Senha incorreta. Tente novamente.');
+    }
+  };
+
   // Global parsed Sales Records
   const [allRecords, setAllRecords] = useState<SalesRecord[]>([]);
+
+  // Custom Representative Names Mapping State
+  const [customRepNames, setCustomRepNames] = useState<Record<string, string>>(() => {
+    return getLocalRepNames();
+  });
 
   // Month-to-month and server-side memory states
   const [selectedYear, setSelectedYear] = useState<number>(2026);
@@ -71,6 +104,80 @@ export default function App() {
   const [isLoadingPeriod, setIsLoadingPeriod] = useState<boolean>(false);
   const [periodFetchError, setPeriodFetchError] = useState<string | null>(null);
   const [usingLocalStorageFallback, setUsingLocalStorageFallback] = useState<boolean>(false);
+  const [hasSetInitialPeriod, setHasSetInitialPeriod] = useState<boolean>(false);
+
+  const getLatestPeriod = () => {
+    if (availablePeriods.length === 0) {
+      return { year: 2026, month: 6 };
+    }
+    const sorted = [...availablePeriods].sort((a, b) => {
+      if (b.year !== a.year) return b.year - a.year;
+      return b.month - a.month;
+    });
+    return { year: sorted[0].year, month: sorted[0].month };
+  };
+
+  const selectLatestPeriod = (periods: Array<{ year: number; month: number }>) => {
+    if (periods.length > 0 && !hasSetInitialPeriod) {
+      const sorted = [...periods].sort((a, b) => {
+        if (b.year !== a.year) return b.year - a.year;
+        return b.month - a.month;
+      });
+      setSelectedYear(sorted[0].year);
+      setSelectedMonth(sorted[0].month);
+      setHasSetInitialPeriod(true);
+    }
+  };
+
+  const handleShowCurrentData = () => {
+    const latest = getLatestPeriod();
+    setSelectedYear(latest.year);
+    setSelectedMonth(latest.month);
+  };
+
+  const isDisplayingCurrentData = useMemo(() => {
+    const latest = getLatestPeriod();
+    return selectedYear === latest.year && selectedMonth === latest.month;
+  }, [selectedYear, selectedMonth, availablePeriods]);
+
+  const downloadPreviousPeriodPreview = async (year: number, month: number) => {
+    let prevs: RepresentativePreview[] = [];
+    if (getFirebaseConfig()) {
+      try {
+        prevs = await fetchPreviewsFromFirestore(year, month);
+      } catch (err) {
+        console.error("Error loading previous previews from Firestore:", err);
+      }
+    }
+    if (!prevs || prevs.length === 0) {
+      prevs = getLocalPreviews(year, month);
+    }
+
+    if (prevs.length === 0) {
+      alert(`Nenhuma expectativa de prévia encontrada salva para o período de ${month}/${year}.`);
+      return;
+    }
+
+    // Generate CSV
+    const headers = ['ID Representante', 'Vendas no Dia da Prévia', 'Expectativa (Prévia)'];
+    const csvRows = [
+      headers.join(';'),
+      ...prevs.map(p => [
+        p.repId,
+        p.vendaDiaPrevia.toString().replace('.', ','),
+        p.previaValue.toString().replace('.', ',')
+      ].join(';'))
+    ];
+
+    const csvContent = "\uFEFF" + csvRows.join('\n');
+    const encodedUri = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Previa_Vendas_Tramontina_${year}_${String(month).padStart(2, '0')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // Firebase integration states
   const [isFirebaseModalOpen, setIsFirebaseModalOpen] = useState<boolean>(false);
@@ -81,14 +188,15 @@ export default function App() {
   };
 
   const fetchAvailablePeriods = async () => {
+    let periods: Array<{ id: string; year: number; month: number; recordsCount: number }> = [];
     // 1. Prioritize Firebase Firestore if configured
     if (getFirebaseConfig()) {
       try {
         setIsLoadingPeriod(true);
         const data = await fetchPeriodsFromFirestore();
         setAvailablePeriods(data);
+        periods = data;
         setUsingLocalStorageFallback(false);
-        return;
       } catch (err) {
         console.error("Error fetching periods from Firestore, retrying local:", err);
       } finally {
@@ -96,21 +204,32 @@ export default function App() {
       }
     }
 
-    // 2. Fallback to Express backend or LocalStorage
-    try {
-      const response = await fetch('/api/monthly-data');
-      if (response.ok) {
-        const data = await response.json();
-        setAvailablePeriods(data);
-        setUsingLocalStorageFallback(false);
-      } else {
+    if (periods.length === 0) {
+      // 2. Fallback to Express backend or LocalStorage
+      try {
+        const response = await fetch('/api/monthly-data');
+        if (response.ok) {
+          const data = await response.json();
+          setAvailablePeriods(data);
+          periods = data;
+          setUsingLocalStorageFallback(false);
+        } else {
+          setUsingLocalStorageFallback(true);
+          const data = getLocalPeriodsIndex();
+          setAvailablePeriods(data);
+          periods = data;
+        }
+      } catch (err) {
+        console.warn("API unavailable, using localStorage:", err);
         setUsingLocalStorageFallback(true);
-        setAvailablePeriods(getLocalPeriodsIndex());
+        const data = getLocalPeriodsIndex();
+        setAvailablePeriods(data);
+        periods = data;
       }
-    } catch (err) {
-      console.warn("API unavailable, using localStorage:", err);
-      setUsingLocalStorageFallback(true);
-      setAvailablePeriods(getLocalPeriodsIndex());
+    }
+
+    if (periods.length > 0) {
+      selectLatestPeriod(periods);
     }
   };
 
@@ -180,6 +299,22 @@ export default function App() {
   useEffect(() => {
     fetchAvailablePeriods();
     fetchPeriodData(selectedYear, selectedMonth);
+    
+    // Fetch custom representative names from Firestore
+    const fetchNames = async () => {
+      if (getFirebaseConfig()) {
+        try {
+          const names = await fetchRepNamesFromFirestore();
+          if (names && Object.keys(names).length > 0) {
+            setCustomRepNames(names);
+            saveLocalRepNames(names);
+          }
+        } catch (err) {
+          console.error("Error loading representative names from Firestore:", err);
+        }
+      }
+    };
+    fetchNames();
   }, [isFirebaseConnected]);
 
   // Fetch period data when year or month changes
@@ -203,7 +338,8 @@ export default function App() {
   ] as const;
   
   // Dashboard Core Navigation Tabs
-  const [activeTab, setActiveTab] = useState<'geral' | 'coordenadores' | 'representantes' | 'detalhado' | 'previa' | 'importar'>('geral');
+  const [activeTab, setActiveTab] = useState<'geral' | 'coordenadores' | 'representantes' | 'detalhado' | 'previa' | 'importar' | 'nomes'>('geral');
+
   const [previews, setPreviews] = useState<RepresentativePreview[]>([]);
   const [isSavingPreviews, setIsSavingPreviews] = useState<boolean>(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
@@ -260,6 +396,57 @@ export default function App() {
     return false;
   };
 
+  const handlePasteRepNames = (text: string) => {
+    const lines = text.split('\n');
+    const newNames: Record<string, string> = {};
+    let addedCount = 0;
+
+    lines.forEach(line => {
+      if (!line.trim()) return;
+      
+      // Split by tab, semicolon, pipe
+      let parts = line.split(/\t|;|\|/);
+      
+      // Fallback: if split yielded only 1 part, check for "code - name" or "code name"
+      if (parts.length < 2) {
+        const hyphenMatch = line.match(/^(\d+)\s*[-–—]\s*(.+)$/);
+        if (hyphenMatch) {
+          parts = [hyphenMatch[1], hyphenMatch[2]];
+        } else {
+          const spaceMatch = line.trim().match(/^(\d+)\s+(.+)$/);
+          if (spaceMatch) {
+            parts = [spaceMatch[1], spaceMatch[2]];
+          }
+        }
+      }
+
+      if (parts.length >= 2) {
+        const rawId = parts[0].trim();
+        const rawName = parts[1].trim();
+
+        // Skip headers
+        if (rawId.toLowerCase().includes('representante') || rawId.toLowerCase().includes('código') || rawId.toLowerCase().includes('repid') || rawId.toLowerCase().includes('id')) {
+          return;
+        }
+
+        const repId = parseInt(rawId);
+        if (!isNaN(repId) && rawName) {
+          newNames[repId.toString()] = rawName;
+          addedCount++;
+        }
+      }
+    });
+
+    if (addedCount > 0) {
+      setCustomRepNames(prev => {
+        const updated = { ...prev, ...newNames };
+        return updated;
+      });
+      return true;
+    }
+    return false;
+  };
+
   const handleSavePreviews = async () => {
     setIsSavingPreviews(true);
     setSaveSuccessMessage(null);
@@ -277,13 +464,41 @@ export default function App() {
       setIsSavingPreviews(false);
     }
   };
+
+  const [isSavingNames, setIsSavingNames] = useState<boolean>(false);
+  const [saveNamesSuccessMessage, setSaveNamesSuccessMessage] = useState<string | null>(null);
+
+  const handleSaveRepNames = async (namesToSave = customRepNames) => {
+    setIsSavingNames(true);
+    setSaveNamesSuccessMessage(null);
+    try {
+      if (getFirebaseConfig()) {
+        await saveRepNamesToFirestore(namesToSave);
+      }
+      saveLocalRepNames(namesToSave);
+      setSaveNamesSuccessMessage("Nomes de representantes salvos com sucesso!");
+      setTimeout(() => setSaveNamesSuccessMessage(null), 3500);
+    } catch (err: any) {
+      console.error("Error saving representative names:", err);
+      alert("Erro ao salvar nomes de representantes: " + err.message);
+    } finally {
+      setIsSavingNames(false);
+    }
+  };
   
   // Filter States
   const [selectedCoordinator, setSelectedCoordinator] = useState<string>('All');
   const [selectedProductGroups, setSelectedProductGroups] = useState<string[]>(['All']);
   const [searchText, setSearchText] = useState<string>('');
+  const [namesSearchQuery, setNamesSearchQuery] = useState<string>('');
   const [progressThreshold, setProgressThreshold] = useState<string>('All'); // 'All', '100+', '75-99', 'under-75'
   const [showPreviewMetrics, setShowPreviewMetrics] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (activeTab === 'previa' && (!isDisplayingCurrentData || !selectedProductGroups.includes('All'))) {
+      setActiveTab('geral');
+    }
+  }, [selectedYear, selectedMonth, isDisplayingCurrentData, selectedProductGroups, activeTab]);
   
   // Detailed Modal for Representative Product Group breakdown
   const [selectedRepDetailId, setSelectedRepDetailId] = useState<number | null>(null);
@@ -304,31 +519,42 @@ export default function App() {
     setProgressThreshold('All');
   };
 
+  // Dynamic mapped records with customized representative names prioritized
+  const resolvedRecords = useMemo(() => {
+    return allRecords.map(r => {
+      const customName = customRepNames[r.repId.toString().trim() || r.repId];
+      if (customName) {
+        return { ...r, repName: customName };
+      }
+      return r;
+    });
+  }, [allRecords, customRepNames]);
+
   // Extract distinct lists dynamically from database state to populate select menus
   const distinctCoordinators = useMemo(() => {
     const coords = new Set<string>();
-    allRecords.forEach(r => {
+    resolvedRecords.forEach(r => {
       if (r.coordName) coords.add(r.coordName);
     });
     const allowedCoords = ["Adriano Almeida", "Dionatan", "Juan Almeida", "Julio Warken"];
     return Array.from(coords)
       .filter(name => allowedCoords.includes(name))
       .sort();
-  }, [allRecords]);
+  }, [resolvedRecords]);
 
   // Extract distinct product groups present in the data matching allowed filter options
   const distinctProductGroups = useMemo(() => {
     const present = new Set<string>();
-    allRecords.forEach(r => {
+    resolvedRecords.forEach(r => {
       const mapped = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING];
       if (mapped) present.add(mapped);
     });
     return ALLOWED_PRODUCT_GROUPS.filter(g => present.has(g));
-  }, [allRecords]);
+  }, [resolvedRecords]);
 
   // Compute filtered records based on interactive panel
   const filteredRecords = useMemo(() => {
-    return allRecords.filter(r => {
+    return resolvedRecords.filter(r => {
       // Coordinator filter
       if (selectedCoordinator !== 'All' && r.coordName !== selectedCoordinator) return false;
       
@@ -359,7 +585,7 @@ export default function App() {
 
       return true;
     });
-  }, [allRecords, selectedCoordinator, selectedProductGroups, searchText, progressThreshold]);
+  }, [resolvedRecords, selectedCoordinator, selectedProductGroups, searchText, progressThreshold]);
 
   // Dynamic Statistics computed from currently filtered subset
   const totals = useMemo(() => {
@@ -533,7 +759,7 @@ export default function App() {
   const repPreviewsMap = useMemo(() => {
     const map = new Map<string, { previaValue: number; vendaDiaPrevia: number }>();
     previews.forEach(p => {
-      map.set(p.repId, { previaValue: p.previaValue, vendaDiaPrevia: p.vendaDiaPrevia });
+      map.set(p.repId.toString().trim(), { previaValue: p.previaValue, vendaDiaPrevia: p.vendaDiaPrevia });
     });
     return map;
   }, [previews]);
@@ -542,20 +768,21 @@ export default function App() {
   const previewTotals = useMemo(() => {
     let totalExpectativa = 0;
     let totalVendaDiaPrevia = 0;
-    let totalVendaAtual = 0;
-    let hasAnyPreview = false;
+    
+    const activeRepIds = new Set(repsAggregated.map(r => r.repId.toString().trim()));
+    const hasAnyFilter = selectedCoordinator !== 'All' || searchText.trim() !== '' || !selectedProductGroups.includes('All') || progressThreshold !== 'All';
 
-    repsAggregated.forEach(rep => {
-      const prev = repPreviewsMap.get(rep.repId);
-      if (prev) {
-        totalExpectativa += prev.previaValue;
-        totalVendaDiaPrevia += prev.vendaDiaPrevia;
-        totalVendaAtual += rep.totalVendido;
-        hasAnyPreview = true;
+    previews.forEach(p => {
+      const isMatch = !hasAnyFilter || activeRepIds.has(p.repId.toString().trim());
+      if (isMatch) {
+        totalExpectativa += p.previaValue;
+        totalVendaDiaPrevia += p.vendaDiaPrevia;
       }
     });
 
+    const totalVendaAtual = totals.valorVendaTotal;
     const defasagemPrevia = totalVendaAtual - totalVendaDiaPrevia - totalExpectativa;
+    const hasAnyPreview = previews.length > 0;
 
     return {
       totalExpectativa,
@@ -564,7 +791,7 @@ export default function App() {
       defasagemPrevia,
       hasAnyPreview
     };
-  }, [repsAggregated, repPreviewsMap]);
+  }, [previews, repsAggregated, totals.valorVendaTotal, selectedCoordinator, searchText, selectedProductGroups, progressThreshold]);
 
   // Top 5 Stars of the team
   const topPerformers = useMemo(() => {
@@ -582,9 +809,88 @@ export default function App() {
       .slice(0, 5);
   }, [repsAggregated]);
 
+  // Aggregate filteredRecords by representative (each repId appears only once)
+  const aggregatedDetails = useMemo(() => {
+    const groups: { [key: number]: SalesRecord[] } = {};
+    filteredRecords.forEach(r => {
+      if (!groups[r.repId]) groups[r.repId] = [];
+      groups[r.repId].push(r);
+    });
+
+    return Object.values(groups).map(records => {
+      const first = records[0];
+      
+      let quotaCD = 0;
+      let faturadoCD = 0;
+      let quotaVP = 0;
+      let faturadoVP = 0;
+      let quotaTotal = 0;
+      let faturadoTotal = 0;
+      let pendenteCD = 0;
+      let pendenteVP = 0;
+      let faturadoEPendente = 0;
+      let valorVendaCD = 0;
+      let valorVendaVP = 0;
+      let valorVendaTotal = 0;
+
+      records.forEach(r => {
+        quotaCD += r.quotaCD;
+        faturadoCD += r.faturadoCD;
+        quotaVP += r.quotaVP;
+        faturadoVP += r.faturadoVP;
+        quotaTotal += r.quotaTotal;
+        faturadoTotal += r.faturadoTotal;
+        pendenteCD += r.pendenteCD;
+        pendenteVP += r.pendenteVP;
+        faturadoEPendente += r.faturadoEPendente;
+        valorVendaCD += r.valorVendaCD;
+        valorVendaVP += r.valorVendaVP;
+        valorVendaTotal += r.valorVendaTotal;
+      });
+
+      const uniqueEmps = Array.from(new Set(records.map(r => r.emp))).filter(Boolean);
+      const uniqueLinhas = Array.from(new Set(records.map(r => r.linha))).filter(Boolean);
+      const uniqueGroups = Array.from(new Set(records.map(r => r.groupName))).filter(Boolean);
+
+      const defasagemVal = valorVendaTotal - quotaTotal;
+
+      const agg: SalesRecord = {
+        id: first.repId.toString(),
+        age: first.age,
+        repId: first.repId,
+        repName: first.repName,
+        coordId: first.coordId,
+        coordName: first.coordName,
+        emp: uniqueEmps.join(', '),
+        linha: uniqueLinhas.join(', '),
+        groupId: first.groupId,
+        groupName: uniqueGroups.join(', '),
+        quotaCD,
+        faturadoCD,
+        pctCD: quotaCD > 0 ? (faturadoCD / quotaCD) * 100 : 0,
+        quotaVP,
+        faturadoVP,
+        pctVP: quotaVP > 0 ? (faturadoVP / quotaVP) * 100 : 0,
+        quotaTotal,
+        faturadoTotal,
+        pctTotal: quotaTotal > 0 ? (faturadoTotal / quotaTotal) * 100 : 0,
+        pendenteCD,
+        pendenteVP,
+        faturadoEPendente,
+        pctFaturadoEPendente: quotaTotal > 0 ? (faturadoEPendente / quotaTotal) * 100 : 0,
+        defasagem: defasagemVal,
+        valorVendaCD,
+        valorVendaVP,
+        valorVendaTotal,
+        pctVenda: quotaTotal > 0 ? (valorVendaTotal / quotaTotal) * 100 : 0,
+      };
+      return agg;
+    });
+  }, [filteredRecords]);
+
   // Sorting logic for details table
   const sortedDetails = useMemo(() => {
-    const sorted = [...filteredRecords];
+    const sorted = [...aggregatedDetails];
     sorted.sort((a, b) => {
       let valA = a[sortField];
       let valB = b[sortField];
@@ -600,7 +906,7 @@ export default function App() {
       }
     });
     return sorted;
-  }, [filteredRecords, sortField, sortAscending]);
+  }, [aggregatedDetails, sortField, sortAscending]);
 
   // Paginated Details list
   const currentDetailsPageData = useMemo(() => {
@@ -629,11 +935,11 @@ export default function App() {
     
     const csvRows = [
       headers.join(';'), // semicolon for Excel friendly portuguese locale parser
-      ...filteredRecords.map(r => [
+      ...sortedDetails.map(r => [
         r.repId,
         `"${r.repName.replace(/"/g, '""')}"`,
         `"${r.coordName.replace(/"/g, '""')}"`,
-        r.emp,
+        `"${r.emp.replace(/"/g, '""')}"`,
         `"${r.linha.replace(/"/g, '""')}"`,
         `"${r.groupName.replace(/"/g, '""')}"`,
         r.quotaTotal.toString().replace('.', ','),
@@ -657,7 +963,7 @@ export default function App() {
   // Find the selected representative for the detailed group-split modal
   const repDetailData = useMemo(() => {
     if (selectedRepDetailId === null) return null;
-    const items = allRecords.filter(r => r.repId === selectedRepDetailId);
+    const items = filteredRecords.filter(r => r.repId === selectedRepDetailId);
     if (!items.length) return null;
     
     let quota = 0;
@@ -683,7 +989,79 @@ export default function App() {
       percent: quota > 0 ? (valorVenda / quota) * 100 : 0,
       rows: items
     };
-  }, [allRecords, selectedRepDetailId]);
+  }, [filteredRecords, selectedRepDetailId]);
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 relative overflow-hidden select-none">
+        {/* Decorative background elements */}
+        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-900/40 via-slate-950 to-slate-950 -z-10" />
+        <div className="absolute top-1/4 -left-1/4 w-[500px] h-[500px] bg-[#001A9C]/10 rounded-full blur-[120px] -z-10" />
+        <div className="absolute bottom-1/4 -right-1/4 w-[500px] h-[500px] bg-indigo-50/10 rounded-full blur-[120px] -z-10" />
+
+        <motion.div 
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
+          className="w-full max-w-md bg-slate-950/80 border border-slate-800/80 p-8 rounded-3xl shadow-2xl backdrop-blur-md space-y-8"
+        >
+          {/* Logo and Brand */}
+          <div className="text-center space-y-3">
+            <div className="mx-auto w-14 h-14 bg-gradient-to-tr from-[#001A9C] to-indigo-500 rounded-2xl flex items-center justify-center shadow-lg shadow-[#001A9C]/20">
+              <Lock className="w-6 h-6 text-white" />
+            </div>
+            
+            <div className="space-y-1">
+              <h2 className="text-xl font-bold text-slate-100 tracking-tight">Portal de Vendas Tramontina</h2>
+              <p className="text-xs text-slate-400">Acesso Restrito • Painel de KPI & Prévias</p>
+            </div>
+          </div>
+
+          {/* Form */}
+          <form onSubmit={handleAuthSubmit} className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block text-center">
+                Digite a senha de acesso
+              </label>
+              <input
+                type="password"
+                value={passwordInput}
+                onChange={(e) => {
+                  setPasswordInput(e.target.value);
+                  if (authError) setAuthError('');
+                }}
+                placeholder="••••"
+                className="w-full tracking-widest text-center text-lg font-bold py-3.5 px-4 bg-slate-900/50 hover:bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-2xl text-slate-100 placeholder:text-slate-700 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono"
+                autoFocus
+              />
+              {authError && (
+                <motion.p 
+                  initial={{ opacity: 0, y: -5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-xs text-rose-500 font-bold text-center mt-2.5"
+                >
+                  {authError}
+                </motion.p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white text-sm font-bold rounded-2xl shadow-lg shadow-indigo-600/10 hover:shadow-indigo-600/20 transition-all cursor-pointer flex items-center justify-center gap-2"
+            >
+              <span>Acessar Painel</span>
+            </button>
+          </form>
+
+          {/* Notice footer */}
+          <p className="text-[10px] text-slate-500 text-center font-medium leading-relaxed">
+            Este painel contém informações de vendas confidenciais.<br />
+            Se você não tiver acesso autorizado, por favor feche esta aba.
+          </p>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F1F5F9] text-slate-800 font-sans selection:bg-indigo-100 selection:text-indigo-900 pb-12 antialiased border-8 border-slate-900">
@@ -808,9 +1186,17 @@ export default function App() {
           <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm space-y-6 text-slate-700">
             {/* Logo area */}
             <div className="pb-4 border-b border-slate-150 flex flex-col gap-2">
-              <div className="flex items-center">
-                <TramontinaLogo className="h-5 w-auto text-[#001A9C]" fillColor="#001A9C" />
-              </div>
+              <button
+                onClick={() => {
+                  setActiveTab('geral');
+                  resetFilters();
+                  handleShowCurrentData();
+                }}
+                className="flex items-center justify-start focus:outline-none cursor-pointer group transition-all text-left"
+                title="Ir para a Home do Painel"
+              >
+                <TramontinaLogo className="h-5 w-auto text-[#001A9C] group-hover:scale-102 transition-transform" fillColor="#001A9C" />
+              </button>
               <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-450">
                 Agente 87 - Ferramentas
               </span>
@@ -818,7 +1204,24 @@ export default function App() {
 
             {/* Seleção de Período (Mês / Ano) */}
             <div className="space-y-3.5 pb-4 border-b border-slate-150">
-              <div className="flex items-center justify-between">
+              {/* Botão Mostrar Dados Atuais */}
+              <button
+                onClick={handleShowCurrentData}
+                className="w-full py-2 px-3 bg-blue-50/50 hover:bg-[#001A9C]/10 text-[#001A9C] border border-[#001A9C]/10 hover:border-[#001A9C]/20 rounded-xl text-xs font-extrabold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer shadow-3xs group"
+                title="Voltar para o último período com dados (mês ativo)"
+              >
+                <div className="flex items-center gap-1.5">
+                  <TrendingUp className="w-3.5 h-3.5 text-[#001A9C] group-hover:translate-y-[-1px] transition-transform" />
+                  <span>Mostrar dados atuais</span>
+                </div>
+                {availablePeriods.length > 0 && (
+                  <span className="text-[9px] text-[#001A9C]/75 font-semibold">
+                    ({['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][getLatestPeriod().month - 1] || getLatestPeriod().month}/{getLatestPeriod().year})
+                  </span>
+                )}
+              </button>
+
+              <div className="flex items-center justify-between pt-1">
                 <label className="text-[10px] font-extrabold text-slate-450 uppercase tracking-widest flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-[#001A9C]" />
                   Período de Análise
@@ -1072,19 +1475,6 @@ export default function App() {
               <strong className="text-slate-800 text-xs font-sans font-extrabold">{filteredRecords.length} / {allRecords.length}</strong>
             </div>
           </div>
-
-          {/* Quick instructions block */}
-          <div className="p-4 bg-gradient-to-br from-indigo-900 to-slate-900 rounded-2xl text-white shadow-md relative overflow-hidden space-y-2">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full blur-xl -mr-6 -mt-6 pointer-events-none" />
-            <h4 className="text-xs font-extrabold uppercase tracking-widest text-indigo-300 flex items-center gap-1.5">
-              <Info className="w-4 h-4" />
-              Gestão de Defasagem
-            </h4>
-            <p className="text-[11px] text-indigo-100/80 leading-relaxed font-normal">
-              A <strong>Defasagem</strong> representa a diferença matemática líquida entre o volume de vendas e a cota total estipulada em reais. 
-              Gaps negativos vermelhos necessitam de ação imediatas de prospecção e liberação de pendentes.
-            </p>
-          </div>
         </section>
 
         {/* RIGHT METRICS GRID AND TABBED CONTROLLERS */}
@@ -1098,21 +1488,18 @@ export default function App() {
                 <MetricCard
                   title="Cota Total"
                   value={formatCurrency(totals.quotaTotal)}
-                  subtitle="Alvo global consolidado"
                   icon={<Target className="w-5 h-5 text-blue-600" />}
                   accentColor="blue"
                 />
                 <MetricCard
                   title="Cota CD"
                   value={formatCurrency(totals.quotaCD)}
-                  subtitle="Canal de Distribuição"
                   icon={<Target className="w-5 h-5 text-purple-600" />}
                   accentColor="purple"
                 />
                 <MetricCard
                   title="Cota VP"
                   value={formatCurrency(totals.quotaVP)}
-                  subtitle="Venda Direta / Promotores"
                   icon={<Target className="w-5 h-5 text-teal-600" />}
                   accentColor="teal"
                 />
@@ -1121,44 +1508,38 @@ export default function App() {
                 <MetricCard
                   title="Vendas Total"
                   value={formatCurrency(totals.valorVendaTotal)}
-                  subtitle="Volume de vendas consolidado"
                   icon={<DollarSign className="w-5 h-5 text-blue-600" />}
                   accentColor="blue"
                 />
                 <MetricCard
                   title="Vendas CD"
                   value={formatCurrency(totals.valorVendaCD)}
-                  subtitle="Volume de vendas CD"
                   icon={<DollarSign className="w-5 h-5 text-purple-600" />}
                   accentColor="purple"
                 />
                 <MetricCard
                   title="Vendas VP"
                   value={formatCurrency(totals.valorVendaVP)}
-                  subtitle="Volume de vendas VP"
                   icon={<DollarSign className="w-5 h-5 text-teal-600" />}
                   accentColor="teal"
                 />
 
                 {/* ROW 3: % ATINGIMENTO */}
                 <MetricCard
-                  title="% Atingimento Total"
+                  title="% VENDAS TOTAL"
                   value={formatPercent(totals.achTotal)}
-                  subtitle="Atingimento global consolidado"
                   icon={<TrendingUp className="w-5 h-5 text-blue-600" />}
                   accentColor="blue"
                 />
                 <MetricCard
-                  title="% Atingimento CD"
+                  title="% VENDAS cd E"
                   value={formatPercent(totals.achCD)}
-                  subtitle="Atingimento Canal CD"
                   icon={<TrendingUp className="w-5 h-5 text-purple-600" />}
                   accentColor="purple"
                 />
                 <MetricCard
-                  title="% Atingimento VP"
+                  title="% VENDAS VP"
                   value={formatPercent(totals.achVP)}
-                  subtitle="Atingimento Canal VP"
                   icon={<TrendingUp className="w-5 h-5 text-teal-600" />}
                   accentColor="teal"
                 />
@@ -1167,59 +1548,56 @@ export default function App() {
                 <MetricCard
                   title="Defasagem Total"
                   value={formatDefasagem(totals.defasagem)}
-                  subtitle="Gap consolidado"
                   icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
                   accentColor="rose"
                 />
                 <MetricCard
                   title="Defasagem CD"
                   value={formatDefasagem(totals.valorVendaCD - totals.quotaCD)}
-                  subtitle="Gap Canal CD"
                   icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
                   accentColor="rose"
                 />
                 <MetricCard
                   title="Defasagem VP"
                   value={formatDefasagem(totals.valorVendaVP - totals.quotaVP)}
-                  subtitle="Gap Canal VP"
                   icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
                   accentColor="rose"
                 />
               </div>
 
               {/* PREVIEW METRICS SECTION */}
-              <div className="bg-amber-50/40 border border-amber-200 p-5 rounded-2xl space-y-4">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <Target className="w-4 h-4 text-amber-600" />
-                    <span className="text-[10px] font-extrabold text-amber-800 uppercase tracking-widest">
-                      Métricas de Prévia (Consolidado)
-                    </span>
+              {isDisplayingCurrentData && selectedProductGroups.includes('All') && (
+                <div className="bg-amber-50/40 border border-amber-200 p-5 rounded-2xl space-y-4">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <Target className="w-4 h-4 text-amber-600" />
+                      <span className="text-[10px] font-extrabold text-amber-800 uppercase tracking-widest">
+                        Métricas de Prévia (Consolidado)
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setShowPreviewMetrics(!showPreviewMetrics)}
+                      className="text-xs font-bold text-[#001A9C] hover:underline cursor-pointer"
+                    >
+                      {showPreviewMetrics ? 'Ocultar Detalhes' : 'Mostrar Detalhes'}
+                    </button>
                   </div>
-                  <button
-                    onClick={() => setShowPreviewMetrics(!showPreviewMetrics)}
-                    className="text-xs font-bold text-[#001A9C] hover:underline cursor-pointer"
-                  >
-                    {showPreviewMetrics ? 'Ocultar Detalhes' : 'Mostrar Detalhes'}
-                  </button>
-                </div>
 
-                {showPreviewMetrics && (
-                  <div className="space-y-3">
-                    {previewTotals.hasAnyPreview ? (
+                  {showPreviewMetrics && (
+                    <div className="space-y-3">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {/* Card 1: Prévia */}
                         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                          <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">EXPECTATIVA DE PRÉVIA</span>
+                          <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">PRÉVIA</span>
                           <div className="text-lg font-black text-slate-900">{formatCurrency(previewTotals.totalExpectativa)}</div>
-                          <p className="text-[10px] text-slate-500 font-medium">Soma das expectativas estipuladas</p>
+                          <p className="text-[10px] text-slate-500 font-medium">Somatório das prévias de todos os representantes</p>
                         </div>
 
-                        {/* Card 2: Vendas do Dia */}
+                        {/* Card 2: Vendas do Dia da Prévia */}
                         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
                           <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">VENDAS NO DIA DA PRÉVIA</span>
                           <div className="text-lg font-black text-slate-900">{formatCurrency(previewTotals.totalVendaDiaPrevia)}</div>
-                          <p className="text-[10px] text-slate-500 font-medium">Soma apurada no dia da prévia</p>
+                          <p className="text-[10px] text-slate-500 font-medium">Puxado da tabela de expectativa de prévia</p>
                         </div>
 
                         {/* Card 3: Defasagem Prévia */}
@@ -1228,49 +1606,25 @@ export default function App() {
                           <div className={`text-lg font-black ${previewTotals.defasagemPrevia >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                             {formatDefasagem(previewTotals.defasagemPrevia)}
                           </div>
-                          <p className="text-[10px] text-slate-500 font-medium">Venda Atual ({formatCurrency(previewTotals.totalVendaAtual)}) - Dia Prévia - Expectativa</p>
+                          <p className="text-[10px] text-slate-500 font-medium">Venda Atual ({formatCurrency(previewTotals.totalVendaAtual)}) - Venda no Dia da Prévia - Prévia</p>
                         </div>
                       </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          {/* Card 1: Prévia */}
-                          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                            <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">PRÉVIA</span>
-                            <div className="text-lg font-black text-slate-900">{formatCurrency(totals.faturadoEPendente)}</div>
-                            <p className="text-[10px] text-slate-500 font-medium">Vendas Líquidas + Pedidos Pendentes</p>
-                          </div>
 
-                          {/* Card 2: Vendas do Dia */}
-                          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                            <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">VENDAS NO DIA DA PRÉVIA</span>
-                            <div className="text-lg font-black text-slate-900">{formatCurrency(totals.valorVendaTotal)}</div>
-                            <p className="text-[10px] text-slate-500 font-medium">Apurado na data da prévia</p>
-                          </div>
-
-                          {/* Card 3: Defasagem Prévia */}
-                          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                            <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">DEFASAGEM DA PRÉVIA</span>
-                            <div className={`text-lg font-black ${totals.faturadoEPendente - totals.quotaTotal >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                              {formatDefasagem(totals.faturadoEPendente - totals.quotaTotal)}
-                            </div>
-                            <p className="text-[10px] text-slate-500 font-medium">Em relação à cota consolidada</p>
-                          </div>
-                        </div>
+                      {!previewTotals.hasAnyPreview && (
                         <div className="bg-amber-50 border border-amber-100 p-3 rounded-xl flex items-start gap-2 text-[11px] text-amber-800 font-semibold shadow-2xs">
                           <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                           <div>
-                            <span className="font-extrabold">Configuração pendente:</span> Nenhuma expectativa de prévia foi definida para este período. As métricas acima estão mostrando a previsão automatizada (Faturado + Pendente). Acesse a guia <strong className="underline cursor-pointer" onClick={() => setActiveTab('previa')}>Configurar Prévia</strong> para inserir os valores oficiais por representante.
+                            <span className="font-extrabold">Configuração pendente:</span> Nenhuma expectativa de prévia foi definida para este período ({selectedMonth}/{selectedYear}). Acesse a guia <strong className="underline cursor-pointer" onClick={() => setActiveTab('previa')}>Expectativa de Prévia</strong> para inserir os valores oficiais por representante.
                           </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
-
+ 
           {/* Navigation controller layout bar */}
           <div className="bg-white border border-slate-100 p-2 rounded-2xl shadow-xs flex flex-wrap gap-2">
             {[
@@ -1278,9 +1632,10 @@ export default function App() {
               { id: 'representantes', label: 'Representantes', icon: <User className="w-4 h-4" /> },
               { id: 'coordenadores', label: 'Coordenadores', icon: <Users className="w-4 h-4" /> },
               { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> },
-              { id: 'previa', label: 'Expectativa de Prévia', icon: <Target className="w-4 h-4" /> },
-              { id: 'importar', label: 'Importar Planilha (Excel)', icon: <FileSpreadsheet className="w-4 h-4" /> }
-            ].map(tab => (
+              { id: 'previa', label: 'Expectativa de Prévia', icon: <Target className="w-4 h-4" />, hide: !isDisplayingCurrentData || !selectedProductGroups.includes('All') },
+              { id: 'importar', label: 'Importar Planilha (Excel)', icon: <FileSpreadsheet className="w-4 h-4" /> },
+              { id: 'nomes', label: 'Importar Nomes', icon: <UserCog className="w-4 h-4" /> }
+            ].filter(tab => !tab.hide).map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
@@ -2114,7 +2469,7 @@ export default function App() {
                         </thead>
                         <tbody className="text-xs divide-y divide-slate-100">
                           {previews.map((prev) => {
-                            const matchingRep = repsAggregated.find(r => r.repId === prev.repId);
+                            const matchingRep = repsAggregated.find(r => r.repId.toString().trim() === prev.repId.toString().trim());
                             const repName = matchingRep ? matchingRep.repName : "Inexistente no período";
                             const coordName = matchingRep ? matchingRep.coordName : "";
                             const vendaAtual = matchingRep ? matchingRep.totalVendido : 0;
@@ -2162,6 +2517,48 @@ export default function App() {
                   )}
                 </div>
 
+                {/* Previous Periods Previews Download Section */}
+                <div className="pt-6 border-t border-slate-100 mt-6 space-y-4">
+                  <div>
+                    <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                      <Download className="w-4.5 h-4.5 text-[#001A9C]" />
+                      Prévias de Períodos Anteriores (Histórico)
+                    </h4>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Faça o download do histórico de expectativas de prévia de outros períodos de análise que já foram concluídos.
+                    </p>
+                  </div>
+
+                  {availablePeriods.filter(p => !(p.year === selectedYear && p.month === selectedMonth)).length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                      {availablePeriods
+                        .filter(p => !(p.year === selectedYear && p.month === selectedMonth))
+                        .map(p => {
+                          const monthLabel = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'][p.month - 1] || p.month;
+                          return (
+                            <div key={p.id} className="p-4 bg-slate-50 hover:bg-slate-100/80 border border-slate-200/60 rounded-xl transition-all flex items-center justify-between gap-3 group">
+                              <div>
+                                <span className="block font-bold text-slate-800 text-xs">{monthLabel} / {p.year}</span>
+                                <span className="block text-[10px] text-slate-450 mt-0.5 font-semibold">Registro de vendas: {p.recordsCount} linhas</span>
+                              </div>
+                              <button
+                                onClick={() => downloadPreviousPeriodPreview(p.year, p.month)}
+                                className="flex items-center gap-1 px-3 py-1.5 bg-white hover:bg-[#001A9C] text-[#001A9C] hover:text-white border border-[#001A9C]/10 hover:border-transparent rounded-lg text-[11px] font-bold transition-all shadow-3xs cursor-pointer"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>CSV</span>
+                              </button>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  ) : (
+                    <div className="border border-dashed border-slate-200 rounded-xl p-6 text-center text-slate-400 text-xs">
+                      Não existem outros períodos de análise registrados no sistema além do atual.
+                    </div>
+                  )}
+                </div>
+
               </div>
             </motion.div>
           )}
@@ -2191,16 +2588,290 @@ export default function App() {
             </motion.div>
           )}
 
+          {/* TAB 6: IMPORT REPRESENTATIVE NAMES OVERRIDES */}
+          {activeTab === 'nomes' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              {/* Header Info Banner */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <UserCog className="w-5 h-5 text-[#001A9C]" />
+                    Importar e Mapear Nomes de Representantes
+                  </h3>
+                  <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
+                    Este menu permite mapear códigos de representantes para nomes personalizados legíveis.
+                    Ao salvar os nomes aqui, o portal dará prioridade absoluta para exibir o nome personalizado
+                    em todos os painéis, filtros, tabelas e relatórios (substituindo o nome bruto presente na planilha de vendas).
+                  </p>
+                </div>
+                <div className="bg-indigo-50/60 border border-indigo-100 rounded-2xl px-4 py-3 text-center shrink-0">
+                  <div className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider">Mapeamentos Ativos</div>
+                  <div className="text-2xl font-black text-indigo-650">{Object.keys(customRepNames).length}</div>
+                </div>
+              </div>
+
+              {/* Grid content split */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                {/* Left side inputs: Paste & Single entry */}
+                <div className="lg:col-span-5 space-y-6">
+                  
+                  {/* Paste from Excel card */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Copiar & Colar do Excel</h4>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Copie duas colunas da sua planilha (primeira com o <strong className="text-slate-600">Código ID</strong>, segunda com o <strong className="text-slate-600">Nome</strong>) e cole no campo abaixo.
+                      </p>
+                    </div>
+
+                    <form onSubmit={(e) => {
+                      e.preventDefault();
+                      const form = e.currentTarget;
+                      const text = (form.elements.namedItem('pasteArea') as HTMLTextAreaElement).value;
+                      if (!text.trim()) {
+                        alert('Por favor, cole algum texto antes de continuar.');
+                        return;
+                      }
+                      const success = handlePasteRepNames(text);
+                      if (success) {
+                        form.reset();
+                        alert('Nomes carregados e adicionados na visualização temporária! Lembre-se de clicar em "Salvar Dados Permanente" para gravar.');
+                      } else {
+                        alert('Não foi possível processar nenhum nome. Certifique-se de que copiou pelo menos duas colunas.');
+                      }
+                    }} className="space-y-3">
+                      <textarea
+                        name="pasteArea"
+                        required
+                        placeholder={`1048\tJoão da Silva\n2015\tMaria Souza`}
+                        rows={8}
+                        className="w-full font-mono text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-700 placeholder:text-slate-400"
+                      />
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 bg-[#001A9C] hover:bg-blue-700 active:scale-[0.98] text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <UploadCloud className="w-4 h-4" />
+                        <span>Carregar e Mapear Nomes</span>
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Add manual entry card */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Mapear Individualmente</h4>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Adicione ou altere o nome de um único representante diretamente.
+                      </p>
+                    </div>
+
+                    <form onSubmit={(e) => {
+                      e.preventDefault();
+                      const form = e.currentTarget;
+                      const repIdRaw = (form.elements.namedItem('manualRepId') as HTMLInputElement).value.trim();
+                      const repName = (form.elements.namedItem('manualRepName') as HTMLInputElement).value.trim();
+                      
+                      const repId = parseInt(repIdRaw);
+                      if (isNaN(repId) || !repName) {
+                        alert('Informe um Código de Representante numérico válido e um Nome.');
+                        return;
+                      }
+
+                      setCustomRepNames(prev => ({
+                        ...prev,
+                        [repId.toString()]: repName
+                      }));
+
+                      form.reset();
+                      alert(`Representante #${repId} mapeado temporariamente! Salve as alterações para guardar permanentemente.`);
+                    }} className="space-y-3">
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="space-y-1 col-span-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">ID/Código</label>
+                          <input
+                            type="number"
+                            name="manualRepId"
+                            required
+                            placeholder="Ex: 1048"
+                            className="w-full text-xs bg-slate-50 border border-slate-200 py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700 font-semibold"
+                          />
+                        </div>
+                        <div className="space-y-1 col-span-2">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Nome do Representante</label>
+                          <input
+                            type="text"
+                            name="manualRepName"
+                            required
+                            placeholder="Ex: João Silva S/A"
+                            className="w-full text-xs bg-slate-50 border border-slate-200 py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700 font-semibold"
+                          />
+                        </div>
+                      </div>
+                      
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 active:scale-[0.98] text-slate-700 text-xs font-bold rounded-xl transition-all border border-slate-250 cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Adicionar Overwrite</span>
+                      </button>
+                    </form>
+                  </div>
+
+                </div>
+
+                {/* Right side panel: Search & Active overrides table */}
+                <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between space-y-4">
+                  <div className="space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Mapeamentos Cadastrados</h4>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          Gerencie a lista de nomes que estão sendo aplicados em substituição.
+                        </p>
+                      </div>
+
+                      {/* Search Bar */}
+                      <div className="relative w-full sm:w-64">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Pesquisar mapeamento..."
+                          value={namesSearchQuery}
+                          onChange={(e) => setNamesSearchQuery(e.target.value)}
+                          className="w-full text-xs pl-8.5 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/15 text-slate-700"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Table list */}
+                    {Object.keys(customRepNames).length > 0 ? (
+                      <div className="border border-slate-100 rounded-xl overflow-hidden max-h-[400px] overflow-y-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                              <th className="py-2.5 px-4 w-1/4">Código ID</th>
+                              <th className="py-2.5 px-4 w-2/4">Nome Personalizado</th>
+                              <th className="py-2.5 px-4 text-center w-1/4">Ação</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-xs divide-y divide-slate-100">
+                            {(Object.entries(customRepNames) as [string, string][])
+                              .filter(([id, name]) => {
+                                const q = namesSearchQuery.toLowerCase();
+                                return id.includes(q) || name.toLowerCase().includes(q);
+                              })
+                              .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+                              .map(([id, name]) => (
+                                <tr key={id} className="hover:bg-slate-50/50">
+                                  <td className="py-2 px-4 font-mono font-bold text-slate-500">#{id}</td>
+                                  <td className="py-2 px-4 font-semibold text-slate-800">{name}</td>
+                                  <td className="py-2 px-4 text-center">
+                                    <button
+                                      onClick={() => {
+                                        setCustomRepNames(prev => {
+                                          const updated = { ...prev };
+                                          delete updated[id];
+                                          return updated;
+                                        });
+                                      }}
+                                      className="p-1 text-rose-500 hover:text-rose-700 rounded transition-colors cursor-pointer inline-flex items-center animate-none"
+                                      title="Excluir Overwrite"
+                                    >
+                                      <Trash2 className="w-4 h-4 mx-auto" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            {(Object.entries(customRepNames) as [string, string][]).filter(([id, name]) => {
+                              const q = namesSearchQuery.toLowerCase();
+                              return id.includes(q) || name.toLowerCase().includes(q);
+                            }).length === 0 && (
+                              <tr>
+                                <td colSpan={3} className="py-6 px-4 text-center text-slate-400 font-medium italic">
+                                  Nenhum mapeamento correspondente à busca.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="border border-dashed border-slate-200 rounded-xl py-12 px-6 text-center text-slate-400 text-xs space-y-2">
+                        <p>Nenhum nome de representante personalizado cadastrado ainda.</p>
+                        <p className="text-[10px] text-slate-400 font-normal">Use o formulário ou a área de colar para carregar nomes oficiais.</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions footer inside right card */}
+                  <div className="pt-4 border-t border-slate-100 flex flex-wrap gap-3 items-center justify-between">
+                    <div>
+                      {saveNamesSuccessMessage ? (
+                        <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-bold">
+                          <Check className="w-4 h-4" />
+                          <span>{saveNamesSuccessMessage}</span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          {getFirebaseConfig() ? "✓ Sincronizado com Nuvem Firestore" : "⚠ Salvo apenas no seu navegador local"}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2.5">
+                      {Object.keys(customRepNames).length > 0 && (
+                        <button
+                          onClick={() => {
+                            if (confirm('Tem certeza que deseja limpar TODOS os mapeamentos de nomes?')) {
+                              setCustomRepNames({});
+                            }
+                          }}
+                          className="px-4 py-2 text-rose-600 hover:text-rose-750 bg-rose-50 hover:bg-rose-100 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                        >
+                          Limpar Todos
+                        </button>
+                      )}
+                      
+                      <button
+                        onClick={() => handleSaveRepNames()}
+                        disabled={isSavingNames}
+                        className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-300 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/10 hover:shadow-emerald-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        {isSavingNames ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Gravando...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Salvar Dados Permanente</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+            </motion.div>
+          )}
+
         </section>
 
       </main>
 
       {/* Floating detail status notice */}
-      <footer className="max-w-7xl mx-auto px-4 md:px-8 mt-12 text-center text-xs text-slate-400 font-medium space-y-1">
-        <p>© 2026 Tramontina S/A. Todos os direitos reservados. Sistema interno de auditoria e performance de representantes.</p>
-        <p className="text-slate-350">
-          Projetado com tipografia pairing Plus Jakarta Sans & JetBrains Mono • Dados dinâmicos auto-indexados via React 19.
-        </p>
+      <footer className="max-w-7xl mx-auto px-4 md:px-8 mt-12 text-center text-xs text-slate-400 font-medium pb-8">
+        <p>© 2026 Tramontina S/A. Todos os direitos reservados. Sistema interno de performance de representantes.</p>
       </footer>
 
       <FirebaseSetupModal 
