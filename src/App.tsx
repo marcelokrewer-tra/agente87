@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   INITIAL_RAW_DATA, 
@@ -36,12 +36,64 @@ import {
   LineChart,
   Grid,
   SlidersHorizontal,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Calendar,
+  Database,
+  RefreshCw,
+  Sparkles
 } from 'lucide-react';
 
 export default function App() {
   // Global parsed Sales Records
-  const [allRecords, setAllRecords] = useState<SalesRecord[]>(() => parseTSV(INITIAL_RAW_DATA));
+  const [allRecords, setAllRecords] = useState<SalesRecord[]>([]);
+
+  // Month-to-month and server-side memory states
+  const [selectedYear, setSelectedYear] = useState<number>(2026);
+  const [selectedMonth, setSelectedMonth] = useState<number>(6);
+  const [availablePeriods, setAvailablePeriods] = useState<Array<{ id: string; year: number; month: number; recordsCount: number }>>([]);
+  const [isLoadingPeriod, setIsLoadingPeriod] = useState<boolean>(false);
+  const [periodFetchError, setPeriodFetchError] = useState<string | null>(null);
+
+  const fetchAvailablePeriods = async () => {
+    try {
+      const response = await fetch('/api/monthly-data');
+      if (response.ok) {
+        const data = await response.json();
+        setAvailablePeriods(data);
+      }
+    } catch (err) {
+      console.error("Error fetching available periods:", err);
+    }
+  };
+
+  const fetchPeriodData = async (year: number, month: number) => {
+    setIsLoadingPeriod(true);
+    setPeriodFetchError(null);
+    try {
+      const response = await fetch(`/api/monthly-data/${year}/${month}`);
+      if (response.ok) {
+        const data = await response.json();
+        setAllRecords(data.records || []);
+      } else {
+        throw new Error(`Erro ao carregar dados do período: ${response.statusText}`);
+      }
+    } catch (err: any) {
+      console.error("Error fetching period data:", err);
+      setPeriodFetchError(err.message || String(err));
+    } finally {
+      setIsLoadingPeriod(false);
+    }
+  };
+
+  // Fetch available periods on mount
+  useEffect(() => {
+    fetchAvailablePeriods();
+  }, []);
+
+  // Fetch period data when year or month changes
+  useEffect(() => {
+    fetchPeriodData(selectedYear, selectedMonth);
+  }, [selectedYear, selectedMonth]);
 
   const getEnterpriseLabel = (emp: string) => {
     switch(emp.toUpperCase()) {
@@ -559,6 +611,76 @@ export default function App() {
               </span>
             </div>
 
+            {/* Seleção de Período (Mês / Ano) */}
+            <div className="space-y-3.5 pb-4 border-b border-slate-150">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-extrabold text-slate-450 uppercase tracking-widest flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-[#001A9C]" />
+                  Período de Análise
+                </label>
+                {isLoadingPeriod && (
+                  <RefreshCw className="w-3 h-3 text-[#001A9C] animate-spin" />
+                )}
+              </div>
+              
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Mês</span>
+                  <select
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
+                  >
+                    {[
+                      { value: 1, label: 'Jan' },
+                      { value: 2, label: 'Fev' },
+                      { value: 3, label: 'Mar' },
+                      { value: 4, label: 'Abr' },
+                      { value: 5, label: 'Mai' },
+                      { value: 6, label: 'Jun' },
+                      { value: 7, label: 'Jul' },
+                      { value: 8, label: 'Ago' },
+                      { value: 9, label: 'Set' },
+                      { value: 10, label: 'Out' },
+                      { value: 11, label: 'Nov' },
+                      { value: 12, label: 'Dez' }
+                    ].map(m => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Ano</span>
+                  <select
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
+                  >
+                    {[2025, 2026].map(y => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Status Indicator inside selection box */}
+              <div className="pt-1 flex items-center justify-between text-[10px] font-bold">
+                <span className="text-slate-400 uppercase tracking-wider">Status:</span>
+                {allRecords.length > 0 ? (
+                  <span className="text-emerald-600 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                    Ativo ({allRecords.length} reg)
+                  </span>
+                ) : (
+                  <span className="text-amber-500 flex items-center gap-1" title="Sem dados salvos no banco">
+                    <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />
+                    Sem dados salvos
+                  </span>
+                )}
+              </div>
+            </div>
+
             {/* Keyword Search */}
             <div className="space-y-1.5">
               <div className="relative">
@@ -750,144 +872,148 @@ export default function App() {
         <section className="lg:col-span-3 space-y-6">
           
           {/* Bento row of Core metrics cards (Filtered live) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* ROW 1: QUOTAS */}
-            <MetricCard
-              title="Cota Total"
-              value={formatCurrency(totals.quotaTotal)}
-              subtitle="Alvo global consolidado"
-              icon={<Target className="w-5 h-5 text-blue-600" />}
-              accentColor="blue"
-            />
-            <MetricCard
-              title="Cota CD"
-              value={formatCurrency(totals.quotaCD)}
-              subtitle="Canal de Distribuição"
-              icon={<Target className="w-5 h-5 text-purple-600" />}
-              accentColor="purple"
-            />
-            <MetricCard
-              title="Cota VP"
-              value={formatCurrency(totals.quotaVP)}
-              subtitle="Venda Direta / Promotores"
-              icon={<Target className="w-5 h-5 text-teal-600" />}
-              accentColor="teal"
-            />
-
-            {/* ROW 2: VENDAS */}
-            <MetricCard
-              title="Vendas Total"
-              value={formatCurrency(totals.valorVendaTotal)}
-              subtitle="Volume de vendas consolidado"
-              icon={<DollarSign className="w-5 h-5 text-blue-600" />}
-              accentColor="blue"
-            />
-            <MetricCard
-              title="Vendas CD"
-              value={formatCurrency(totals.valorVendaCD)}
-              subtitle="Volume de vendas CD"
-              icon={<DollarSign className="w-5 h-5 text-purple-600" />}
-              accentColor="purple"
-            />
-            <MetricCard
-              title="Vendas VP"
-              value={formatCurrency(totals.valorVendaVP)}
-              subtitle="Volume de vendas VP"
-              icon={<DollarSign className="w-5 h-5 text-teal-600" />}
-              accentColor="teal"
-            />
-
-            {/* ROW 3: % ATINGIMENTO */}
-            <MetricCard
-              title="% Atingimento Total"
-              value={formatPercent(totals.achTotal)}
-              subtitle="Atingimento global consolidado"
-              icon={<TrendingUp className="w-5 h-5 text-blue-600" />}
-              accentColor="blue"
-            />
-            <MetricCard
-              title="% Atingimento CD"
-              value={formatPercent(totals.achCD)}
-              subtitle="Atingimento Canal CD"
-              icon={<TrendingUp className="w-5 h-5 text-purple-600" />}
-              accentColor="purple"
-            />
-            <MetricCard
-              title="% Atingimento VP"
-              value={formatPercent(totals.achVP)}
-              subtitle="Atingimento Canal VP"
-              icon={<TrendingUp className="w-5 h-5 text-teal-600" />}
-              accentColor="teal"
-            />
-
-            {/* ROW 4: DEFASAGEM */}
-            <MetricCard
-              title="Defasagem Total"
-              value={formatDefasagem(totals.defasagem)}
-              subtitle="Gap consolidado"
-              icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
-              accentColor="rose"
-            />
-            <MetricCard
-              title="Defasagem CD"
-              value={formatDefasagem(totals.valorVendaCD - totals.quotaCD)}
-              subtitle="Gap Canal CD"
-              icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
-              accentColor="rose"
-            />
-            <MetricCard
-              title="Defasagem VP"
-              value={formatDefasagem(totals.valorVendaVP - totals.quotaVP)}
-              subtitle="Gap Canal VP"
-              icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
-              accentColor="rose"
-            />
-          </div>
-
-          {/* PREVIEW METRICS SECTION */}
-          <div className="bg-amber-50/40 border border-amber-200 p-5 rounded-2xl space-y-4">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <Target className="w-4 h-4 text-amber-600" />
-                <span className="text-[10px] font-extrabold text-amber-800 uppercase tracking-widest">
-                  Métricas de Prévia (Consolidado)
-                </span>
-              </div>
-              <button
-                onClick={() => setShowPreviewMetrics(!showPreviewMetrics)}
-                className="text-xs font-bold text-[#001A9C] hover:underline cursor-pointer"
-              >
-                {showPreviewMetrics ? 'Ocultar Detalhes' : 'Mostrar Detalhes'}
-              </button>
-            </div>
-
-            {showPreviewMetrics && (
+          {allRecords.length > 0 && (
+            <>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Card 1: Prévia */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                  <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">PRÉVIA</span>
-                  <div className="text-lg font-black text-slate-900">{formatCurrency(totals.faturadoEPendente)}</div>
-                  <p className="text-[10px] text-slate-500 font-medium">Vendas Líquidas + Pedidos Pendentes</p>
-                </div>
+                {/* ROW 1: QUOTAS */}
+                <MetricCard
+                  title="Cota Total"
+                  value={formatCurrency(totals.quotaTotal)}
+                  subtitle="Alvo global consolidado"
+                  icon={<Target className="w-5 h-5 text-blue-600" />}
+                  accentColor="blue"
+                />
+                <MetricCard
+                  title="Cota CD"
+                  value={formatCurrency(totals.quotaCD)}
+                  subtitle="Canal de Distribuição"
+                  icon={<Target className="w-5 h-5 text-purple-600" />}
+                  accentColor="purple"
+                />
+                <MetricCard
+                  title="Cota VP"
+                  value={formatCurrency(totals.quotaVP)}
+                  subtitle="Venda Direta / Promotores"
+                  icon={<Target className="w-5 h-5 text-teal-600" />}
+                  accentColor="teal"
+                />
 
-                {/* Card 2: Vendas do Dia */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                  <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">VENDAS NO DIA DA PRÉVIA</span>
-                  <div className="text-lg font-black text-slate-900">{formatCurrency(totals.valorVendaTotal)}</div>
-                  <p className="text-[10px] text-slate-500 font-medium">Apurado na data da prévia</p>
-                </div>
+                {/* ROW 2: VENDAS */}
+                <MetricCard
+                  title="Vendas Total"
+                  value={formatCurrency(totals.valorVendaTotal)}
+                  subtitle="Volume de vendas consolidado"
+                  icon={<DollarSign className="w-5 h-5 text-blue-600" />}
+                  accentColor="blue"
+                />
+                <MetricCard
+                  title="Vendas CD"
+                  value={formatCurrency(totals.valorVendaCD)}
+                  subtitle="Volume de vendas CD"
+                  icon={<DollarSign className="w-5 h-5 text-purple-600" />}
+                  accentColor="purple"
+                />
+                <MetricCard
+                  title="Vendas VP"
+                  value={formatCurrency(totals.valorVendaVP)}
+                  subtitle="Volume de vendas VP"
+                  icon={<DollarSign className="w-5 h-5 text-teal-600" />}
+                  accentColor="teal"
+                />
 
-                {/* Card 3: Defasagem Prévia */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                  <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">DEFASAGEM DA PRÉVIA</span>
-                  <div className={`text-lg font-black ${totals.faturadoEPendente - totals.quotaTotal >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {formatDefasagem(totals.faturadoEPendente - totals.quotaTotal)}
-                  </div>
-                  <p className="text-[10px] text-slate-500 font-medium">Em relação à cota consolidada</p>
-                </div>
+                {/* ROW 3: % ATINGIMENTO */}
+                <MetricCard
+                  title="% Atingimento Total"
+                  value={formatPercent(totals.achTotal)}
+                  subtitle="Atingimento global consolidado"
+                  icon={<TrendingUp className="w-5 h-5 text-blue-600" />}
+                  accentColor="blue"
+                />
+                <MetricCard
+                  title="% Atingimento CD"
+                  value={formatPercent(totals.achCD)}
+                  subtitle="Atingimento Canal CD"
+                  icon={<TrendingUp className="w-5 h-5 text-purple-600" />}
+                  accentColor="purple"
+                />
+                <MetricCard
+                  title="% Atingimento VP"
+                  value={formatPercent(totals.achVP)}
+                  subtitle="Atingimento Canal VP"
+                  icon={<TrendingUp className="w-5 h-5 text-teal-600" />}
+                  accentColor="teal"
+                />
+
+                {/* ROW 4: DEFASAGEM */}
+                <MetricCard
+                  title="Defasagem Total"
+                  value={formatDefasagem(totals.defasagem)}
+                  subtitle="Gap consolidado"
+                  icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
+                  accentColor="rose"
+                />
+                <MetricCard
+                  title="Defasagem CD"
+                  value={formatDefasagem(totals.valorVendaCD - totals.quotaCD)}
+                  subtitle="Gap Canal CD"
+                  icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
+                  accentColor="rose"
+                />
+                <MetricCard
+                  title="Defasagem VP"
+                  value={formatDefasagem(totals.valorVendaVP - totals.quotaVP)}
+                  subtitle="Gap Canal VP"
+                  icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
+                  accentColor="rose"
+                />
               </div>
-            )}
-          </div>
+
+              {/* PREVIEW METRICS SECTION */}
+              <div className="bg-amber-50/40 border border-amber-200 p-5 rounded-2xl space-y-4">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <Target className="w-4 h-4 text-amber-600" />
+                    <span className="text-[10px] font-extrabold text-amber-800 uppercase tracking-widest">
+                      Métricas de Prévia (Consolidado)
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowPreviewMetrics(!showPreviewMetrics)}
+                    className="text-xs font-bold text-[#001A9C] hover:underline cursor-pointer"
+                  >
+                    {showPreviewMetrics ? 'Ocultar Detalhes' : 'Mostrar Detalhes'}
+                  </button>
+                </div>
+
+                {showPreviewMetrics && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Card 1: Prévia */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
+                      <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">PRÉVIA</span>
+                      <div className="text-lg font-black text-slate-900">{formatCurrency(totals.faturadoEPendente)}</div>
+                      <p className="text-[10px] text-slate-500 font-medium">Vendas Líquidas + Pedidos Pendentes</p>
+                    </div>
+
+                    {/* Card 2: Vendas do Dia */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
+                      <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">VENDAS NO DIA DA PRÉVIA</span>
+                      <div className="text-lg font-black text-slate-900">{formatCurrency(totals.valorVendaTotal)}</div>
+                      <p className="text-[10px] text-slate-500 font-medium">Apurado na data da prévia</p>
+                    </div>
+
+                    {/* Card 3: Defasagem Prévia */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
+                      <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">DEFASAGEM DA PRÉVIA</span>
+                      <div className={`text-lg font-black ${totals.faturadoEPendente - totals.quotaTotal >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {formatDefasagem(totals.faturadoEPendente - totals.quotaTotal)}
+                      </div>
+                      <p className="text-[10px] text-slate-500 font-medium">Em relação à cota consolidada</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Navigation controller layout bar */}
           <div className="bg-white border border-slate-100 p-2 rounded-2xl shadow-xs flex flex-wrap gap-2">
@@ -913,8 +1039,68 @@ export default function App() {
             ))}
           </div>
 
+          {/* EMPTY STATE IF NO DATA IN ACTIVE PERIOD */}
+          {allRecords.length === 0 && activeTab !== 'importar' && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white border border-slate-200 p-8 rounded-2xl shadow-sm text-center max-w-xl mx-auto my-12 space-y-6"
+            >
+              <div className="mx-auto w-16 h-16 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-center text-slate-400">
+                <Database className="w-8 h-8 text-[#001A9C]" />
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-base font-bold text-slate-800">Sem dados na memória pública</h3>
+                <p className="text-xs text-slate-500 leading-relaxed max-w-sm mx-auto">
+                  Atualmente não existem registros de auditoria de performance de vendas salvos para o período de 
+                  <strong> {selectedMonth}/{selectedYear}</strong> na memória compartilhada do servidor.
+                </p>
+              </div>
+
+              <div className="pt-2 flex flex-col sm:flex-row gap-3 justify-center items-center">
+                <button
+                  onClick={() => setActiveTab('importar')}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-[#001A9C] hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  Ir para Importação (Excel)
+                </button>
+                
+                <button
+                  onClick={async () => {
+                    setIsLoadingPeriod(true);
+                    try {
+                      const response = await fetch('/api/monthly-data', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          year: selectedYear,
+                          month: selectedMonth,
+                          records: parseTSV(INITIAL_RAW_DATA)
+                        })
+                      });
+                      if (response.ok) {
+                        fetchAvailablePeriods();
+                        fetchPeriodData(selectedYear, selectedMonth);
+                      }
+                    } catch (e) {
+                      console.error(e);
+                    } finally {
+                      setIsLoadingPeriod(false);
+                    }
+                  }}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer border border-slate-200 flex items-center justify-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4 text-sky-500" />
+                  Carregar Dados de Exemplo
+                </button>
+              </div>
+            </motion.div>
+          )}
+
           {/* TAB 1: PANORAMA GERAL SECTION */}
-          {activeTab === 'geral' && (
+          {activeTab === 'geral' && allRecords.length > 0 && (
             <motion.div 
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1125,7 +1311,7 @@ export default function App() {
           )}
 
           {/* TAB 2: DETAILED REPRESENTATIVES VIEW */}
-          {activeTab === 'representantes' && (
+          {activeTab === 'representantes' && allRecords.length > 0 && (
             <motion.div 
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1230,7 +1416,7 @@ export default function App() {
           )}
 
           {/* TAB 3: COORDINATORS LEAGUE BOARD */}
-          {activeTab === 'coordenadores' && (
+          {activeTab === 'coordenadores' && allRecords.length > 0 && (
             <motion.div 
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1311,7 +1497,7 @@ export default function App() {
           )}
 
           {/* TAB 4: PRISTINE FILTERABLE TABLE DATA EXPLORER */}
-          {activeTab === 'detalhado' && (
+          {activeTab === 'detalhado' && allRecords.length > 0 && (
             <motion.div 
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1475,7 +1661,14 @@ export default function App() {
             >
               <ImportDataTab 
                 currentRecordsCount={allRecords.length}
-                onDataImported={(records) => {
+                initialYear={selectedYear}
+                initialMonth={selectedMonth}
+                availablePeriods={availablePeriods}
+                onRefreshPeriods={fetchAvailablePeriods}
+                onDataSaved={(year, month, records) => {
+                  fetchAvailablePeriods();
+                  setSelectedYear(year);
+                  setSelectedMonth(month);
                   setAllRecords(records);
                   setActiveTab('geral');
                   resetFilters();
