@@ -1,5 +1,5 @@
 {
-  "name": "Dashboard de KPIs de Vendas",
+  "name": "Agente 87 - Ferramentas",
   "description": "Painel interativo para visualizar, filtrar e analisar KPIs de vendas, faturamento, cotas e defasagem de representantes.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

@@ -1237,7 +1237,7 @@ export default function App() {
             </div>
             
             <div className="space-y-1">
-              <h2 className="text-lg sm:text-xl font-bold text-slate-100 tracking-tight">Portal de Vendas Tramontina</h2>
+              <h2 className="text-lg sm:text-xl font-bold text-slate-100 tracking-tight">Agente 87 - Ferramentas</h2>
               <p className="text-[11px] sm:text-xs text-slate-400">Acesso Restrito • Painel de KPI & Prévias</p>
             </div>
           </div>
