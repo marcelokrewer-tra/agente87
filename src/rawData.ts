@@ -2,12 +2,26 @@ import { SalesRecord } from './types';
 
 export function parsePortugueseNumber(val: string | undefined): number {
   if (!val) return 0;
-  let cleaned = val.trim();
+  let cleaned = val.trim().replace(/\s/g, '').replace('R$', '');
   if (cleaned === "" || cleaned === "-" || cleaned === "Sem Grupo") return 0;
   
-  // Remove thousand dots, and replace decimal commas with standard dots
-  cleaned = cleaned.replace(/\./g, "");
-  cleaned = cleaned.replace(/,/g, ".");
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    // Both separators, e.g., 2.000.000,50
+    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+  } else if (cleaned.includes(',')) {
+    // Only comma, e.g., 19,90
+    cleaned = cleaned.replace(',', '.');
+  } else if (cleaned.includes('.')) {
+    // Only dots, e.g., 2.000.000 or 19.90
+    const dotCount = (cleaned.match(/\./g) || []).length;
+    if (dotCount > 1) {
+      cleaned = cleaned.replace(/\./g, '');
+    } else {
+      if (/\.\d{3}$/.test(cleaned)) {
+        cleaned = cleaned.replace(/\./g, '');
+      }
+    }
+  }
   
   const parsed = parseFloat(cleaned);
   return isNaN(parsed) ? 0 : parsed;

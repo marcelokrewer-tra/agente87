@@ -45,6 +45,8 @@ import {
   FileText, 
   X, 
   ChevronRight, 
+  ChevronDown,
+  ChevronUp,
   Download, 
   LayoutDashboard, 
   User, 
@@ -69,6 +71,33 @@ import {
   UploadCloud,
   Check
 } from 'lucide-react';
+
+export const parseBrazilianNumber = (val: string | undefined): number => {
+  if (!val) return 0;
+  let cleaned = val.trim().replace(/\s/g, '').replace('R$', '');
+  if (cleaned === "" || cleaned === "-" || cleaned === "Sem Grupo") return 0;
+
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    // Both separators, e.g., 2.000.000,50
+    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+  } else if (cleaned.includes(',')) {
+    // Only comma, e.g., 19,90
+    cleaned = cleaned.replace(',', '.');
+  } else if (cleaned.includes('.')) {
+    // Only dots, e.g., 2.000.000 or 19.90
+    const dotCount = (cleaned.match(/\./g) || []).length;
+    if (dotCount > 1) {
+      cleaned = cleaned.replace(/\./g, '');
+    } else {
+      if (/\.\d{3}$/.test(cleaned)) {
+        cleaned = cleaned.replace(/\./g, '');
+      }
+    }
+  }
+
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? 0 : num;
+};
 
 export default function App() {
   // Authentication states
@@ -182,6 +211,32 @@ export default function App() {
   // Firebase integration states
   const [isFirebaseModalOpen, setIsFirebaseModalOpen] = useState<boolean>(false);
   const [isFirebaseConnected, setIsFirebaseConnected] = useState<boolean>(false);
+
+  // Mobile filters expansion state
+  const [isMobileFiltersExpanded, setIsMobileFiltersExpanded] = useState<boolean>(false);
+
+  // Cloud active password protection states
+  const [isCloudPasswordModalOpen, setIsCloudPasswordModalOpen] = useState<boolean>(false);
+  const [cloudPasswordInput, setCloudPasswordInput] = useState<string>('');
+  const [cloudPasswordError, setCloudPasswordError] = useState<string>('');
+
+  const handleCloudButtonClick = () => {
+    setCloudPasswordInput('');
+    setCloudPasswordError('');
+    setIsCloudPasswordModalOpen(true);
+  };
+
+  const handleCloudPasswordSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (cloudPasswordInput === 'mak.0708') {
+      setIsCloudPasswordModalOpen(false);
+      setIsFirebaseModalOpen(true);
+      setCloudPasswordInput('');
+      setCloudPasswordError('');
+    } else {
+      setCloudPasswordError('Senha incorreta. Tente novamente.');
+    }
+  };
 
   const checkFirebaseStatus = () => {
     setIsFirebaseConnected(getFirebaseConfig() !== null);
@@ -359,17 +414,6 @@ export default function App() {
         if (repId.toLowerCase().includes('representante') || repId.toLowerCase().includes('código') || repId.toLowerCase().includes('repid')) {
           return;
         }
-        
-        const parseBrazilianNumber = (val: string): number => {
-          let cleaned = val.replace(/\s/g, '').replace('R$', '');
-          if (cleaned.includes(',') && cleaned.includes('.')) {
-            cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-          } else if (cleaned.includes(',')) {
-            cleaned = cleaned.replace(',', '.');
-          }
-          const num = parseFloat(cleaned);
-          return isNaN(num) ? 0 : num;
-        };
         
         const previaValue = parseBrazilianNumber(rawPrevia);
         const vendaDiaPrevia = parseBrazilianNumber(rawVendaDia);
@@ -1202,7 +1246,31 @@ export default function App() {
               </span>
             </div>
 
-            {/* Seleção de Período (Mês / Ano) */}
+            {/* Mobile Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setIsMobileFiltersExpanded(!isMobileFiltersExpanded)}
+              className="w-full lg:hidden py-2.5 px-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 flex items-center justify-between transition-all cursor-pointer shadow-3xs"
+            >
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-[#001A9C]" />
+                <span className="font-extrabold text-[#001A9C]">Filtros e Período de Análise</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] bg-[#001A9C]/10 text-[#001A9C] px-2 py-0.5 rounded-full font-extrabold uppercase tracking-wider">
+                  {isMobileFiltersExpanded ? 'Minimizar' : 'Expandir'}
+                </span>
+                {isMobileFiltersExpanded ? (
+                  <ChevronUp className="w-4 h-4 text-slate-500" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-slate-500" />
+                )}
+              </div>
+            </button>
+
+            {/* Wrapped filters block - collapsible on mobile, always visible on large screens */}
+            <div className={`space-y-6 lg:block ${isMobileFiltersExpanded ? 'block' : 'hidden'}`}>
+              {/* Seleção de Período (Mês / Ano) */}
             <div className="space-y-3.5 pb-4 border-b border-slate-150">
               {/* Botão Mostrar Dados Atuais */}
               <button
@@ -1306,7 +1374,7 @@ export default function App() {
                   {isFirebaseConnected ? (
                     <button
                       type="button"
-                      onClick={() => setIsFirebaseModalOpen(true)}
+                      onClick={handleCloudButtonClick}
                       className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] font-extrabold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer border border-emerald-150 transition-all shadow-2xs"
                     >
                       <Database className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
@@ -1315,7 +1383,7 @@ export default function App() {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => setIsFirebaseModalOpen(true)}
+                      onClick={handleCloudButtonClick}
                       className="w-full py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-[10px] font-extrabold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer border border-indigo-150 transition-all"
                     >
                       <Database className="w-3.5 h-3.5 text-indigo-600" />
@@ -1473,6 +1541,7 @@ export default function App() {
             <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-450 font-bold">
               <span>Registros filtrados:</span>
               <strong className="text-slate-800 text-xs font-sans font-extrabold">{filteredRecords.length} / {allRecords.length}</strong>
+            </div>
             </div>
           </div>
         </section>
@@ -2370,8 +2439,8 @@ export default function App() {
                         return;
                       }
 
-                      const valPrevia = parseFloat(previaValueRaw) || 0;
-                      const valVendaDia = parseFloat(vendaDiaPreviaRaw) || 0;
+                      const valPrevia = parseBrazilianNumber(previaValueRaw) || 0;
+                      const valVendaDia = parseBrazilianNumber(vendaDiaPreviaRaw) || 0;
 
                       setPreviews(prev => {
                         const map = new Map<string, RepresentativePreview>();
@@ -2403,10 +2472,9 @@ export default function App() {
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Expectativa (R$)</label>
                           <input
-                            type="number"
+                            type="text"
                             name="previaValue"
-                            placeholder="Ex: 50000"
-                            step="any"
+                            placeholder="Ex: 2.000.000,00"
                             required
                             className="w-full text-xs bg-white border border-slate-200 py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700"
                           />
@@ -2414,10 +2482,9 @@ export default function App() {
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Venda no Dia (R$)</label>
                           <input
-                            type="number"
+                            type="text"
                             name="vendaDiaPrevia"
-                            placeholder="Ex: 12000"
-                            step="any"
+                            placeholder="Ex: 19,90"
                             required
                             className="w-full text-xs bg-white border border-slate-200 py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700"
                           />
@@ -2873,6 +2940,87 @@ export default function App() {
       <footer className="max-w-7xl mx-auto px-4 md:px-8 mt-12 text-center text-xs text-slate-400 font-medium pb-8">
         <p>© 2026 Tramontina S/A. Todos os direitos reservados. Sistema interno de performance de representantes.</p>
       </footer>
+
+      {/* Cloud active password verification modal */}
+      <AnimatePresence>
+        {isCloudPasswordModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col p-6 space-y-4"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center text-indigo-600">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800">Acesso ao Banco Cloud</h3>
+                    <p className="text-[10px] text-slate-400 font-medium">Digite a senha para prosseguir</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCloudPasswordModalOpen(false)}
+                  className="p-1.5 hover:bg-slate-100 active:bg-slate-200 rounded-lg text-slate-400 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Form Content */}
+              <form onSubmit={handleCloudPasswordSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Senha de Acesso
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={cloudPasswordInput}
+                    onChange={(e) => {
+                      setCloudPasswordInput(e.target.value);
+                      if (cloudPasswordError) setCloudPasswordError('');
+                    }}
+                    placeholder="••••••••"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 py-2.5 px-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/15 focus:border-[#001A9C]/30 text-slate-800 font-semibold transition-all"
+                    autoFocus
+                  />
+                  {cloudPasswordError && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="text-[10px] text-rose-500 font-bold"
+                    >
+                      {cloudPasswordError}
+                    </motion.p>
+                  )}
+                </div>
+
+                {/* Footer Buttons */}
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCloudPasswordModalOpen(false)}
+                    className="flex-1 py-2 bg-slate-50 hover:bg-slate-100 active:scale-[0.98] text-slate-700 text-xs font-bold rounded-xl transition-all border border-slate-200 cursor-pointer text-center"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2 bg-[#001A9C] hover:bg-blue-700 active:scale-[0.98] text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer text-center"
+                  >
+                    Confirmar
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <FirebaseSetupModal 
         isOpen={isFirebaseModalOpen}
