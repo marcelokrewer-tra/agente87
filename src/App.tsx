@@ -751,15 +751,21 @@ export default function App() {
 
       // Achievement threshold filter
       if (progressThreshold !== 'All') {
-        const rate = r.quotaTotal > 0 ? (r.faturadoTotal / r.quotaTotal) * 100 : 0;
+        const rate = r.quotaTotal > 0 ? (r.valorVendaTotal / r.quotaTotal) * 100 : 0;
         if (progressThreshold === '100+' && rate < 100) return false;
         if (progressThreshold === '75-99' && (rate < 75 || rate >= 100)) return false;
         if (progressThreshold === 'under-75' && rate >= 75) return false;
       }
 
+      // State filter (clicked on the map)
+      if (selectedState) {
+        const repState = customRepLocations[r.repId.toString().trim() || r.repId];
+        if (repState !== selectedState) return false;
+      }
+
       return true;
     });
-  }, [resolvedRecords, selectedCoordinator, selectedProductGroups, searchText, progressThreshold]);
+  }, [resolvedRecords, selectedCoordinator, selectedProductGroups, searchText, progressThreshold, selectedState, customRepLocations]);
 
   // Dynamic Statistics computed from currently filtered subset
   const totals = useMemo(() => {
@@ -989,13 +995,16 @@ export default function App() {
     return map;
   }, [previews]);
 
+  // Global helpers for checking active filters on representatives
+  const activeRepIds = useMemo(() => new Set(repsAggregated.map(r => r.repId.toString().trim())), [repsAggregated]);
+  const hasAnyFilter = useMemo(() => {
+    return selectedCoordinator !== 'All' || searchText.trim() !== '' || !selectedProductGroups.includes('All') || progressThreshold !== 'All' || selectedState !== null;
+  }, [selectedCoordinator, searchText, selectedProductGroups, progressThreshold, selectedState]);
+
   // Preview totals based on mapped previews
   const previewTotals = useMemo(() => {
     let totalExpectativa = 0;
     let totalVendaDiaPrevia = 0;
-    
-    const activeRepIds = new Set(repsAggregated.map(r => r.repId.toString().trim()));
-    const hasAnyFilter = selectedCoordinator !== 'All' || searchText.trim() !== '' || !selectedProductGroups.includes('All') || progressThreshold !== 'All';
 
     previews.forEach(p => {
       const isMatch = !hasAnyFilter || activeRepIds.has(p.repId.toString().trim());
@@ -1016,7 +1025,7 @@ export default function App() {
       defasagemPrevia,
       hasAnyPreview
     };
-  }, [previews, repsAggregated, totals.valorVendaTotal, selectedCoordinator, searchText, selectedProductGroups, progressThreshold]);
+  }, [previews, activeRepIds, hasAnyFilter, totals.valorVendaTotal]);
 
   // Top 5 Stars of the team
   const topPerformers = useMemo(() => {
@@ -1407,7 +1416,7 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-4 md:px-8 pt-8 grid grid-cols-1 lg:grid-cols-4 gap-6">
         
         {/* LEFT COMPACT FILTER CONTROLS SIDEBAR */}
-        <section className="lg:col-span-1 space-y-5">
+        <section className="lg:col-span-1 space-y-5 lg:sticky lg:top-8 lg:self-start lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto lg:pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
           <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm space-y-6 text-slate-700">
             {/* Logo area */}
             <div className="pb-4 border-b border-slate-150 flex flex-col gap-2">
@@ -1733,6 +1742,28 @@ export default function App() {
           {/* Bento row of Core metrics cards (Filtered live) */}
           {allRecords.length > 0 && (
             <>
+              {selectedState && (
+                <div className="bg-indigo-50/70 border border-indigo-150 p-3.5 rounded-2xl flex items-center justify-between shadow-3xs animate-fade-in">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-[#001A9C]/10 flex items-center justify-center">
+                      <MapPin className="w-4 h-4 text-[#001A9C]" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-450 tracking-wider">Filtro de Estado Ativo</span>
+                      <h4 className="text-sm font-black text-slate-800 leading-tight">
+                        {BRAZIL_STATES.find(s => s.uf === selectedState)?.name || selectedState} ({selectedState})
+                      </h4>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedState(null)}
+                    className="px-3 py-1.5 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-[#001A9C] text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-3xs"
+                  >
+                    <span>Limpar Filtro de Estado</span>
+                  </button>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* ROW 1: QUOTAS */}
                 <MetricCard
@@ -2679,7 +2710,7 @@ export default function App() {
                 <div className="pt-4 space-y-2">
                   <div className="flex justify-between items-center">
                     <h4 className="font-bold text-slate-800 text-sm">
-                      Lista de Expectativas Atual ({previews.length})
+                      Lista de Expectativas Atual ({previews.filter(prev => !hasAnyFilter || activeRepIds.has(prev.repId.toString().trim())).length} de {previews.length})
                     </h4>
                     {previews.length > 0 && (
                       <button
@@ -2709,7 +2740,7 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="text-xs divide-y divide-slate-100">
-                          {previews.map((prev) => {
+                          {previews.filter(prev => !hasAnyFilter || activeRepIds.has(prev.repId.toString().trim())).map((prev) => {
                             const matchingRep = repsAggregated.find(r => r.repId.toString().trim() === prev.repId.toString().trim());
                             const repName = matchingRep ? matchingRep.repName : "Inexistente no período";
                             const coordName = matchingRep ? matchingRep.coordName : "";
@@ -2748,6 +2779,13 @@ export default function App() {
                               </tr>
                             );
                           })}
+                          {previews.filter(prev => !hasAnyFilter || activeRepIds.has(prev.repId.toString().trim())).length === 0 && (
+                            <tr>
+                              <td colSpan={6} className="py-8 text-center text-slate-400 font-medium animate-fade-in">
+                                Nenhum representante com expectativa configurada para o filtro ou estado selecionado.
+                              </td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>
@@ -3113,29 +3151,6 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               className="space-y-6"
             >
-              {/* Header Banner */}
-              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                    <MapIcon className="w-5 h-5 text-[#001A9C]" />
-                    Desempenho Comercial por Estado (Vendas por Estado)
-                  </h3>
-                  <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
-                    Visualize o somatório de vendas e cotas consolidado por unidade federativa de atendimento. 
-                    Utilize os filtros globais à esquerda para refinar por coordenadores ou grupos de produtos.
-                  </p>
-                </div>
-                <div className="flex gap-2.5 shrink-0">
-                  <button
-                    onClick={() => setActiveTab('localizacao')}
-                    className="px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-[#001A9C] font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border border-indigo-150"
-                  >
-                    <MapPin className="w-3.5 h-3.5" />
-                    <span>Mapear Localizações</span>
-                  </button>
-                </div>
-              </div>
-
               {/* Main Split: Map on Left, Selected State Stats on Right */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 
@@ -3154,7 +3169,7 @@ export default function App() {
                     <div className="border-b border-slate-100 pb-3">
                       <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Métricas Regionais</h4>
                       <p className="text-[11px] text-slate-400 mt-1">
-                        Análise de faturamento e carteira de clientes ativos do estado selecionado.
+                        Análise de vendas e carteira de clientes ativos do estado selecionado.
                       </p>
                     </div>
 
@@ -3177,7 +3192,7 @@ export default function App() {
                             {/* Stat block */}
                             <div className="grid grid-cols-2 gap-3">
                               <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Faturamento Realizado</span>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Vendas Realizadas</span>
                                 <span className="text-sm font-extrabold text-slate-800 block mt-1">{formatCurrency(stats.sales)}</span>
                               </div>
                               <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
@@ -3216,11 +3231,11 @@ export default function App() {
                                 {percent >= 100 ? "✓ Meta Bateu com Sucesso" : percent >= 75 ? "⚠ Meta em Alerta" : "✕ Margem de Defasagem Elevada"}
                               </span>
                               {isUnderQuota ? (
-                                <>A defasagem de faturamento registrada em {selectedState} é de <strong className="font-black">{formatCurrency(stats.quota - stats.sales)}</strong> para atingir os 100% planejados.</>
+                                <>A defasagem de vendas registrada em {selectedState} é de <strong className="font-black">{formatCurrency(stats.quota - stats.sales)}</strong> para atingir os 100% planejados.</>
                               ) : stats.quota === 0 && stats.sales === 0 ? (
-                                <>Não foram encontradas metas planejadas ou faturamentos ativos registrados para representantes deste estado neste período.</>
+                                <>Não foram encontradas metas planejadas ou vendas ativas registradas para representantes deste estado neste período.</>
                               ) : (
-                                <>Excelente resultado! O faturamento superou as cotas em <strong className="font-black">{formatCurrency(stats.sales - stats.quota)}</strong>.</>
+                                <>Excelente resultado! As vendas superaram as cotas em <strong className="font-black">{formatCurrency(stats.sales - stats.quota)}</strong>.</>
                               )}
                             </div>
 
@@ -3314,7 +3329,7 @@ export default function App() {
                             <th className="py-3 px-4 text-center">Estado (UF)</th>
                             <th className="py-3 px-4">Coordenador</th>
                             <th className="py-3 px-4 text-right">Meta/Cota Total</th>
-                            <th className="py-3 px-4 text-right">Faturado CD+VP</th>
+                            <th className="py-3 px-4 text-right">Vendido CD+VP</th>
                             <th className="py-3 px-4 text-center">Atingimento</th>
                           </tr>
                         </thead>

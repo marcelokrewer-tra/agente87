@@ -100,8 +100,8 @@ export const CustomMapBrazil: React.FC<CustomMapBrazilProps> = ({
           version="1.1"
           x="0px"
           y="0px"
-          viewBox="275 85 210 210"
-          className="w-full h-full select-none"
+          viewBox="270 80 220 220"
+          className="w-full h-full select-none overflow-visible"
         >
           <defs>
             {BRAZIL_STATES.filter(state => 
@@ -168,6 +168,8 @@ export const CustomMapBrazil: React.FC<CustomMapBrazilProps> = ({
                       fill="none"
                       stroke="#001A9C"
                       strokeWidth={3}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
                       clipPath={`url(#clip-${state.uf})`}
                       className="pointer-events-none"
                     />
