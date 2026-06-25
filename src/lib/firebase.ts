@@ -247,6 +247,30 @@ export const savePreviewsToFirestore = async (year: number, month: number, previ
   });
 };
 
+export interface PreviewsWithMeta {
+  previews: RepresentativePreview[];
+  updatedAt?: string;
+}
+
+export const fetchPreviewsWithMetaFromFirestore = async (year: number, month: number): Promise<PreviewsWithMeta> => {
+  try {
+    const db = getDb();
+    const periodId = `${year}-${String(month).padStart(2, '0')}`;
+    const docRef = doc(db, 'sales_periods', periodId, 'previews', 'data');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      return {
+        previews: data.previews || [],
+        updatedAt: data.updatedAt
+      };
+    }
+  } catch (error) {
+    console.error("Error fetching previews with meta from Firestore:", error);
+  }
+  return { previews: [] };
+};
+
 export const getLocalPreviews = (year: number, month: number): RepresentativePreview[] => {
   if (typeof window === 'undefined') return [];
   try {
@@ -259,11 +283,28 @@ export const getLocalPreviews = (year: number, month: number): RepresentativePre
   }
 };
 
+export const getLocalPreviewsWithMeta = (year: number, month: number): PreviewsWithMeta => {
+  if (typeof window === 'undefined') return { previews: [] };
+  try {
+    const periodId = `${year}-${String(month).padStart(2, '0')}`;
+    const stored = localStorage.getItem(`tramontina_previews_${periodId}`);
+    const updatedAt = localStorage.getItem(`tramontina_previews_updated_${periodId}`) || undefined;
+    return {
+      previews: stored ? JSON.parse(stored) : [],
+      updatedAt
+    };
+  } catch (e) {
+    console.error("Error reading local previews with meta", e);
+    return { previews: [] };
+  }
+};
+
 export const saveLocalPreviews = (year: number, month: number, previews: RepresentativePreview[]): void => {
   if (typeof window === 'undefined') return;
   try {
     const periodId = `${year}-${String(month).padStart(2, '0')}`;
     localStorage.setItem(`tramontina_previews_${periodId}`, JSON.stringify(previews));
+    localStorage.setItem(`tramontina_previews_updated_${periodId}`, new Date().toISOString());
   } catch (e) {
     console.error("Error saving local previews", e);
   }

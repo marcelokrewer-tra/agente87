@@ -25,7 +25,10 @@ import {
   fetchRepNamesFromFirestore,
   saveRepNamesToFirestore,
   getLocalRepNames,
-  saveLocalRepNames
+  saveLocalRepNames,
+  fetchPreviewsWithMetaFromFirestore,
+  getLocalPreviewsWithMeta,
+  PreviewsWithMeta
 } from './lib/firebase';
 import { FirebaseSetupModal } from './components/FirebaseSetupModal';
 import { MetricCard } from './components/MetricCard';
@@ -97,6 +100,18 @@ export const parseBrazilianNumber = (val: string | undefined): number => {
 
   const num = parseFloat(cleaned);
   return isNaN(num) ? 0 : num;
+};
+
+export const formatPreviewsDate = (isoString: string | null | undefined): string => {
+  if (!isoString) return '';
+  try {
+    const d = new Date(isoString);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${day}/${month}`;
+  } catch (e) {
+    return '';
+  }
 };
 
 export default function App() {
@@ -291,14 +306,17 @@ export default function App() {
   const fetchPreviewsData = async (year: number, month: number) => {
     if (getFirebaseConfig()) {
       try {
-        const data = await fetchPreviewsFromFirestore(year, month);
-        setPreviews(data);
+        const data = await fetchPreviewsWithMetaFromFirestore(year, month);
+        setPreviews(data.previews);
+        setPreviewsUpdatedAt(data.updatedAt || null);
         return;
       } catch (err) {
         console.error("Firestore error loading previews, trying local fallback:", err);
       }
     }
-    setPreviews(getLocalPreviews(year, month));
+    const localData = getLocalPreviewsWithMeta(year, month);
+    setPreviews(localData.previews);
+    setPreviewsUpdatedAt(localData.updatedAt || null);
   };
 
   const fetchPeriodData = async (year: number, month: number) => {
@@ -396,6 +414,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'geral' | 'coordenadores' | 'representantes' | 'detalhado' | 'previa' | 'importar' | 'nomes'>('geral');
 
   const [previews, setPreviews] = useState<RepresentativePreview[]>([]);
+  const [previewsUpdatedAt, setPreviewsUpdatedAt] = useState<string | null>(null);
   const [isSavingPreviews, setIsSavingPreviews] = useState<boolean>(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
 
@@ -499,6 +518,8 @@ export default function App() {
         await savePreviewsToFirestore(selectedYear, selectedMonth, previews);
       }
       saveLocalPreviews(selectedYear, selectedMonth, previews);
+      const nowString = new Date().toISOString();
+      setPreviewsUpdatedAt(nowString);
       setSaveSuccessMessage("Configurações de prévia salvas com sucesso!");
       setTimeout(() => setSaveSuccessMessage(null), 3000);
     } catch (err: any) {
@@ -1635,13 +1656,13 @@ export default function App() {
               </div>
 
               {/* PREVIEW METRICS SECTION */}
-              {isDisplayingCurrentData && selectedProductGroups.includes('All') && (
+              {isDisplayingCurrentData && selectedProductGroups.includes('All') && previewTotals.hasAnyPreview && (
                 <div className="bg-amber-50/40 border border-amber-200 p-5 rounded-2xl space-y-4">
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
                       <Target className="w-4 h-4 text-amber-600" />
-                      <span className="text-[10px] font-extrabold text-amber-800 uppercase tracking-widest">
-                        Métricas de Prévia (Consolidado)
+                      <span className="text-[10px] font-black text-amber-800 uppercase tracking-widest">
+                        PRÉVIA
                       </span>
                     </div>
                     <button
@@ -1659,14 +1680,17 @@ export default function App() {
                         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
                           <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">PRÉVIA</span>
                           <div className="text-lg font-black text-slate-900">{formatCurrency(previewTotals.totalExpectativa)}</div>
-                          <p className="text-[10px] text-slate-500 font-medium">Somatório das prévias de todos os representantes</p>
                         </div>
 
                         {/* Card 2: Vendas do Dia da Prévia */}
                         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
                           <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">VENDAS NO DIA DA PRÉVIA</span>
                           <div className="text-lg font-black text-slate-900">{formatCurrency(previewTotals.totalVendaDiaPrevia)}</div>
-                          <p className="text-[10px] text-slate-500 font-medium">Puxado da tabela de expectativa de prévia</p>
+                          {previewsUpdatedAt && (
+                            <p className="text-[10px] text-emerald-600 font-bold bg-emerald-50/50 py-1 px-2.5 rounded-lg inline-block mt-1">
+                              Prévia enviada no dia {formatPreviewsDate(previewsUpdatedAt)}
+                            </p>
+                          )}
                         </div>
 
                         {/* Card 3: Defasagem Prévia */}
@@ -1675,18 +1699,8 @@ export default function App() {
                           <div className={`text-lg font-black ${previewTotals.defasagemPrevia >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                             {formatDefasagem(previewTotals.defasagemPrevia)}
                           </div>
-                          <p className="text-[10px] text-slate-500 font-medium">Venda Atual ({formatCurrency(previewTotals.totalVendaAtual)}) - Venda no Dia da Prévia - Prévia</p>
                         </div>
                       </div>
-
-                      {!previewTotals.hasAnyPreview && (
-                        <div className="bg-amber-50 border border-amber-100 p-3 rounded-xl flex items-start gap-2 text-[11px] text-amber-800 font-semibold shadow-2xs">
-                          <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                          <div>
-                            <span className="font-extrabold">Configuração pendente:</span> Nenhuma expectativa de prévia foi definida para este período ({selectedMonth}/{selectedYear}). Acesse a guia <strong className="underline cursor-pointer" onClick={() => setActiveTab('previa')}>Expectativa de Prévia</strong> para inserir os valores oficiais por representante.
-                          </div>
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
