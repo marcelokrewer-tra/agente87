@@ -752,6 +752,10 @@ export default function App() {
         percent: g.quota > 0 ? (g.faturado / g.quota) * 100 : 0,
         defasagem: g.faturado - g.quota
       }))
+      .filter(g => {
+        const nameLower = g.name.toLowerCase().trim();
+        return nameLower !== "igor pedruzzi" && nameLower !== "marcelo krewer";
+      })
       .sort((a,b) => b.faturado - a.faturado);
   }, [filteredRecords]);
 
@@ -1622,7 +1626,7 @@ export default function App() {
                   accentColor="blue"
                 />
                 <MetricCard
-                  title="% VENDAS cd E"
+                  title="% VENDAS CD"
                   value={formatPercent(totals.achCD)}
                   icon={<TrendingUp className="w-5 h-5 text-purple-600" />}
                   accentColor="purple"
@@ -1716,7 +1720,7 @@ export default function App() {
               { id: 'coordenadores', label: 'Coordenadores', icon: <Users className="w-4 h-4" /> },
               { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> },
               { id: 'previa', label: 'Expectativa de Prévia', icon: <Target className="w-4 h-4" />, hide: !isDisplayingCurrentData || !selectedProductGroups.includes('All') },
-              { id: 'importar', label: 'Importar Planilha (Excel)', icon: <FileSpreadsheet className="w-4 h-4" /> },
+              { id: 'importar', label: 'Importar Dados de Vendas', icon: <FileSpreadsheet className="w-4 h-4" /> },
               { id: 'nomes', label: 'Importar Nomes', icon: <UserCog className="w-4 h-4" /> }
             ].filter(tab => !tab.hide).map(tab => (
               <button
@@ -1809,9 +1813,8 @@ export default function App() {
                   <div>
                     <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
                       <LineChart className="w-4.5 h-4.5 text-indigo-500" />
-                      Atingimento por Coordenadoria (CD + VP Misto)
+                      Metas por Coordenador (CD + VP)
                     </h3>
-                    <p className="text-xs text-slate-400 mt-1">Cota estipulada em reais comparada ao total de vendas por equipe.</p>
                   </div>
 
                   <div className="space-y-4 pt-1">
@@ -1865,7 +1868,6 @@ export default function App() {
                       <Layers className="w-4.5 h-4.5 text-indigo-500" />
                       Vendas por Grupo de Produtos
                     </h3>
-                    <p className="text-xs text-slate-400 mt-1">Participação de cada grupo de produtos nas vendas totais.</p>
                   </div>
 
                   <div className="space-y-3.5 pt-2">
@@ -1890,7 +1892,7 @@ export default function App() {
                             </div>
                           </div>
                           
-                          <span className={`text-xs font-bold font-mono px-2 py-0.5 bg-white border rounded-full text-slate-700 ${borderClass}`}>
+                          <span className={`text-xs font-black font-sans px-2.5 py-1 bg-white border-2 rounded-full text-slate-900 shadow-3xs ${borderClass}`}>
                             {ent.share.toFixed(1)}%
                           </span>
                         </div>
@@ -1912,7 +1914,7 @@ export default function App() {
                   <div className="flex justify-between items-center pb-2 border-b border-slate-100">
                     <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
                       <Award className="w-5 h-5 text-emerald-500" />
-                      Top 5 Estrelas (Atingimento da Cota)
+                      Top 5 Representantes
                     </h3>
                     <span className="text-[10px] font-extrabold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full uppercase">Heaters</span>
                   </div>
@@ -1941,7 +1943,7 @@ export default function App() {
                               <h4 className="font-bold text-xs text-slate-800 group-hover:text-indigo-600 transition-colors truncate max-w-[180px]">
                                 {rep.repName}
                               </h4>
-                              <p className="text-[10px] text-slate-400 mt-0.5 font-medium">Coordenadoria: {rep.coordName}</p>
+                              <p className="text-[10px] text-slate-400 mt-0.5 font-medium">Coordenador: {rep.coordName}</p>
                             </div>
                           </div>
 
@@ -1964,7 +1966,7 @@ export default function App() {
                   <div className="flex justify-between items-center pb-2 border-b border-slate-100">
                     <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
                       <ShieldAlert className="w-5 h-5 text-rose-500" />
-                      Intervenção Crítica: Maior Defasagem (R$)
+                      Maior Defasagem
                     </h3>
                     <span className="text-[10px] font-extrabold bg-rose-50 text-rose-700 px-2 py-0.5 rounded-full uppercase">Déficit</span>
                   </div>
@@ -1984,7 +1986,7 @@ export default function App() {
                             <h4 className="font-bold text-xs text-slate-800 group-hover:text-indigo-600 transition-colors truncate max-w-[180px]">
                               {rep.repName}
                             </h4>
-                            <p className="text-[10px] text-slate-400 mt-0.5 font-medium">Coordenadoria: {rep.coordName}</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5 font-medium">Coordenador: {rep.coordName}</p>
                           </div>
                         </div>
 
@@ -2126,7 +2128,7 @@ export default function App() {
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="border-b border-slate-100 text-slate-400 uppercase tracking-wider font-bold">
-                      <th className="py-3 px-4 font-semibold">Coordenadoria</th>
+                      <th className="py-3 px-4 font-semibold">Coordenador</th>
                       <th className="py-3 px-2 font-semibold text-center">Nº Reps</th>
                       <th className="py-3 px-2 font-semibold text-right">Cota Global</th>
                       <th className="py-3 px-2 font-semibold text-right">Vendas CD/VP</th>

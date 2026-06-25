@@ -539,7 +539,7 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
             </div>
 
             <div className="bg-indigo-900/40 p-3 rounded-lg border border-indigo-800/50">
-              <span className="block text-[10px] font-bold text-indigo-300 uppercase tracking-wider">Coordenadorias</span>
+              <span className="block text-[10px] font-bold text-indigo-300 uppercase tracking-wider">Coordenadores</span>
               <span className="block text-sm font-extrabold mt-1 text-white">
                 {Array.from(new Set(parsedRecords.map(r => r.coordName))).length} frentes
               </span>
