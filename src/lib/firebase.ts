@@ -355,4 +355,49 @@ export const saveLocalRepNames = (names: Record<string, string>): void => {
   }
 };
 
+// ---------------- Representative Locations Persistence ----------------
+
+export const fetchRepLocationsFromFirestore = async (): Promise<Record<string, string>> => {
+  const db = getDb();
+  try {
+    const docRef = doc(db, 'sales_config', 'representative_locations');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data().locations || {};
+    }
+  } catch (error) {
+    console.error("Error fetching representative locations from Firestore:", error);
+  }
+  return {};
+};
+
+export const saveRepLocationsToFirestore = async (locations: Record<string, string>): Promise<void> => {
+  const db = getDb();
+  const docRef = doc(db, 'sales_config', 'representative_locations');
+  await setDoc(docRef, {
+    locations,
+    updatedAt: new Date().toISOString()
+  });
+};
+
+export const getLocalRepLocations = (): Record<string, string> => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const stored = localStorage.getItem('tramontina_rep_locations');
+    return stored ? JSON.parse(stored) : {};
+  } catch (e) {
+    console.error("Error reading local representative locations", e);
+    return {};
+  }
+};
+
+export const saveLocalRepLocations = (locations: Record<string, string>): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem('tramontina_rep_locations', JSON.stringify(locations));
+  } catch (e) {
+    console.error("Error saving local representative locations", e);
+  }
+};
+
 

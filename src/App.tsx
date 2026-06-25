@@ -26,10 +26,16 @@ import {
   saveRepNamesToFirestore,
   getLocalRepNames,
   saveLocalRepNames,
+  fetchRepLocationsFromFirestore,
+  saveRepLocationsToFirestore,
+  getLocalRepLocations,
+  saveLocalRepLocations,
   fetchPreviewsWithMetaFromFirestore,
   getLocalPreviewsWithMeta,
   PreviewsWithMeta
 } from './lib/firebase';
+import { CustomMapBrazil } from './components/CustomMapBrazil';
+import { BRAZIL_STATES } from './components/BrazilPaths';
 import { FirebaseSetupModal } from './components/FirebaseSetupModal';
 import { MetricCard } from './components/MetricCard';
 import { KPIGauge } from './components/KPIGauge';
@@ -72,7 +78,9 @@ import {
   Trash2,
   Plus,
   UploadCloud,
-  Check
+  Check,
+  Map as MapIcon,
+  MapPin
 } from 'lucide-react';
 
 export const parseBrazilianNumber = (val: string | undefined): number => {
@@ -140,6 +148,14 @@ export default function App() {
   const [customRepNames, setCustomRepNames] = useState<Record<string, string>>(() => {
     return getLocalRepNames();
   });
+
+  // Custom Representative Locations Mapping State
+  const [customRepLocations, setCustomRepLocations] = useState<Record<string, string>>(() => {
+    return getLocalRepLocations();
+  });
+
+  // Selected state on the Brazil map
+  const [selectedState, setSelectedState] = useState<string | null>(null);
 
   // Month-to-month and server-side memory states
   const [selectedYear, setSelectedYear] = useState<number>(2026);
@@ -387,7 +403,24 @@ export default function App() {
         }
       }
     };
+
+    // Fetch custom representative locations from Firestore
+    const fetchLocations = async () => {
+      if (getFirebaseConfig()) {
+        try {
+          const locations = await fetchRepLocationsFromFirestore();
+          if (locations && Object.keys(locations).length > 0) {
+            setCustomRepLocations(locations);
+            saveLocalRepLocations(locations);
+          }
+        } catch (err) {
+          console.error("Error loading representative locations from Firestore:", err);
+        }
+      }
+    };
+
     fetchNames();
+    fetchLocations();
   }, [isFirebaseConnected]);
 
   // Fetch period data when year or month changes
@@ -411,7 +444,7 @@ export default function App() {
   ] as const;
   
   // Dashboard Core Navigation Tabs
-  const [activeTab, setActiveTab] = useState<'geral' | 'coordenadores' | 'representantes' | 'detalhado' | 'previa' | 'importar' | 'nomes'>('geral');
+  const [activeTab, setActiveTab] = useState<'geral' | 'coordenadores' | 'representantes' | 'detalhado' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao'>('geral');
 
   const [previews, setPreviews] = useState<RepresentativePreview[]>([]);
   const [previewsUpdatedAt, setPreviewsUpdatedAt] = useState<string | null>(null);
@@ -549,6 +582,82 @@ export default function App() {
     } finally {
       setIsSavingNames(false);
     }
+  };
+
+  const [isSavingLocations, setIsSavingLocations] = useState<boolean>(false);
+  const [saveLocationsSuccessMessage, setSaveLocationsSuccessMessage] = useState<string | null>(null);
+
+  const handleSaveRepLocations = async (locationsToSave = customRepLocations) => {
+    setIsSavingLocations(true);
+    setSaveLocationsSuccessMessage(null);
+    try {
+      if (getFirebaseConfig()) {
+        await saveRepLocationsToFirestore(locationsToSave);
+      }
+      saveLocalRepLocations(locationsToSave);
+      setSaveLocationsSuccessMessage("Localizações de representantes salvas com sucesso!");
+      setTimeout(() => setSaveLocationsSuccessMessage(null), 3500);
+    } catch (err: any) {
+      console.error("Error saving representative locations:", err);
+      alert("Erro ao salvar localizações de representantes: " + err.message);
+    } finally {
+      setIsSavingLocations(false);
+    }
+  };
+
+  const handlePasteRepLocations = (text: string) => {
+    const lines = text.split('\n');
+    const newLocs: Record<string, string> = {};
+    let addedCount = 0;
+
+    lines.forEach(line => {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) return;
+
+      let parts = trimmedLine.split(/\t|;|\|/);
+
+      if (parts.length < 2) {
+        const hyphenMatch = trimmedLine.match(/^(\d+)\s*[-–—:]\s*([A-Za-z]{2})$/);
+        if (hyphenMatch) {
+          parts = [hyphenMatch[1], hyphenMatch[2]];
+        } else {
+          const spaceMatch = trimmedLine.match(/^(\d+)\s+([A-Za-z]{2})$/);
+          if (spaceMatch) {
+            parts = [spaceMatch[1], spaceMatch[2]];
+          }
+        }
+      }
+
+      if (parts.length >= 2) {
+        const rawRepId = parts[0].trim();
+        const rawState = parts[1].trim().toUpperCase();
+
+        if (
+          rawRepId.toLowerCase().includes('rep') || 
+          rawRepId.toLowerCase().includes('cód') || 
+          rawRepId.toLowerCase().includes('id') || 
+          rawState.toLowerCase().includes('est') || 
+          rawState.toLowerCase().includes('uf')
+        ) {
+          return;
+        }
+
+        const repIdNum = parseInt(rawRepId);
+        if (!isNaN(repIdNum) && rawState.length === 2) {
+          newLocs[repIdNum.toString()] = rawState;
+          addedCount++;
+        }
+      }
+    });
+
+    if (addedCount > 0) {
+      setCustomRepLocations(prev => {
+        const updated = { ...prev, ...newLocs };
+        return updated;
+      });
+      return true;
+    }
+    return false;
   };
   
   // Filter States
@@ -758,6 +867,53 @@ export default function App() {
       })
       .sort((a,b) => b.faturado - a.faturado);
   }, [filteredRecords]);
+
+  // Compute state statistics dynamically for the Brazil map view
+  const stateStats = useMemo(() => {
+    const stats: Record<string, { quota: number; sales: number; repsCount: number }> = {};
+    
+    // Initializer map for all 27 Brazilian states (pre-calculating repsCount)
+    const stateUfs = [
+      'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 
+      'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 
+      'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'
+    ];
+
+    stateUfs.forEach(uf => {
+      // Find reps who belong to this state
+      const repsInState = Object.keys(customRepLocations).filter(repId => {
+        return customRepLocations[repId] === uf;
+      });
+
+      stats[uf] = {
+        quota: 0,
+        sales: 0,
+        repsCount: repsInState.length
+      };
+    });
+
+    // Aggregate quotas and sales from resolvedRecords matching active filters (coordinator & products)
+    resolvedRecords.forEach(r => {
+      const repState = customRepLocations[r.repId.toString().trim() || r.repId];
+      if (repState && stats[repState]) {
+        // Coordinator filter
+        if (selectedCoordinator !== 'All' && r.coordName !== selectedCoordinator) return;
+        
+        // Product Group filter
+        if (!selectedProductGroups.includes('All') && selectedProductGroups.length > 0) {
+          const mappedGroupName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING];
+          if (!mappedGroupName || !selectedProductGroups.includes(mappedGroupName)) {
+            return;
+          }
+        }
+
+        stats[repState].quota += r.quotaTotal;
+        stats[repState].sales += r.valorVendaTotal;
+      }
+    });
+
+    return stats;
+  }, [resolvedRecords, customRepLocations, selectedCoordinator, selectedProductGroups]);
 
   // Group by Product Group (using the mapped groupName) to build structural segmentation charts
   const enterpriseDonutData = useMemo(() => {
@@ -1717,11 +1873,13 @@ export default function App() {
             {[
               { id: 'geral', label: 'Panorama Geral', icon: <LayoutDashboard className="w-4 h-4" /> },
               { id: 'representantes', label: 'Representantes', icon: <User className="w-4 h-4" /> },
+              { id: 'vendas_estado', label: 'Vendas por Estado', icon: <MapIcon className="w-4 h-4" /> },
               { id: 'coordenadores', label: 'Coordenadores', icon: <Users className="w-4 h-4" /> },
               { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> },
               { id: 'previa', label: 'Expectativa de Prévia', icon: <Target className="w-4 h-4" />, hide: !isDisplayingCurrentData || !selectedProductGroups.includes('All') },
               { id: 'importar', label: 'Importar Dados de Vendas', icon: <FileSpreadsheet className="w-4 h-4" /> },
-              { id: 'nomes', label: 'Importar Nomes', icon: <UserCog className="w-4 h-4" /> }
+              { id: 'nomes', label: 'Importar Nomes', icon: <UserCog className="w-4 h-4" /> },
+              { id: 'localizacao', label: 'Importar Localização', icon: <MapPin className="w-4 h-4" /> }
             ].filter(tab => !tab.hide).map(tab => (
               <button
                 key={tab.id}
@@ -1739,7 +1897,7 @@ export default function App() {
           </div>
 
           {/* EMPTY STATE IF NO DATA IN ACTIVE PERIOD */}
-          {allRecords.length === 0 && activeTab !== 'importar' && (
+          {allRecords.length === 0 && activeTab !== 'importar' && activeTab !== 'nomes' && activeTab !== 'localizacao' && (
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -2928,6 +3086,565 @@ export default function App() {
                         className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-300 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/10 hover:shadow-emerald-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
                       >
                         {isSavingNames ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Gravando...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Salvar Dados Permanente</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+            </motion.div>
+          )}
+
+          {/* TAB 7: SALES BY STATE MAP AND DETAILS */}
+          {activeTab === 'vendas_estado' && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              {/* Header Banner */}
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <MapIcon className="w-5 h-5 text-[#001A9C]" />
+                    Desempenho Comercial por Estado (Vendas por Estado)
+                  </h3>
+                  <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
+                    Visualize o somatório de vendas e cotas consolidado por unidade federativa de atendimento. 
+                    Utilize os filtros globais à esquerda para refinar por coordenadores ou grupos de produtos.
+                  </p>
+                </div>
+                <div className="flex gap-2.5 shrink-0">
+                  <button
+                    onClick={() => setActiveTab('localizacao')}
+                    className="px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-[#001A9C] font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border border-indigo-150"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>Mapear Localizações</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Main Split: Map on Left, Selected State Stats on Right */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                {/* Left Side: Map of Brazil */}
+                <div className="lg:col-span-7 flex flex-col">
+                  <CustomMapBrazil
+                    selectedState={selectedState}
+                    onStateSelect={setSelectedState}
+                    stateStats={stateStats}
+                  />
+                </div>
+
+                {/* Right Side: Selected State Stats overview cards */}
+                <div className="lg:col-span-5 flex flex-col justify-between bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+                  <div className="space-y-4">
+                    <div className="border-b border-slate-100 pb-3">
+                      <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Métricas Regionais</h4>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Análise de faturamento e carteira de clientes ativos do estado selecionado.
+                      </p>
+                    </div>
+
+                    {selectedState ? (
+                      (() => {
+                        const stats = stateStats[selectedState] || { quota: 0, sales: 0, repsCount: 0 };
+                        const percent = stats.quota > 0 ? (stats.sales / stats.quota) * 100 : stats.sales > 0 ? 100 : 0;
+                        const stateName = BRAZIL_STATES.find(s => s.uf === selectedState)?.name || selectedState;
+                        const isUnderQuota = stats.quota > 0 && percent < 100;
+
+                        return (
+                          <div className="space-y-5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-lg font-black text-slate-900">{stateName}</span>
+                              <span className="bg-[#001A9C] text-white px-2.5 py-1 rounded-xl text-xs font-extrabold uppercase shadow-sm">
+                                {selectedState}
+                              </span>
+                            </div>
+
+                            {/* Stat block */}
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Faturamento Realizado</span>
+                                <span className="text-sm font-extrabold text-slate-800 block mt-1">{formatCurrency(stats.sales)}</span>
+                              </div>
+                              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Cota Planejada</span>
+                                <span className="text-sm font-extrabold text-slate-800 block mt-1">{formatCurrency(stats.quota)}</span>
+                              </div>
+                            </div>
+
+                            {/* Achievement meter */}
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center text-xs font-bold text-slate-600">
+                                <span>Atingimento da Meta</span>
+                                <span className={percent >= 100 ? 'text-emerald-600' : percent >= 75 ? 'text-yellow-600' : 'text-rose-600'}>
+                                  {percent.toFixed(1)}%
+                                </span>
+                              </div>
+                              <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all duration-500 ${
+                                    percent >= 100 ? 'bg-emerald-500' : percent >= 75 ? 'bg-yellow-500' : 'bg-rose-500'
+                                  }`}
+                                  style={{ width: `${Math.min(percent, 100)}%` }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Defasagem alert */}
+                            <div className={`p-4 rounded-2xl border text-xs leading-relaxed ${
+                              percent >= 100 
+                                ? 'bg-emerald-50 border-emerald-150 text-emerald-800'
+                                : percent >= 75
+                                ? 'bg-amber-50 border-amber-150 text-amber-800'
+                                : 'bg-rose-50 border-rose-150 text-rose-800'
+                            }`}>
+                              <span className="font-extrabold block mb-1">
+                                {percent >= 100 ? "✓ Meta Bateu com Sucesso" : percent >= 75 ? "⚠ Meta em Alerta" : "✕ Margem de Defasagem Elevada"}
+                              </span>
+                              {isUnderQuota ? (
+                                <>A defasagem de faturamento registrada em {selectedState} é de <strong className="font-black">{formatCurrency(stats.quota - stats.sales)}</strong> para atingir os 100% planejados.</>
+                              ) : stats.quota === 0 && stats.sales === 0 ? (
+                                <>Não foram encontradas metas planejadas ou faturamentos ativos registrados para representantes deste estado neste período.</>
+                              ) : (
+                                <>Excelente resultado! O faturamento superou as cotas em <strong className="font-black">{formatCurrency(stats.sales - stats.quota)}</strong>.</>
+                              )}
+                            </div>
+
+                            {/* Quick specs */}
+                            <div className="divide-y divide-slate-100 text-xs">
+                              <div className="py-2.5 flex justify-between">
+                                <span className="text-slate-500">Representantes ativos no estado:</span>
+                                <span className="font-bold text-slate-800">{stats.repsCount}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="py-12 text-center text-slate-400 italic text-xs space-y-2">
+                        <MapIcon className="w-8 h-8 mx-auto text-slate-300" />
+                        <p>Nenhum estado selecionado no mapa.</p>
+                        <p className="text-[10px] text-slate-400 font-normal">Clique em qualquer estado colorido para analisar as métricas e ver a defasagem regional.</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                    <span>Mapeamentos de localizações ativos: {Object.keys(customRepLocations).length}</span>
+                    <button
+                      onClick={() => {
+                        setSelectedState(null);
+                      }}
+                      disabled={!selectedState}
+                      className="text-[#001A9C] hover:underline font-bold disabled:text-slate-300 disabled:no-underline"
+                    >
+                      Limpar filtro
+                    </button>
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* Bottom Row: List of Representatives below the map */}
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                  <div>
+                    <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider flex items-center gap-1.5">
+                      <Users className="w-5 h-5 text-[#001A9C]" />
+                      Representantes Ativos {selectedState ? `em ${selectedState}` : '(Lista Geral)'}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {selectedState 
+                        ? `Mostrando representantes com atendimento mapeado exclusivamente para o estado de ${BRAZIL_STATES.find(s => s.uf === selectedState)?.name || selectedState}.` 
+                        : "Mostrando todos os representantes com atendimento mapeado. Clique em uma UF do representante para destacar o mapa correspondente."
+                      }
+                    </p>
+                  </div>
+                  {selectedState && (
+                    <button
+                      onClick={() => setSelectedState(null)}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors"
+                    >
+                      Ver Todos Estados
+                    </button>
+                  )}
+                </div>
+
+                {/* Table representation */}
+                {(() => {
+                  const filteredReps = repsAggregated.filter(rep => {
+                    const repState = customRepLocations[rep.repId.toString().trim() || rep.repId];
+                    if (selectedState) {
+                      return repState === selectedState;
+                    }
+                    return true;
+                  });
+
+                  if (filteredReps.length === 0) {
+                    return (
+                      <div className="py-12 text-center text-slate-400 italic text-xs space-y-1">
+                        <p>Nenhum representante comercial encontrado para os filtros ativos.</p>
+                        <p className="text-[10px] text-slate-400 font-normal">Verifique se as localizações dos representantes foram associadas na aba "Importar Localização".</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="overflow-x-auto border border-slate-100 rounded-2xl">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                            <th className="py-3 px-4">ID</th>
+                            <th className="py-3 px-4">Representante</th>
+                            <th className="py-3 px-4 text-center">Estado (UF)</th>
+                            <th className="py-3 px-4">Coordenador</th>
+                            <th className="py-3 px-4 text-right">Meta/Cota Total</th>
+                            <th className="py-3 px-4 text-right">Faturado CD+VP</th>
+                            <th className="py-3 px-4 text-center">Atingimento</th>
+                          </tr>
+                        </thead>
+                        <tbody className="text-xs divide-y divide-slate-150 font-medium">
+                          {filteredReps.map(rep => {
+                            const repState = customRepLocations[rep.repId.toString().trim() || rep.repId] || null;
+                            const statusColor = rep.pctTotal >= 100 
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-150' 
+                              : rep.pctTotal >= 75 
+                              ? 'bg-amber-50 text-amber-800 border-amber-150' 
+                              : rep.totalQuota === 0
+                              ? 'bg-slate-50 text-slate-600 border-slate-150'
+                              : 'bg-rose-50 text-rose-800 border-rose-150';
+
+                            return (
+                              <tr key={rep.repId} className="hover:bg-slate-50/55 transition-colors">
+                                <td className="py-3 px-4 font-mono text-slate-500 font-bold">#{rep.repId}</td>
+                                <td className="py-3 px-4 font-bold text-slate-800">
+                                  {rep.repName}
+                                </td>
+                                <td className="py-3 px-4 text-center">
+                                  {repState ? (
+                                    <button
+                                      onClick={() => setSelectedState(repState)}
+                                      className={`px-2.5 py-0.5 rounded text-[11px] font-extrabold uppercase border cursor-pointer hover:scale-105 transition-transform ${
+                                        selectedState === repState 
+                                          ? 'bg-[#001A9C] text-white border-[#001A9C]' 
+                                          : 'bg-indigo-50/50 text-[#001A9C] border-indigo-200 hover:bg-indigo-100'
+                                      }`}
+                                      title="Filtrar por este estado no mapa"
+                                    >
+                                      {repState}
+                                    </button>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400 italic">Não Mapeado</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-slate-600">{rep.coordName}</td>
+                                <td className="py-3 px-4 text-right text-slate-700">{formatCurrency(rep.totalQuota)}</td>
+                                <td className="py-3 px-4 text-right text-slate-900 font-bold">{formatCurrency(rep.totalFaturado)}</td>
+                                <td className="py-3 px-4 text-center">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-black border uppercase ${statusColor}`}>
+                                      {rep.totalQuota > 0 ? `${rep.pctTotal.toFixed(1)}%` : 'Sem Cota'}
+                                    </span>
+                                    {rep.totalQuota > 0 && (
+                                      <div className="w-12 h-1.5 bg-slate-100 rounded-full overflow-hidden hidden sm:block">
+                                        <div 
+                                          className={`h-full rounded-full ${
+                                            rep.pctTotal >= 100 ? 'bg-emerald-500' : rep.pctTotal >= 75 ? 'bg-yellow-500' : 'bg-rose-500'
+                                          }`}
+                                          style={{ width: `${Math.min(rep.pctTotal, 100)}%` }}
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+
+              </div>
+            </motion.div>
+          )}
+
+          {/* TAB 8: IMPORT REPRESENTATIVE LOCATIONS OVERRIDES */}
+          {activeTab === 'localizacao' && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              {/* Header Info Banner */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <MapPin className="w-5 h-5 text-[#001A9C]" />
+                    Importar e Mapear Localizações de Representantes
+                  </h3>
+                  <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
+                    Este menu associa códigos de representantes a estados específicos do Brasil (UFs).
+                    Esses dados são persistidos na nuvem de forma permanente para preencher a visualização do mapa "Vendas por Estado".
+                  </p>
+                </div>
+                <div className="bg-indigo-50/60 border border-indigo-100 rounded-2xl px-4 py-3 text-center shrink-0">
+                  <div className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider">Mapeamentos Ativos</div>
+                  <div className="text-2xl font-black text-indigo-650">{Object.keys(customRepLocations).length}</div>
+                </div>
+              </div>
+
+              {/* Grid content split */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                {/* Left side panel: Paste spreadsheet / Manual insert */}
+                <div className="lg:col-span-5 space-y-6">
+                  
+                  {/* Paste Clipboard block */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Área de Importação de Planilha</h4>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Copie as colunas de "Representante ID" e "Estado UF" do Excel e cole no campo abaixo.
+                      </p>
+                    </div>
+
+                    <textarea
+                      placeholder={`Cole aqui no formato:\n1048\tSP\n1123\tRJ\n1205\tRS`}
+                      rows={8}
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/15 text-xs font-mono placeholder-slate-400 text-slate-700 leading-relaxed"
+                      onPaste={(e) => {
+                        const text = e.clipboardData.getData('Text');
+                        const success = handlePasteRepLocations(text);
+                        if (success) {
+                          alert('As localizações foram analisadas com sucesso! Clique em "Salvar Dados Permanente" abaixo para salvar.');
+                        } else {
+                          alert('Não foi possível identificar colunas compatíveis. Tente copiar diretamente duas colunas do Excel.');
+                        }
+                      }}
+                    />
+
+                    <div className="text-[10px] text-slate-400 leading-relaxed">
+                      💡 <strong>Dica de Estrutura:</strong> Você pode copiar duas colunas diretamente de uma planilha do Excel. O importador aceita tabulações, ponto e vírgulas, ou espaços como delimitadores.
+                    </div>
+                  </div>
+
+                  {/* Manual Single Mapping Form */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Cadastro Individual</h4>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Adicione ou edite uma associação de localização manualmente.
+                      </p>
+                    </div>
+
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const form = e.currentTarget;
+                        const rId = (form.elements.namedItem('manualRepId') as HTMLInputElement).value.trim();
+                        const rState = (form.elements.namedItem('manualRepState') as HTMLSelectElement).value.trim();
+                        
+                        if (rId && rState) {
+                          setCustomRepLocations(prev => ({
+                            ...prev,
+                            [rId]: rState
+                          }));
+                          form.reset();
+                        }
+                      }}
+                      className="space-y-4"
+                    >
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="space-y-1 col-span-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">ID Representante</label>
+                          <input
+                            type="text"
+                            name="manualRepId"
+                            required
+                            placeholder="Ex: 1048"
+                            className="w-full text-xs bg-slate-50 border border-slate-200 py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700 font-semibold"
+                          />
+                        </div>
+                        <div className="space-y-1 col-span-2">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Estado (UF)</label>
+                          <select
+                            name="manualRepState"
+                            required
+                            className="w-full text-xs bg-slate-50 border border-slate-200 py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700 font-semibold cursor-pointer"
+                          >
+                            <option value="">Selecione...</option>
+                            {[
+                              'BA', 'CE', 'PB', 'PE', 'PI', 'RN', 'SE'
+                            ].map(uf => (
+                              <option key={uf} value={uf}>{uf}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 active:scale-[0.98] text-slate-700 text-xs font-bold rounded-xl transition-all border border-slate-250 cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Adicionar Overwrite</span>
+                      </button>
+                    </form>
+                  </div>
+
+                </div>
+
+                {/* Right side panel: Search & Active location overrides table */}
+                <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between space-y-4">
+                  <div className="space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Localizações Cadastradas</h4>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          Gerencie as localizações associadas aos representantes.
+                        </p>
+                      </div>
+
+                      {/* Search Bar */}
+                      <div className="relative w-full sm:w-64">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Pesquisar mapeamento..."
+                          value={namesSearchQuery}
+                          onChange={(e) => setNamesSearchQuery(e.target.value)}
+                          className="w-full text-xs pl-8.5 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/15 text-slate-700"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Table list */}
+                    {Object.keys(customRepLocations).length > 0 ? (
+                      <div className="border border-slate-100 rounded-xl overflow-hidden max-h-[400px] overflow-y-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                              <th className="py-2.5 px-4 w-1/4">Código ID</th>
+                              <th className="py-2.5 px-4 w-2/4">Representante Comercial</th>
+                              <th className="py-2.5 px-4 text-center w-1/4">Estado (UF)</th>
+                              <th className="py-2.5 px-4 text-center w-1/4">Ação</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-xs divide-y divide-slate-100">
+                            {(Object.entries(customRepLocations) as [string, string][])
+                              .filter(([id, state]) => {
+                                const q = namesSearchQuery.toLowerCase();
+                                const repName = (customRepNames[id] || `Representante #${id}`).toLowerCase();
+                                return id.includes(q) || state.toLowerCase().includes(q) || repName.includes(q);
+                              })
+                              .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+                              .map(([id, state]) => (
+                                <tr key={id} className="hover:bg-slate-50/55">
+                                  <td className="py-2 px-4 font-mono font-bold text-slate-500">#{id}</td>
+                                  <td className="py-2 px-4 font-semibold text-slate-800">
+                                    {customRepNames[id] || (
+                                      <span className="text-slate-400 font-normal italic">Nome não mapeado (ID: {id})</span>
+                                    )}
+                                  </td>
+                                  <td className="py-2 px-4 text-center">
+                                    <span className="bg-indigo-50 text-[#001A9C] border border-indigo-150 text-[10px] font-extrabold px-2 py-0.5 rounded">
+                                      {state}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 px-4 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setCustomRepLocations(prev => {
+                                          const updated = { ...prev };
+                                          delete updated[id];
+                                          return updated;
+                                        });
+                                      }}
+                                      className="p-1 text-rose-500 hover:text-rose-750 rounded transition-colors cursor-pointer inline-flex items-center"
+                                      title="Excluir Mapeamento"
+                                    >
+                                      <Trash2 className="w-4 h-4 mx-auto" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            {(Object.entries(customRepLocations) as [string, string][]).filter(([id, state]) => {
+                              const q = namesSearchQuery.toLowerCase();
+                              const repName = (customRepNames[id] || `Representante #${id}`).toLowerCase();
+                              return id.includes(q) || state.toLowerCase().includes(q) || repName.includes(q);
+                            }).length === 0 && (
+                              <tr>
+                                <td colSpan={4} className="py-6 px-4 text-center text-slate-400 font-medium italic">
+                                  Nenhum mapeamento correspondente à busca.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="border border-dashed border-slate-200 rounded-xl py-12 px-6 text-center text-slate-400 text-xs space-y-2">
+                        <p>Nenhuma localização mapeada ainda.</p>
+                        <p className="text-[10px] text-slate-400 font-normal">Use a caixa de colagem ou o formulário para associar representantes a estados.</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions footer inside right card */}
+                  <div className="pt-4 border-t border-slate-100 flex flex-wrap gap-3 items-center justify-between">
+                    <div>
+                      {saveLocationsSuccessMessage ? (
+                        <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-bold">
+                          <Check className="w-4 h-4" />
+                          <span>{saveLocationsSuccessMessage}</span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          {getFirebaseConfig() ? "✓ Sincronizado com Nuvem Firestore" : "⚠ Salvo apenas no seu navegador local"}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2.5">
+                      {Object.keys(customRepLocations).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm('Tem certeza que deseja limpar TODOS os mapeamentos de localização?')) {
+                              setCustomRepLocations({});
+                            }
+                          }}
+                          className="px-4 py-2 text-rose-600 hover:text-rose-750 bg-rose-50 hover:bg-rose-100 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                        >
+                          Limpar Todos
+                        </button>
+                      )}
+                      
+                      <button
+                        type="button"
+                        onClick={() => handleSaveRepLocations()}
+                        disabled={isSavingLocations}
+                        className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-300 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/10 hover:shadow-emerald-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        {isSavingLocations ? (
                           <>
                             <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                             <span>Gravando...</span>
