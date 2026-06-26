@@ -10,6 +10,7 @@ interface MetricCardProps {
     isPositive: boolean;
   };
   accentColor?: string; // e.g. 'emerald', 'amber', 'rose', 'sky'
+  valueClassName?: string;
 }
 
 export const MetricCard: React.FC<MetricCardProps> = ({
@@ -17,7 +18,8 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   value,
   icon,
   trend,
-  accentColor = 'sky'
+  accentColor = 'sky',
+  valueClassName
 }) => {
   const accentClasses = {
     emerald: 'bg-emerald-50 text-emerald-700 border-emerald-100',
@@ -54,7 +56,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
       <div className="flex justify-between items-start">
         <div className="space-y-1">
           <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">{title}</p>
-          <h3 className="text-xl font-black text-slate-900 tracking-tight font-sans transition-all group-hover:scale-[1.01]">{value}</h3>
+          <h3 className={`text-xl font-black tracking-tight font-sans transition-all group-hover:scale-[1.01] ${valueClassName || 'text-slate-900'}`}>{value}</h3>
           
           {trend && (
             <div className="flex items-center gap-1.5 mt-1 flex-wrap">

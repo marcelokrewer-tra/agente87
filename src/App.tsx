@@ -1530,58 +1530,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Status Indicator inside selection box */}
-              <div className="pt-1 flex flex-col gap-1.5 text-[10px] font-bold">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400 uppercase tracking-wider">Status:</span>
-                  {allRecords.length > 0 ? (
-                    <span className="text-emerald-600 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                      Ativo ({allRecords.length} reg)
-                    </span>
-                  ) : (
-                    <span className="text-amber-500 flex items-center gap-1" title="Sem dados salvos no banco">
-                      <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />
-                      Sem dados salvos
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center justify-between text-[9px] text-slate-400 border-t border-slate-100 pt-1.5">
-                  <span className="uppercase tracking-wider">Armazenamento:</span>
-                  {usingLocalStorageFallback ? (
-                    <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-[9px] font-bold" title="Ambiente estático. Os dados são guardados apenas no seu navegador.">
-                      Navegador (Vercel)
-                    </span>
-                  ) : (
-                    <span className="text-[#001A9C] bg-blue-50 px-1.5 py-0.5 rounded text-[9px] font-bold" title="Servidor ativo. Os dados estão salvos na nuvem compartilhada.">
-                      Servidor Cloud
-                    </span>
-                  )}
-                </div>
 
-                {/* Firebase Connection Trigger Button */}
-                <div className="pt-2.5 border-t border-slate-100 flex flex-col gap-1.5">
-                  {isFirebaseConnected ? (
-                    <button
-                      type="button"
-                      onClick={handleCloudButtonClick}
-                      className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] font-extrabold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer border border-emerald-150 transition-all shadow-2xs"
-                    >
-                      <Database className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
-                      Banco Cloud Ativo 🟢
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleCloudButtonClick}
-                      className="w-full py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-[10px] font-extrabold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer border border-indigo-150 transition-all"
-                    >
-                      <Database className="w-3.5 h-3.5 text-indigo-600" />
-                      Conectar Firebase Cloud
-                    </button>
-                  )}
-                </div>
-              </div>
             </div>
 
             {/* Keyword Search */}
@@ -1829,20 +1778,23 @@ export default function App() {
                 <MetricCard
                   title="Defasagem Total"
                   value={formatDefasagem(totals.defasagem)}
-                  icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
-                  accentColor="rose"
+                  icon={totals.defasagem >= 0 ? <Check className="w-5 h-5 text-emerald-600" /> : <ShieldAlert className="w-5 h-5 text-rose-600" />}
+                  accentColor={totals.defasagem >= 0 ? "emerald" : "rose"}
+                  valueClassName={totals.defasagem >= 0 ? "text-emerald-600" : "text-rose-600"}
                 />
                 <MetricCard
                   title="Defasagem CD"
                   value={formatDefasagem(totals.valorVendaCD - totals.quotaCD)}
-                  icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
-                  accentColor="rose"
+                  icon={(totals.valorVendaCD - totals.quotaCD) >= 0 ? <Check className="w-5 h-5 text-emerald-600" /> : <ShieldAlert className="w-5 h-5 text-rose-600" />}
+                  accentColor={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "emerald" : "rose"}
+                  valueClassName={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "text-emerald-600" : "text-rose-600"}
                 />
                 <MetricCard
                   title="Defasagem VP"
                   value={formatDefasagem(totals.valorVendaVP - totals.quotaVP)}
-                  icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
-                  accentColor="rose"
+                  icon={(totals.valorVendaVP - totals.quotaVP) >= 0 ? <Check className="w-5 h-5 text-emerald-600" /> : <ShieldAlert className="w-5 h-5 text-rose-600" />}
+                  accentColor={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "emerald" : "rose"}
+                  valueClassName={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "text-emerald-600" : "text-rose-600"}
                 />
               </div>
 
@@ -3685,8 +3637,65 @@ export default function App() {
       </main>
 
       {/* Floating detail status notice */}
-      <footer className="max-w-7xl mx-auto px-4 md:px-8 mt-12 text-center text-xs text-slate-400 font-medium pb-8">
-        <p>© 2026 Tramontina S/A. Todos os direitos reservados. Sistema interno de performance de representantes.</p>
+      <footer className="max-w-7xl mx-auto px-4 md:px-8 mt-12 text-center pb-8 space-y-6">
+        {/* Database Status Block - Centralized */}
+        <div className="inline-flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 px-6 py-3.5 bg-slate-50 border border-slate-200/60 rounded-2xl shadow-3xs text-xs font-bold text-slate-600 max-w-lg mx-auto">
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400 uppercase text-[10px] tracking-wider">Status:</span>
+            {allRecords.length > 0 ? (
+              <span className="text-emerald-600 flex items-center gap-1 font-extrabold">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                Ativo ({allRecords.length} reg)
+              </span>
+            ) : (
+              <span className="text-amber-500 flex items-center gap-1 font-extrabold" title="Sem dados salvos no banco">
+                <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />
+                Sem dados salvos
+              </span>
+            )}
+          </div>
+
+          <div className="hidden sm:block h-3.5 w-px bg-slate-200" />
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400 uppercase text-[10px] tracking-wider">Armazenamento:</span>
+            {usingLocalStorageFallback ? (
+              <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg text-[10px] font-extrabold" title="Ambiente estático. Os dados são guardados apenas no seu navegador.">
+                Navegador (Vercel)
+              </span>
+            ) : (
+              <span className="text-[#001A9C] bg-blue-50 px-2 py-0.5 rounded-lg text-[10px] font-extrabold" title="Servidor ativo. Os dados estão salvos na nuvem compartilhada.">
+                Servidor Cloud
+              </span>
+            )}
+          </div>
+
+          <div className="hidden sm:block h-3.5 w-px bg-slate-200" />
+
+          <div className="flex items-center">
+            {isFirebaseConnected ? (
+              <button
+                type="button"
+                onClick={handleCloudButtonClick}
+                className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-800 text-[10px] font-extrabold rounded-xl flex items-center gap-1.5 cursor-pointer border border-emerald-150 transition-all shadow-3xs"
+              >
+                <Database className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                Banco Cloud Ativo 🟢
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleCloudButtonClick}
+                className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 active:bg-indigo-200 text-indigo-800 text-[10px] font-extrabold rounded-xl flex items-center gap-1.5 cursor-pointer border border-indigo-150 transition-all shadow-3xs"
+              >
+                <Database className="w-3.5 h-3.5 text-indigo-600" />
+                Conectar Firebase Cloud
+              </button>
+            )}
+          </div>
+        </div>
+
+        <p className="text-xs text-slate-400 font-medium">© 2026 Tramontina S/A. Todos os direitos reservados. Sistema interno de performance de representantes.</p>
       </footer>
 
       {/* Cloud active password verification modal */}
