@@ -32,7 +32,7 @@ interface ImportDataTabProps {
   currentRecordsCount: number;
   initialYear: number;
   initialMonth: number;
-  availablePeriods: Array<{ id: string; year: number; month: number; recordsCount: number }>;
+  availablePeriods: Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }>;
   onRefreshPeriods: () => void;
 }
 

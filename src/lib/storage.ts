@@ -6,6 +6,7 @@ export interface PeriodInfo {
   year: number;
   month: number;
   recordsCount: number;
+  updatedAt?: string;
 }
 
 // Key constants
@@ -25,7 +26,7 @@ export const getLocalPeriodsIndex = (): PeriodInfo[] => {
 
   // If empty, initialize with default period (June 2026) so they see data on Vercel immediately!
   const defaultIndex: PeriodInfo[] = [
-    { id: '2026-06', year: 2026, month: 6, recordsCount: parseTSV(INITIAL_RAW_DATA).length }
+    { id: '2026-06', year: 2026, month: 6, recordsCount: parseTSV(INITIAL_RAW_DATA).length, updatedAt: new Date().toISOString() }
   ];
   try {
     localStorage.setItem(PERIODS_INDEX_KEY, JSON.stringify(defaultIndex));
@@ -55,7 +56,8 @@ export const saveLocalPeriod = (year: number, month: number, records: SalesRecor
         id: periodId,
         year,
         month,
-        recordsCount: records.length
+        recordsCount: records.length,
+        updatedAt: new Date().toISOString()
       });
     }
     

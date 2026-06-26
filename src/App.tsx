@@ -80,7 +80,8 @@ import {
   UploadCloud,
   Check,
   Map as MapIcon,
-  MapPin
+  MapPin,
+  Clock
 } from 'lucide-react';
 
 export const parseBrazilianNumber = (val: string | undefined): number => {
@@ -160,11 +161,49 @@ export default function App() {
   // Month-to-month and server-side memory states
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [selectedMonth, setSelectedMonth] = useState<number>(6);
-  const [availablePeriods, setAvailablePeriods] = useState<Array<{ id: string; year: number; month: number; recordsCount: number }>>([]);
+  const [availablePeriods, setAvailablePeriods] = useState<Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }>>([]);
   const [isLoadingPeriod, setIsLoadingPeriod] = useState<boolean>(false);
   const [periodFetchError, setPeriodFetchError] = useState<string | null>(null);
   const [usingLocalStorageFallback, setUsingLocalStorageFallback] = useState<boolean>(false);
   const [hasSetInitialPeriod, setHasSetInitialPeriod] = useState<boolean>(false);
+
+  // Helper to determine last update of current period
+  const currentPeriodUpdateDate = useMemo(() => {
+    const periodId = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
+    const found = availablePeriods.find(p => p.id === periodId);
+    if (found && found.updatedAt) {
+      return new Date(found.updatedAt);
+    }
+    return null;
+  }, [selectedYear, selectedMonth, availablePeriods]);
+
+  const formatUpdateDateTime = (dateStrOrDate: string | Date | undefined | null) => {
+    if (!dateStrOrDate) return 'Sem atualizações registradas';
+    const date = typeof dateStrOrDate === 'string' ? new Date(dateStrOrDate) : dateStrOrDate;
+    if (isNaN(date.getTime())) return 'Sem atualizações registradas';
+    
+    // Format to Portuguese DD/MM/YYYY às HH:MM
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    
+    return `${day}/${month}/${year} às ${hours}:${minutes}h`;
+  };
+
+  const formatUpdateDateTimeCompact = (dateStrOrDate: string | Date | undefined | null) => {
+    if (!dateStrOrDate) return 'Sem atualizações';
+    const date = typeof dateStrOrDate === 'string' ? new Date(dateStrOrDate) : dateStrOrDate;
+    if (isNaN(date.getTime())) return 'Sem atualizações';
+    
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    
+    return `${day}/${month} às ${hours}:${minutes}`;
+  };
 
   const getLatestPeriod = () => {
     if (availablePeriods.length === 0) {
@@ -1413,13 +1452,13 @@ export default function App() {
       </AnimatePresence>
 
       {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 md:px-8 pt-8 grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <main className="max-w-7xl mx-auto px-4 md:px-8 pt-4 lg:pt-8 grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6">
         
         {/* LEFT COMPACT FILTER CONTROLS SIDEBAR */}
-        <section className="lg:col-span-1 space-y-5 lg:sticky lg:top-8 lg:self-start lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto lg:pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
-          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm space-y-6 text-slate-700">
+        <section className="lg:col-span-1 space-y-3 lg:space-y-5 lg:sticky lg:top-8 lg:self-start lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto lg:pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+          <div className="bg-white border border-slate-200 p-3.5 lg:p-5 rounded-2xl shadow-sm space-y-3.5 lg:space-y-6 text-slate-700">
             {/* Logo area */}
-            <div className="pb-4 border-b border-slate-150 flex flex-col gap-2">
+            <div className="pb-3 border-b border-slate-150 flex flex-col gap-1.5">
               <button
                 onClick={() => {
                   setActiveTab('geral');
@@ -1436,15 +1475,20 @@ export default function App() {
               </span>
             </div>
 
+            {/* Compact and discrete last update info without balloon/icons */}
+            <div className="text-[11px] font-medium text-slate-500 pb-1.5 border-b border-slate-100">
+              <span>Última atualização: <strong className="text-slate-800 font-extrabold">{currentPeriodUpdateDate ? formatUpdateDateTimeCompact(currentPeriodUpdateDate) : 'Sem envio'}</strong></span>
+            </div>
+
             {/* Mobile Toggle Button */}
             <button
               type="button"
               onClick={() => setIsMobileFiltersExpanded(!isMobileFiltersExpanded)}
-              className="w-full lg:hidden py-2.5 px-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 flex items-center justify-between transition-all cursor-pointer shadow-3xs"
+              className="w-full lg:hidden py-1.5 px-3.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 flex items-center justify-between transition-all cursor-pointer shadow-3xs"
             >
               <div className="flex items-center gap-2">
                 <SlidersHorizontal className="w-3.5 h-3.5 text-[#001A9C]" />
-                <span className="font-extrabold text-[#001A9C]">Filtros e Período de Análise</span>
+                <span className="font-extrabold text-[#001A9C]">Filtros</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] bg-[#001A9C]/10 text-[#001A9C] px-2 py-0.5 rounded-full font-extrabold uppercase tracking-wider">
@@ -1459,9 +1503,9 @@ export default function App() {
             </button>
 
             {/* Wrapped filters block - collapsible on mobile, always visible on large screens */}
-            <div className={`space-y-6 lg:block ${isMobileFiltersExpanded ? 'block' : 'hidden'}`}>
+            <div className={`space-y-4 lg:space-y-6 lg:block ${isMobileFiltersExpanded ? 'block' : 'hidden'}`}>
               {/* Seleção de Período (Mês / Ano) */}
-            <div className="space-y-3.5 pb-4 border-b border-slate-150">
+            <div className="space-y-2.5 lg:space-y-3.5 pb-3 lg:pb-4 border-b border-slate-150">
               {/* Botão Mostrar Dados Atuais */}
               <button
                 onClick={handleShowCurrentData}

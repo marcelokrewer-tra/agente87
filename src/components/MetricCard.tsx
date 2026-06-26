@@ -48,15 +48,15 @@ export const MetricCard: React.FC<MetricCardProps> = ({
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-all duration-200 relative overflow-hidden group"
+      className="bg-white border border-slate-200 rounded-xl p-2.5 sm:p-3.5 shadow-sm hover:shadow-md transition-all duration-200 relative overflow-hidden group"
     >
       {/* Decorative vertical line */}
       <div className={`absolute top-0 bottom-0 left-0 w-1 ${dotAccentClasses}`} />
       
       <div className="flex justify-between items-start">
-        <div className="space-y-1">
-          <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">{title}</p>
-          <h3 className={`text-xl font-black tracking-tight font-sans transition-all group-hover:scale-[1.01] ${valueClassName || 'text-slate-900'}`}>{value}</h3>
+        <div className="space-y-0.5">
+          <p className="text-[9px] sm:text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">{title}</p>
+          <h3 className={`text-base sm:text-lg font-black tracking-tight font-sans transition-all group-hover:scale-[1.01] ${valueClassName || 'text-slate-900'}`}>{value}</h3>
           
           {trend && (
             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
@@ -69,7 +69,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
           )}
         </div>
         
-        <div className={`p-2 rounded-lg border ${accentClasses} shadow-xs transition-transform duration-300 group-hover:rotate-6 shrink-0`}>
+        <div className={`p-1.5 rounded-lg border ${accentClasses} shadow-xs transition-transform duration-300 group-hover:rotate-6 shrink-0`}>
           {icon}
         </div>
       </div>

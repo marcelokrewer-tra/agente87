@@ -109,19 +109,20 @@ export const testFirebaseConnection = async (config: FirebaseConfig): Promise<bo
 };
 
 // 6. Fetch periods from Firestore
-export const fetchPeriodsFromFirestore = async (): Promise<Array<{ id: string; year: number; month: number; recordsCount: number }>> => {
+export const fetchPeriodsFromFirestore = async (): Promise<Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }>> => {
   const db = getDb();
   const periodsCollection = collection(db, 'sales_periods');
   const snapshot = await getDocs(periodsCollection);
   
-  const periods: Array<{ id: string; year: number; month: number; recordsCount: number }> = [];
+  const periods: Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }> = [];
   snapshot.forEach((document) => {
     const data = document.data();
     periods.push({
       id: document.id, // ID is 'YYYY-MM'
       year: data.year,
       month: data.month,
-      recordsCount: data.recordsCount || 0
+      recordsCount: data.recordsCount || 0,
+      updatedAt: data.updatedAt
     });
   });
 
