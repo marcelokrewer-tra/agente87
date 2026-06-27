@@ -1280,8 +1280,8 @@ export default function App() {
         >
           {/* Logo and Brand */}
           <div className="text-center space-y-3">
-            <div className="mx-auto w-12 h-12 sm:w-14 sm:h-14 bg-[#001A9C] rounded-2xl flex items-center justify-center shadow-lg shadow-[#001A9C]/15">
-              <svg viewBox="0 0 20.39 20" className="w-5 sm:w-6 h-5 sm:h-6 text-white" fill="currentColor">
+            <div className="mx-auto flex items-center justify-center">
+              <svg viewBox="0 0 20.39 20" className="w-12 h-12 text-[#001A9C]" fill="currentColor">
                 <polygon points="4.06 0 0 3.41 0 4.2 10.52 4.2 6.9 7.17 6.9 20 7.7 20 12.16 16.25 12.16 4.2 16.33 4.2 20.39 .79 20.39 0 4.06 0" />
               </svg>
             </div>
