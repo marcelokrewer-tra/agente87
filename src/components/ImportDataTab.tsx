@@ -97,73 +97,6 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
     }
   };
 
-  const loadDefaults = () => {
-    handleParse(INITIAL_RAW_DATA);
-    setTsvText('');
-  };
-
-  const loadFullSpreadsheet = () => {
-    const fullTSV = INITIAL_RAW_DATA + `
-87	348	Ara Repres Ltda	27	Adriano Almeida	GAR	Ferramentas	36	Garibaldi Pro Monet	0	0	0	0	3.077	0	0	3.077	0	0	1.966	5.043	0	5.043	0	5.580	5.580	0
-87	348	Ara Repres Ltda	27	Adriano Almeida	BEL	Utilidades	35	Belem Geral Mon.	0	495	0	0	0	0	0	495	0	0	0	495	0	495	495	0	495	0
-87	352	Barbosa & Boulitreau	10	Juan Almeida	FAR	Utilidades	41	Far Panelas Monet.	0	0	0	0	0	0	0	0	0	0	0	0	0		0	0	0	0
-87	352	Barbosa & Boulitreau	10	Juan Almeida	FAR	Utilidades	42	Far Servir Monet.	0	0	0	0	0	0	0	0	0	0	0	0	0		0	0	0	0
-87	394	Tramontina Nordeste	12	Igor Pedruzzi	DEL	Lar	36	Delta Plastico Mon.	0	115	0	0	0	0	0	115	0	0	0	115	0	115	115	0	115	0
-87	394	Tramontina Nordeste	12	Igor Pedruzzi	FAR	Utilidades	43	Far Talheres Monet.	0	344	0	0	0	0	0	344	0	0	0	344	0	344	344	0	344	0
-87	394	Tramontina Nordeste	12	Igor Pedruzzi	CUT	Utilidades	37	Cut Churrasco Mon	0	446	0	0	0	0	0	446	0	0	0	446	0	446	446	0	446	0
-87	394	Tramontina Nordeste	12	Igor Pedruzzi	GAR	Ferramentas	37	Garibaldi Master Mon	0	0	0	0	0	0	0	0	0	0	0	0	0		0	758	758	0
-87	394	Tramontina Nordeste	12	Igor Pedruzzi	CUT	Utilidades	39	Cut Geral Monet.	0	771	0	0	0	0	0	771	0	0	0	771	0	771	771	0	771	0
-87	394	Tramontina Nordeste	12	Igor Pedruzzi	FAR	Utilidades	42	Far Servir Monet.	0	211	0	0	0	0	0	211	0	0	0	211	0	211	211	0	211	0
-87	401	Dto Padilha Ltda	15	Dionatan	ELT	Elétrica	40	Eletric Residen. Mon	0	0	0	0	0	0	0	0	0	0	0	0	0		-122	0	-122	0
-87	404	Tcardoso RepresentaÇ	15	Dionatan	FAR	Utilidades	50	Far Termicos Monet.	0	0	0	0	0	0	0	0	0	0	0	0	0		0	0	0	0
-87	404	Tcardoso RepresentaÇ	15	Dionatan	CUT	Utilidades	39	Cut Geral Monet.	3.375	2.171	64,3	0	0	0	3.375	2.171	64,3	0	0	2.171	64,3	-1.204	1.945	0	1.945	57,6
-87	405	Mj E A RepresentaÇÕE	15	Dionatan	DEL	Lar	36	Delta Plastico Mon.	0	473	0	0	0	0	0	473	0	0	0	473	0	473	473	0	473	0
-87	405	Mj E A RepresentaÇÕE	15	Dionatan	ELT	Elétrica	41	Eletric Indust Mon	0	1.322	0	0	0	0	0	1.322	0	0	0	1.322	0	1.322	1.473	0	1.473	0
-87	405	Mj E A RepresentaÇÕE	15	Dionatan	FAR	Utilidades	42	Far Servir Monet.	0	0	0	0	0	0	0	0	0	0	0	0	0		164	0	164	0
-87	405	Mj E A RepresentaÇÕE	15	Dionatan	CUT	Utilidades	37	Cut Churrasco Mon	0	798	0	0	0	0	0	798	0	0	0	798	0	798	798	0	798	0
-87	405	Mj E A RepresentaÇÕE	15	Dionatan	ELT	Elétrica	40	Eletric Residen. Mon	0	0	0	0	0	0	0	0	0	0	0	0	0		128	0	128	0
-87	405	Mj E A RepresentaÇÕE	15	Dionatan	GAR	Ferramentas	36	Garibaldi Pro Monet	4.970	8.042	161,8	1.420	3.094	217,9	6.390	11.136	174,3	0	0	11.136	174,3	4.746	8.518	3.442	11.960	187,2
-87	406	Vendedor FuncionÁRio	25	Marcelo Krewer	GAR	Ferramentas	37	Garibaldi Master Mon	7.100	0	0	35.500	0	0	42.600	0	0	0	0	0	0	-42.600	0	0	0	0
-87	431	Arnon Bruno Represen	10	Juan Almeida	TEC		0	Sem Grupo	0	118	0	0	0	0	0	118	0	0	0	118	0	118	118	0	118	0
-87	431	Arnon Bruno Represen	10	Juan Almeida	GAR	Ferramentas	36	Garibaldi Pro Monet	2.130	638	30	3.550	4.691	132,1	5.680	5.329	93,8	0	0	5.329	93,8	-351	638	2.851	3.489	61,4
-87	431	Arnon Bruno Represen	10	Juan Almeida	ELT	Elétrica	41	Eletric Indust Mon	0	1.357	0	0	0	0	0	1.357	0	0	0	1.357	0	1.357	1.357	0	1.357	0
-87	431	Arnon Bruno Represen	10	Juan Almeida	DEL	Lar	36	Delta Plastico Mon.	0	2.437	0	0	0	0	0	2.437	0	0	0	2.437	0	2.437	2.437	0	2.437	0
-87	432	Aa Pupulin Represent	10	Juan Almeida	GAR	Ferramentas	36	Garibaldi Pro Monet	1.420	1.697	119,5	0	0	0	1.420	1.697	119,5	0	0	1.697	119,5	277	4.112	0	4.112	289,6
-87	432	Aa Pupulin Represent	10	Juan Almeida	CUT	Utilidades	39	Cut Geral Monet.	8.625	5.620	65,2	0	0	0	8.625	5.620	65,2	0	0	5.620	65,2	-3.005	6.995	0	6.995	81,1
-87	432	Aa Pupulin Represent	10	Juan Almeida	ELT	Elétrica	40	Eletric Residen. Mon	0	1.340	0	0	0	0	0	1.340	0	0	0	1.340	0	1.340	2.367	0	2.367	0
-87	432	Aa Pupulin Represent	10	Juan Almeida	TEC		0	Sem Grupo	0	0	0	0	0	0	0	0	0	0	0	0	0		651	0	651	0
-87	433	CrisÓStomo Represent	10	Juan Almeida	CUT	Utilidades	39	Cut Geral Monet.	3.750	8.029	214,1	0	0	0	3.750	8.029	214,1	0	0	8.029	214,1	4.279	2.401	0	2.401	64
-87	433	CrisÓStomo Represent	10	Juan Almeida	TEC		0	Sem Grupo	0	1.440	0	0	0	0	0	1.440	0	0	0	1.440	0	1.440	1.440	0	1.440	0
-87	433	CrisÓStomo Represent	10	Juan Almeida	GAR	Ferramentas	36	Garibaldi Pro Monet	1.420	652	45,9	0	0	0	1.420	652	45,9	0	0	652	45,9	-768	605	878	1.483	104,4
-87	435	Dalia Representacoes	10	Juan Almeida	GAR	Ferramentas	37	Garibaldi Master Mon	12.780	3.419	26,8	42.600	30.281	71,1	55.380	33.700	60,9	0	0	33.700	60,9	-21.680	5.943	50.158	56.101	101,3
-87	435	Dalia Representacoes	10	Juan Almeida	GAR	Ferramentas	36	Garibaldi Pro Monet	710	0	0	2.130	3.458	162,3	2.840	3.458	121,8	0	0	3.458	121,8	618	0	4.103	4.103	144,5
-87	437	M D H RepresentaÇÕEs	10	Juan Almeida	CUT	Utilidades	39	Cut Geral Monet.	8.250	9.520	115,4	900	0	0	9.150	9.520	104,1	0	0	9.520	104,1	370	9.520	0	9.520	104,1
-87	437	M D H RepresentaÇÕEs	10	Juan Almeida	CUT	Utilidades	37	Cut Churrasco Mon	0	36	0	0	0	0	0	36	0	0	0	36	0	36	36	0	36	0
-87	437	M D H RepresentaÇÕEs	10	Juan Almeida	GAR	Ferramentas	36	Garibaldi Pro Monet	1.420	95	6,7	4.260	6.991	164,1	5.680	7.086	124,8	0	0	7.086	124,8	1.406	7.065	7.119	14.184	249,7
-87	439	E A Nogueira Represe	27	Adriano Almeida	GAR	Ferramentas	36	Garibaldi Pro Monet	0	0	0	0	1.082	0	0	1.082	0	0	0	1.082	0	1.082	0	3.390	3.390	0
-87	439	E A Nogueira Represe	27	Adriano Almeida	GAR	Ferramentas	37	Garibaldi Master Mon	49.700	74.918	150,7	355.000	48.586	13,7	404.700	123.503	30,5	0	0	123.503	30,5	-281.197	80.968	90.155	171.124	42,3
-87	439	E A Nogueira Represe	27	Adriano Almeida	CUT	Utilidades	39	Cut Geral Monet.	750	32.462	4328,3	14.400	0	0	15.150	32.462	214,3	0	0	32.462	214,3	17.312	32.462	3.497	35.959	237,4
-87	447	Romulo E Silvia Rep.	25	Marcelo Krewer	GAR	Ferramentas	37	Garibaldi Master Mon	7.100	0	0	35.500	187	0,5	42.600	187	0,4	0	0	187	0,4	-42.413	0	0	0	0
-87	447	Romulo E Silvia Rep.	25	Marcelo Krewer	GAR	Ferramentas	36	Garibaldi Pro Monet	0	0	0	0	19.098	0	0	19.098	0	0	0	19.098	0	19.098	0	0	0	0
-87	452	Barbosa & Boulitreau	27	Adriano Almeida	MUL		0	Sem Grupo	0	0	0	0	63.166	0	0	63.166	0	0	0	63.166	0	63.166	0	0	0	0
-87	464	D. Victor Representa	3	Julio Warken	GAR	Ferramentas	36	Garibaldi Pro Monet	2.840	1.009	35,5	164.720	31.958	19,4	167.560	32.967	19,7	0	0	32.967	19,7	-134.593	941	20.363	21.305	12,7
-87	464	D. Victor Representa	3	Julio Warken	GAR	Ferramentas	37	Garibaldi Master Mon	3.550	3.990	112,4	21.300	17.922	84,1	24.850	21.912	88,2	0	0	21.912	88,2	-2.938	1.294	9.997	11.291	45,4
-87	465	Geraldo Silvestre Re	10	Juan Almeida	GAR	Ferramentas	37	Garibaldi Master Mon	53.250	38.438	72,2	67.450	964	1,4	120.700	39.403	32,7	822	0	40.225	33,3	-80.475	42.500	964	43.465	36
-87	465	Geraldo Silvestre Re	10	Juan Almeida	GAR	Ferramentas	36	Garibaldi Pro Monet	4.260	5.485	128,8	17.750	0	0	22.010	5.485	24,9	733	0	6.219	28,3	-15.791	7.209	0	7.209	32,8
-87	465	Geraldo Silvestre Re	10	Juan Almeida	CUT	Utilidades	39	Cut Geral Monet.	4.500	3.460	76,9	0	0	0	4.500	3.460	76,9	0	0	3.460	76,9	-1.040	1.662	0	1.662	36,9
-87	466	Acop RepresentaÇÕEs	3	Julio Warken	GAR	Ferramentas	37	Garibaldi Master Mon	42.600	40.848	95,9	39.050	0	0	81.650	40.848	50	0	0	40.848	50	-40.802	37.154	0	37.154	45,5
-87	466	Acop RepresentaÇÕEs	3	Julio Warken	CUT	Utilidades	39	Cut Geral Monet.	3.375	2.326	68,9	2.700	0	0	6.075	2.326	38,3	0	0	2.326	38,3	-3.749	862	0	862	14,2
-87	467	Daniel Victor - Ce	25	Marcelo Krewer	GAR	Ferramentas	37	Garibaldi Master Mon	7.100	0	0	35.500	0	0	42.600	0	0	0	0	0	0	-42.600	0	0	0	0
-87	472	Fp RepresentaÇÕEs Co	27	Adriano Almeida	GAR	Ferramentas	37	Garibaldi Master Mon	3.550	0	0	7.100	0	0	10.650	0	0	0	0	0	0	-10.650	0	0	0	0
-87	472	Fp RepresentaÇÕEs Co	27	Adriano Almeida	CUT	Utilidades	39	Cut Geral Monet.	0	0	0	46.800	129.516	276,7	46.800	129.516	276,7	0	0	129.516	276,7	82.716	0	129.516	129.516	276,7
-87	484	Fontenele Representa	27	Adriano Almeida	CUT	Utilidades	39	Cut Geral Monet.	0	0	0	30.600	0	0	30.600	0	0	0	0	0	0	-30.600	0	0	0	0
-87	796	Ventine E LourenÇO L	10	Juan Almeida	GAR	Ferramentas	36	Garibaldi Pro Monet	710	823	115,9	1.420	308	21,7	2.130	1.130	53,1	0	0	1.130	53,1	-1.000	1.380	1.710	3.091	145,1
-87	796	Ventine E LourenÇO L	10	Juan Almeida	CUT	Utilidades	39	Cut Geral Monet.	8.250	3.148	38,2	900	0	0	9.150	3.148	34,4	0	0	3.148	34,4	-6.002	3.921	0	3.921	42,9
-`;
-    handleParse(fullTSV);
-    setTsvText('');
-  };
-
   const onPasteSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!tsvText.trim()) return;
@@ -431,47 +364,6 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
         </motion.div>
       )}
 
-      {/* Preset loaders */}
-      <div className="space-y-3">
-        <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Métodos de Carregamento</h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-white p-4 rounded-xl border border-slate-100 flex flex-col justify-between space-y-3 shadow-sm transition-all hover:border-slate-200">
-            <div>
-              <h3 className="font-semibold text-slate-800 text-xs flex items-center gap-1.5 uppercase tracking-wide">
-                <Sparkles className="w-4 h-4 text-sky-500" />
-                Preset Reduzido (35 Linhas)
-              </h3>
-              <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                Carrega uma seleção inteligente com os 35 representantes mais ativos do canal CD/VP. Excelente para testes iniciais rápidos.
-              </p>
-            </div>
-            <button
-              onClick={loadDefaults}
-              className="w-full text-xs bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 font-bold py-2.5 px-3 rounded-lg transition-colors cursor-pointer border border-slate-200"
-            >
-              Pré-carregar 35 Linhas
-            </button>
-          </div>
-
-          <div className="bg-gradient-to-br from-indigo-50/50 to-white p-4 rounded-xl border border-indigo-100 flex flex-col justify-between space-y-3 shadow-sm transition-all hover:border-indigo-200">
-            <div>
-              <h3 className="font-semibold text-indigo-900 text-xs flex items-center gap-1.5 uppercase tracking-wide">
-                <Sparkles className="w-4 h-4 text-indigo-500" />
-                Planilha Completa Original (130+ Linhas)
-              </h3>
-              <p className="text-[11px] text-indigo-800/70 mt-1 leading-relaxed">
-                Carrega o relatório completo de metas de vendas com todos os registros reais de representantes, divisões e subcanais integrados.
-              </p>
-            </div>
-            <button
-              onClick={loadFullSpreadsheet}
-              className="w-full text-xs bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold py-2.5 px-3 rounded-lg transition-colors shadow-xs cursor-pointer border border-indigo-700"
-            >
-              🔥 Pré-carregar Planilha Completa (130+)
-            </button>
-          </div>
-        </div>
-      </div>
 
       {/* Manual Paste Form */}
       <form onSubmit={onPasteSubmit} className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm space-y-4">

@@ -1112,12 +1112,17 @@ export default function App() {
   const previewTotals = useMemo(() => {
     let totalExpectativa = 0;
     let totalVendaDiaPrevia = 0;
+    let totalPedidosNovos = 0;
 
     previews.forEach(p => {
       const isMatch = !hasAnyFilter || activeRepIds.has(p.repId.toString().trim());
       if (isMatch) {
         totalExpectativa += p.previaValue;
         totalVendaDiaPrevia += p.vendaDiaPrevia;
+
+        const rep = repsAggregated.find(r => r.repId.toString().trim() === p.repId.toString().trim());
+        const currentSales = rep ? rep.totalVendido : 0;
+        totalPedidosNovos += (currentSales - p.vendaDiaPrevia);
       }
     });
 
@@ -1130,9 +1135,10 @@ export default function App() {
       totalVendaDiaPrevia,
       totalVendaAtual,
       defasagemPrevia,
+      totalPedidosNovos,
       hasAnyPreview
     };
-  }, [previews, activeRepIds, hasAnyFilter, totals.valorVendaTotal]);
+  }, [previews, activeRepIds, hasAnyFilter, totals.valorVendaTotal, repsAggregated]);
 
   // Top 5 Stars of the team
   const topPerformers = useMemo(() => {
@@ -1195,6 +1201,11 @@ export default function App() {
 
       const defasagemVal = valorVendaTotal - quotaTotal;
 
+      const matchingPreview = previews.find(p => p.repId.toString().trim() === first.repId.toString().trim());
+      const pValue = matchingPreview ? matchingPreview.previaValue : 0;
+      const vDiaPrevia = matchingPreview ? matchingPreview.vendaDiaPrevia : 0;
+      const pNovos = valorVendaTotal - vDiaPrevia;
+
       const agg: SalesRecord = {
         id: first.repId.toString(),
         age: first.age,
@@ -1224,10 +1235,12 @@ export default function App() {
         valorVendaVP,
         valorVendaTotal,
         pctVenda: quotaTotal > 0 ? (valorVendaTotal / quotaTotal) * 100 : 0,
+        previaValue: pValue,
+        pedidosNovos: pNovos,
       };
       return agg;
     });
-  }, [filteredRecords]);
+  }, [filteredRecords, previews]);
 
   // Sorting logic for details table
   const sortedDetails = useMemo(() => {
@@ -1270,25 +1283,31 @@ export default function App() {
   // Export current filtered rows to a downloadable CSV
   const exportToCSV = () => {
     const headers = [
-      'Representante ID', 'Nome Representante', 'Coordenador', 'Empresa (Filial)', 
-      'Linha', 'Grupo', 'Cota Total', 'Vendas Total', '% Atingimento', 'Defasagem', 'Valor Venda Total'
+      'Representante ID', 'Nome Representante', 'Coordenador', 'Grupo', 
+      'Cota Total', 'Vendas Total', '% Venda', 'Defasagem', 'Prévia', 'Pedidos Novos'
     ];
     
     const csvRows = [
       headers.join(';'), // semicolon for Excel friendly portuguese locale parser
-      ...sortedDetails.map(r => [
-        r.repId,
-        `"${r.repName.replace(/"/g, '""')}"`,
-        `"${r.coordName.replace(/"/g, '""')}"`,
-        `"${r.emp.replace(/"/g, '""')}"`,
-        `"${r.linha.replace(/"/g, '""')}"`,
-        `"${r.groupName.replace(/"/g, '""')}"`,
-        r.quotaTotal.toString().replace('.', ','),
-        r.faturadoTotal.toString().replace('.', ','),
-        (r.quotaTotal > 0 ? ((r.faturadoTotal / r.quotaTotal) * 100).toFixed(1) : '0').replace('.', ','),
-        r.defasagem.toString().replace('.', ','),
-        r.valorVendaTotal.toString().replace('.', ',')
-      ].join(';'))
+      ...sortedDetails.map(r => {
+        const matchingPreview = previews.find(p => p.repId.toString().trim() === r.repId.toString().trim());
+        const previaVal = matchingPreview ? matchingPreview.previaValue : 0;
+        const vendaDiaPrevia = matchingPreview ? matchingPreview.vendaDiaPrevia : 0;
+        const pedNovos = r.valorVendaTotal - vendaDiaPrevia;
+        
+        return [
+          r.repId,
+          `"${r.repName.replace(/"/g, '""')}"`,
+          `"${r.coordName.replace(/"/g, '""')}"`,
+          `"${r.groupName.replace(/"/g, '""')}"`,
+          r.quotaTotal.toString().replace('.', ','),
+          r.valorVendaTotal.toString().replace('.', ','),
+          (r.quotaTotal > 0 ? ((r.valorVendaTotal / r.quotaTotal) * 100).toFixed(1) : '0').replace('.', ','),
+          r.defasagem.toString().replace('.', ','),
+          previaVal.toString().replace('.', ','),
+          pedNovos.toString().replace('.', ',')
+        ].join(';');
+      })
     ];
 
     const csvContent = "\uFEFF" + csvRows.join('\n');
@@ -1468,7 +1487,7 @@ export default function App() {
                     Divisão de Cotas por Grupo ({repDetailData.rows.length})
                   </span>
                   <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                    Atingimento: {formatPercent(repDetailData.percent)}
+                    % Venda: {formatPercent(repDetailData.percent)}
                   </span>
                 </div>
 
@@ -2031,7 +2050,7 @@ export default function App() {
 
                   {showPreviewMetrics && (
                     <div className="space-y-3">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         {/* Card 1: Prévia */}
                         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
                           <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">PRÉVIA</span>
@@ -2054,6 +2073,14 @@ export default function App() {
                           <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">DEFASAGEM DA PRÉVIA</span>
                           <div className={`text-lg font-black ${previewTotals.defasagemPrevia >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                             {formatDefasagem(previewTotals.defasagemPrevia)}
+                          </div>
+                        </div>
+
+                        {/* Card 4: Pedidos Novos */}
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
+                          <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">PEDIDOS NOVOS</span>
+                          <div className={`text-lg font-black ${previewTotals.totalPedidosNovos >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            {formatCurrency(previewTotals.totalPedidosNovos)}
                           </div>
                         </div>
                       </div>
@@ -2586,29 +2613,29 @@ export default function App() {
                         <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors" onClick={() => toggleSort('coordName')}>
                           <span className="flex items-center gap-1">Coordenador <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
                         </th>
-                        <th className="py-3 px-1 cursor-pointer hover:bg-slate-50 transition-colors" onClick={() => toggleSort('emp')}>
-                          <span className="flex items-center gap-1">Filial <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
-                        </th>
-                        <th className="py-3 px-2 cursor-pointer hover:bg-slate-50 transition-colors hidden md:table-cell" onClick={() => toggleSort('linha')}>
-                          <span className="flex items-center gap-1">Linha <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
-                        </th>
                         <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('quotaTotal')}>
                           <span className="flex items-center gap-1 justify-end">Cota Planejada <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
                         </th>
-                        <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('faturadoTotal')}>
+                        <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('valorVendaTotal')}>
                           <span className="flex items-center gap-1 justify-end">Vendas <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
                         </th>
-                        <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('pctTotal')}>
-                          <span className="flex items-center gap-1 justify-end">% Ating. <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
+                        <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('pctVenda')}>
+                          <span className="flex items-center gap-1 justify-end">% Venda <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
                         </th>
                         <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('defasagem')}>
                           <span className="flex items-center gap-1 justify-end">Defasagem <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
+                        </th>
+                        <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('previaValue')}>
+                          <span className="flex items-center gap-1 justify-end">Prévia <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
+                        </th>
+                        <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('pedidosNovos')}>
+                          <span className="flex items-center gap-1 justify-end">Pedidos Novos <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
                         </th>
                       </tr>
                     </thead>
                     <tbody>
                       {currentDetailsPageData.map((row) => {
-                        const rowRate = row.quotaTotal > 0 ? (row.faturadoTotal / row.quotaTotal) * 100 : 0;
+                        const rowRate = row.quotaTotal > 0 ? (row.valorVendaTotal / row.quotaTotal) * 100 : 0;
                         const rowRateColor = rowRate >= 100 
                           ? 'text-emerald-600 font-extrabold' 
                           : rowRate >= 75 
@@ -2625,15 +2652,19 @@ export default function App() {
                               {row.repName}
                             </td>
                             <td className="py-3 px-3 text-slate-500">{row.coordName}</td>
-                            <td className="py-3 px-1"><span className="px-1.5 py-0.5 rounded-sm bg-slate-100 text-slate-700 font-extrabold font-mono text-[10px] uppercase">{row.emp}</span></td>
-                            <td className="py-3 px-2 text-slate-500 hidden md:table-cell">{row.linha}</td>
                             <td className="py-3 px-3 text-right font-mono text-slate-600">{formatCurrency(row.quotaTotal)}</td>
-                            <td className="py-3 px-3 text-right font-mono text-slate-800">{formatCurrency(row.faturadoTotal)}</td>
+                            <td className="py-3 px-3 text-right font-mono text-slate-800">{formatCurrency(row.valorVendaTotal)}</td>
                             <td className={`py-3 px-3 text-right font-mono ${rowRateColor}`}>
                               {formatPercent(rowRate)}
                             </td>
                             <td className={`py-3 px-3 text-right font-mono font-bold ${row.defasagem >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
                               {formatCurrency(row.defasagem)}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono text-slate-600">
+                              {formatCurrency(row.previaValue || 0)}
+                            </td>
+                            <td className={`py-3 px-3 text-right font-mono font-bold ${(row.pedidosNovos ?? 0) >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                              {formatCurrency(row.pedidosNovos || 0)}
                             </td>
                           </tr>
                         );
@@ -3369,7 +3400,7 @@ export default function App() {
                             {/* Achievement meter */}
                             <div className="space-y-2">
                               <div className="flex justify-between items-center text-xs font-bold text-slate-600">
-                                <span>Atingimento da Meta</span>
+                                <span>% Venda</span>
                                 <span className={percent >= 100 ? 'text-emerald-600' : percent >= 75 ? 'text-yellow-600' : 'text-rose-600'}>
                                   {percent.toFixed(1)}%
                                 </span>
@@ -3396,11 +3427,11 @@ export default function App() {
                                 {percent >= 100 ? "✓ Meta Bateu com Sucesso" : percent >= 75 ? "⚠ Meta em Alerta" : "✕ Margem de Defasagem Elevada"}
                               </span>
                               {isUnderQuota ? (
-                                <>A defasagem de vendas registrada em {selectedState} é de <strong className="font-black">{formatCurrency(stats.quota - stats.sales)}</strong> para atingir os 100% planejados.</>
+                                <>A defasagem de vendas (Vendas - Cota) registrada em {selectedState} é de <strong className="font-black">{formatDefasagem(stats.sales - stats.quota)}</strong> para atingir os 100% planejados.</>
                               ) : stats.quota === 0 && stats.sales === 0 ? (
                                 <>Não foram encontradas metas planejadas ou vendas ativas registradas para representantes deste estado neste período.</>
                               ) : (
-                                <>Excelente resultado! As vendas superaram as cotas em <strong className="font-black">{formatCurrency(stats.sales - stats.quota)}</strong>.</>
+                                <>Excelente resultado! A defasagem (Vendas - Cota) registrada em {selectedState} é de <strong className="font-black">{formatDefasagem(stats.sales - stats.quota)}</strong>.</>
                               )}
                             </div>
 
@@ -3495,7 +3526,7 @@ export default function App() {
                             <th className="py-3 px-4">Coordenador</th>
                             <th className="py-3 px-4 text-right">Meta/Cota Total</th>
                             <th className="py-3 px-4 text-right">Vendido CD+VP</th>
-                            <th className="py-3 px-4 text-center">Atingimento</th>
+                            <th className="py-3 px-4 text-center">% Venda</th>
                           </tr>
                         </thead>
                         <tbody className="text-xs divide-y divide-slate-150 font-medium">

@@ -222,7 +222,7 @@ export const CustomMapBrazil: React.FC<CustomMapBrazilProps> = ({
                   <span className="font-semibold text-white">{formatCurrency(hoveredStats.sales)}</span>
                 </div>
                 <div className="flex justify-between items-center pt-1 border-t border-slate-800 mt-1">
-                  <span className="text-[11px] text-slate-400 font-medium">Atingimento:</span>
+                  <span className="text-[11px] text-slate-400 font-medium">% Venda:</span>
                   <span 
                     className={`font-black text-sm ${
                       hoveredStats.quota === 0 

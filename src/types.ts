@@ -27,6 +27,8 @@ export interface SalesRecord {
   valorVendaVP: number;
   valorVendaTotal: number;
   pctVenda: number;
+  previaValue?: number;
+  pedidosNovos?: number;
 }
 
 export interface RepresentativeSummary {
