@@ -3684,7 +3684,7 @@ export default function App() {
                           >
                             <option value="">Selecione...</option>
                             {[
-                              'BA', 'CE', 'PB', 'PE', 'PI', 'RN', 'SE'
+                              'AL', 'BA', 'CE', 'PB', 'PE', 'PI', 'RN', 'SE'
                             ].map(uf => (
                               <option key={uf} value={uf}>{uf}</option>
                             ))}

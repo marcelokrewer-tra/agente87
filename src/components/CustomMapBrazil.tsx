@@ -105,7 +105,7 @@ export const CustomMapBrazil: React.FC<CustomMapBrazilProps> = ({
         >
           <defs>
             {BRAZIL_STATES.filter(state => 
-              ['PI', 'CE', 'RN', 'PB', 'PE', 'SE', 'BA'].includes(state.uf)
+              ['PI', 'CE', 'RN', 'PB', 'PE', 'AL', 'SE', 'BA'].includes(state.uf)
             ).map((state) => (
               <clipPath key={`clip-${state.uf}`} id={`clip-${state.uf}`}>
                 <path d={state.d1} />
@@ -114,7 +114,7 @@ export const CustomMapBrazil: React.FC<CustomMapBrazilProps> = ({
           </defs>
           <g>
             {BRAZIL_STATES.filter(state => 
-              ['PI', 'CE', 'RN', 'PB', 'PE', 'SE', 'BA'].includes(state.uf)
+              ['PI', 'CE', 'RN', 'PB', 'PE', 'AL', 'SE', 'BA'].includes(state.uf)
             ).sort((a, b) => {
               const aActive = a.uf === selectedState || a.uf === hoveredState?.uf;
               const bActive = b.uf === selectedState || b.uf === hoveredState?.uf;
@@ -134,6 +134,7 @@ export const CustomMapBrazil: React.FC<CustomMapBrazilProps> = ({
                 RN: 'matrix(1 0 0 1 425 133)',
                 PB: 'matrix(1 0 0 1 424 148)',
                 PE: 'matrix(1 0 0 1 411 163)',
+                AL: 'matrix(1 0 0 1 430 174)',
                 SE: 'matrix(1 0 0 1 418 187)',
               };
 
