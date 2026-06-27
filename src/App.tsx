@@ -3865,56 +3865,56 @@ export default function App() {
       {/* Floating detail status notice */}
       <footer className="max-w-7xl mx-auto px-4 md:px-8 mt-12 text-center pb-8 space-y-6">
         {/* Database Status Block - Centralized */}
-        <div className="inline-flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 px-6 py-3.5 bg-slate-50 border border-slate-200/60 rounded-2xl shadow-3xs text-xs font-bold text-slate-600 max-w-lg mx-auto">
-          <div className="flex items-center gap-1.5">
+        <div className="inline-flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 px-6 py-3.5 bg-slate-50 border border-slate-200/60 rounded-2xl shadow-3xs text-xs font-bold text-slate-600 max-w-2xl mx-auto">
+          <div className="flex items-center gap-1.5 shrink-0">
             <span className="text-slate-400 uppercase text-[10px] tracking-wider">Status:</span>
             {allRecords.length > 0 ? (
-              <span className="text-emerald-600 flex items-center gap-1 font-extrabold">
-                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+              <span className="text-emerald-600 flex items-center gap-1.5 font-extrabold whitespace-nowrap">
+                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shrink-0" />
                 Ativo ({allRecords.length} reg)
               </span>
             ) : (
-              <span className="text-amber-500 flex items-center gap-1 font-extrabold" title="Sem dados salvos no banco">
-                <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />
+              <span className="text-amber-500 flex items-center gap-1.5 font-extrabold whitespace-nowrap" title="Sem dados salvos no banco">
+                <span className="w-2 h-2 bg-amber-400 rounded-full shrink-0" />
                 Sem dados salvos
               </span>
             )}
           </div>
 
-          <div className="hidden sm:block h-3.5 w-px bg-slate-200" />
+          <div className="hidden sm:block h-3.5 w-px bg-slate-200 shrink-0" />
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             <span className="text-slate-400 uppercase text-[10px] tracking-wider">Armazenamento:</span>
             {usingLocalStorageFallback ? (
-              <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg text-[10px] font-extrabold" title="Ambiente estático. Os dados são guardados apenas no seu navegador.">
+              <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg text-[10px] font-extrabold whitespace-nowrap" title="Ambiente estático. Os dados são guardados apenas no seu navegador.">
                 Navegador (Vercel)
               </span>
             ) : (
-              <span className="text-[#001A9C] bg-blue-50 px-2 py-0.5 rounded-lg text-[10px] font-extrabold" title="Servidor ativo. Os dados estão salvos na nuvem compartilhada.">
+              <span className="text-[#001A9C] bg-blue-50 px-2 py-0.5 rounded-lg text-[10px] font-extrabold whitespace-nowrap" title="Servidor ativo. Os dados estão salvos na nuvem compartilhada.">
                 Servidor Cloud
               </span>
             )}
           </div>
 
-          <div className="hidden sm:block h-3.5 w-px bg-slate-200" />
+          <div className="hidden sm:block h-3.5 w-px bg-slate-200 shrink-0" />
 
-          <div className="flex items-center">
+          <div className="flex items-center shrink-0">
             {isFirebaseConnected ? (
               <button
                 type="button"
                 onClick={handleCloudButtonClick}
-                className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-800 text-[10px] font-extrabold rounded-xl flex items-center gap-1.5 cursor-pointer border border-emerald-150 transition-all shadow-3xs"
+                className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-800 text-[10px] font-extrabold rounded-xl flex items-center gap-1.5 cursor-pointer border border-emerald-150 transition-all shadow-3xs whitespace-nowrap shrink-0"
               >
-                <Database className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                <Database className="w-3.5 h-3.5 text-emerald-600 animate-pulse shrink-0" />
                 Banco Cloud Ativo 🟢
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleCloudButtonClick}
-                className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 active:bg-indigo-200 text-indigo-800 text-[10px] font-extrabold rounded-xl flex items-center gap-1.5 cursor-pointer border border-indigo-150 transition-all shadow-3xs"
+                className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 active:bg-indigo-200 text-indigo-800 text-[10px] font-extrabold rounded-xl flex items-center gap-1.5 cursor-pointer border border-indigo-150 transition-all shadow-3xs whitespace-nowrap shrink-0"
               >
-                <Database className="w-3.5 h-3.5 text-indigo-600" />
+                <Database className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                 Conectar Firebase Cloud
               </button>
             )}
