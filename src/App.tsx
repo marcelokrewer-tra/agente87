@@ -551,7 +551,8 @@ export default function App() {
   ] as const;
   
   // Dashboard Core Navigation Tabs
-  const [activeTab, setActiveTab] = useState<'geral' | 'coordenadores' | 'representantes' | 'detalhado' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao'>('geral');
+  const [activeTab, setActiveTab] = useState<'geral' | 'representantes' | 'detalhado' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao'>('geral');
+  const [isImportDropdownOpen, setIsImportDropdownOpen] = useState(false);
 
   const [previews, setPreviews] = useState<RepresentativePreview[]>([]);
   const [previewsUpdatedAt, setPreviewsUpdatedAt] = useState<string | null>(null);
@@ -1338,6 +1339,26 @@ export default function App() {
 
     const defasagem = valorVenda - quota;
 
+    // Aggregate by mapped product group
+    const aggregatedByGroup: { [key: string]: { mappedGroupName: string; quotaTotal: number; valorVendaTotal: number; defasagem: number } } = {};
+    
+    items.forEach(r => {
+      const mappedGroupName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING] || "Tramontina Multi";
+      if (!aggregatedByGroup[mappedGroupName]) {
+        aggregatedByGroup[mappedGroupName] = {
+          mappedGroupName,
+          quotaTotal: 0,
+          valorVendaTotal: 0,
+          defasagem: 0
+        };
+      }
+      aggregatedByGroup[mappedGroupName].quotaTotal += r.quotaTotal;
+      aggregatedByGroup[mappedGroupName].valorVendaTotal += r.valorVendaTotal;
+      aggregatedByGroup[mappedGroupName].defasagem += r.defasagem;
+    });
+
+    const aggregatedRows = Object.values(aggregatedByGroup);
+
     return {
       repId: selectedRepDetailId,
       repName: items[0].repName,
@@ -1347,7 +1368,7 @@ export default function App() {
       defasagem,
       valorVenda,
       percent: quota > 0 ? (valorVenda / quota) * 100 : 0,
-      rows: items
+      rows: aggregatedRows
     };
   }, [filteredRecords, selectedRepDetailId]);
 
@@ -1495,18 +1516,10 @@ export default function App() {
                   {repDetailData.rows.map((row, idx) => {
                     const rowAch = row.quotaTotal > 0 ? (row.valorVendaTotal / row.quotaTotal) * 100 : 0;
                     return (
-                      <div key={row.id || idx} className="p-4 bg-slate-50 hover:bg-slate-100/70 rounded-xl border border-slate-100 transition-colors space-y-3">
+                      <div key={idx} className="p-4 bg-slate-50 hover:bg-slate-100/70 rounded-xl border border-slate-100 transition-colors space-y-3">
                         <div className="flex justify-between items-start">
                           <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-200 text-slate-700 uppercase tracking-wider font-mono">
-                                {row.emp}
-                              </span>
-                              <span className="text-xs font-semibold text-slate-500">
-                                {row.linha}
-                              </span>
-                            </div>
-                            <h4 className="font-bold text-slate-800 text-sm mt-1">{row.groupName}</h4>
+                            <h4 className="font-bold text-slate-800 text-sm">{row.mappedGroupName}</h4>
                           </div>
                           <span className={`text-xs font-extrabold ${rowAch >= 100 ? 'text-emerald-600' : rowAch >= 75 ? 'text-amber-600' : 'text-rose-600'}`}>
                             {rowAch.toFixed(1)}%
@@ -2092,21 +2105,19 @@ export default function App() {
           )}
  
           {/* Navigation controller layout bar */}
-          <div className="bg-white border border-slate-100 p-2 rounded-2xl shadow-xs flex flex-wrap gap-2">
+          <div className="bg-white border border-slate-100 p-2 rounded-2xl shadow-xs flex flex-wrap gap-2 items-center">
             {[
-              { id: 'geral', label: 'Panorama Geral', icon: <LayoutDashboard className="w-4 h-4" /> },
+              { id: 'geral', label: 'Geral', icon: <LayoutDashboard className="w-4 h-4" /> },
               { id: 'representantes', label: 'Representantes', icon: <User className="w-4 h-4" /> },
-              { id: 'vendas_estado', label: 'Vendas por Estado', icon: <MapIcon className="w-4 h-4" /> },
-              { id: 'coordenadores', label: 'Coordenadores', icon: <Users className="w-4 h-4" /> },
-              { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> },
-              { id: 'previa', label: 'Expectativa de Prévia', icon: <Target className="w-4 h-4" />, hide: !isDisplayingCurrentData || !selectedProductGroups.includes('All') },
-              { id: 'importar', label: 'Importar Dados de Vendas', icon: <FileSpreadsheet className="w-4 h-4" /> },
-              { id: 'nomes', label: 'Importar Nomes', icon: <UserCog className="w-4 h-4" /> },
-              { id: 'localizacao', label: 'Importar Localização', icon: <MapPin className="w-4 h-4" /> }
-            ].filter(tab => !tab.hide).map(tab => (
+              { id: 'vendas_estado', label: 'Regiões', icon: <MapIcon className="w-4 h-4" /> },
+              { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> }
+            ].map(tab => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => {
+                  setActiveTab(tab.id as any);
+                  setIsImportDropdownOpen(false);
+                }}
                 className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer relative ${
                   activeTab === tab.id 
                     ? 'text-slate-900 bg-slate-950/[0.04] border border-slate-950/[0.02] font-extrabold shadow-2xs' 
@@ -2117,10 +2128,60 @@ export default function App() {
                 <span>{tab.label}</span>
               </button>
             ))}
+
+            {/* Import Information Dropdown Menu */}
+            <div className="relative">
+              <button
+                onClick={() => setIsImportDropdownOpen(!isImportDropdownOpen)}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border ${
+                  ['previa', 'importar', 'nomes', 'localizacao'].includes(activeTab)
+                    ? 'text-slate-900 bg-slate-950/[0.04] border-slate-950/[0.05] font-extrabold shadow-2xs' 
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border-transparent'
+                }`}
+              >
+                <UploadCloud className="w-4 h-4 text-indigo-500" />
+                <span>Importar Informações</span>
+                <ChevronDown className={`w-3 h-3 transition-transform ${isImportDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isImportDropdownOpen && (
+                <>
+                  {/* Overlay background to dismiss the dropdown when clicking outside */}
+                  <div 
+                    className="fixed inset-0 z-10" 
+                    onClick={() => setIsImportDropdownOpen(false)} 
+                  />
+                  <div className="absolute left-0 mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 z-20 origin-top-left">
+                    {[
+                      { id: 'importar', label: 'Importar Dados de Vendas', icon: <FileSpreadsheet className="w-4 h-4 text-indigo-500" /> },
+                      { id: 'previa', label: 'Importar Prévia', icon: <Target className="w-4 h-4 text-amber-500" /> },
+                      { id: 'nomes', label: 'Importar Nomes', icon: <UserCog className="w-4 h-4 text-emerald-500" /> },
+                      { id: 'localizacao', label: 'Importar Localização', icon: <MapPin className="w-4 h-4 text-rose-500" /> }
+                    ].map(subTab => (
+                      <button
+                        key={subTab.id}
+                        onClick={() => {
+                          setActiveTab(subTab.id as any);
+                          setIsImportDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-4 py-2.5 text-xs font-bold transition-colors flex items-center gap-2.5 hover:bg-slate-50 ${
+                          activeTab === subTab.id 
+                            ? 'text-slate-900 bg-slate-950/[0.02]' 
+                            : 'text-slate-600 font-medium'
+                        }`}
+                      >
+                        {subTab.icon}
+                        <span>{subTab.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
           {/* EMPTY STATE IF NO DATA IN ACTIVE PERIOD */}
-          {allRecords.length === 0 && activeTab !== 'importar' && activeTab !== 'nomes' && activeTab !== 'localizacao' && (
+          {allRecords.length === 0 && !['previa', 'importar', 'nomes', 'localizacao'].includes(activeTab) && (
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -2493,86 +2554,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {/* TAB 3: COORDINATORS LEAGUE BOARD */}
-          {activeTab === 'coordenadores' && allRecords.length > 0 && (
-            <motion.div 
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-4 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm"
-            >
-              <div>
-                <h3 className="font-bold text-slate-900 text-base">Liga de Coordenadores</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Indicadores sintetizados por equipe com volume de representantes ativos.</p>
-              </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-slate-400 uppercase tracking-wider font-bold">
-                      <th className="py-3 px-4 font-semibold">Coordenador</th>
-                      <th className="py-3 px-2 font-semibold text-center">Nº Reps</th>
-                      <th className="py-3 px-2 font-semibold text-right">Cota Global</th>
-                      <th className="py-3 px-2 font-semibold text-right">Vendas CD/VP</th>
-                      <th className="py-3 px-2 font-semibold text-right">Defasagem</th>
-                      <th className="py-3 px-2 font-semibold text-center">Status</th>
-                      <th className="py-3 px-4 font-semibold text-right">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {coordinatorPerformance.map(coord => {
-                      const achRate = coord.percent;
-                      const progressColor = achRate >= 100 
-                        ? 'bg-emerald-500' 
-                        : achRate >= 75 
-                        ? 'bg-amber-500' 
-                        : 'bg-rose-500';
-
-                      const textProgressColor = achRate >= 100 
-                        ? 'text-emerald-700 bg-emerald-50 border-emerald-100' 
-                        : achRate >= 75 
-                        ? 'text-amber-700 bg-amber-50 border-amber-100' 
-                        : 'text-rose-700 bg-rose-50 border-rose-100';
-
-                      return (
-                        <tr key={coord.name} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors font-medium">
-                          <td className="py-4 px-4 font-bold text-slate-800 text-sm">{coord.name}</td>
-                          <td className="py-4 px-2 text-center text-slate-700">{coord.repsCount}</td>
-                          <td className="py-4 px-2 text-right font-mono font-semibold text-slate-600">{formatCurrency(coord.quota)}</td>
-                          <td className="py-4 px-2 text-right font-mono font-bold text-slate-900">{formatCurrency(coord.faturado)}</td>
-                          <td className={`py-4 px-2 text-right font-mono font-bold ${coord.defasagem >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-                            {formatCurrency(coord.defasagem)}
-                          </td>
-                          <td className="py-4 px-2 text-center">
-                            <span className={`px-2 py-0.5 rounded-full border text-[10px] uppercase font-extrabold leading-normal ${textProgressColor}`}>
-                              {formatPercent(coord.percent)}
-                            </span>
-                          </td>
-                          <td className="py-4 px-4 text-right">
-                            <button
-                              onClick={() => {
-                                setSelectedCoordinator(coord.name);
-                                setActiveTab('geral');
-                              }}
-                              className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center gap-0.5 cursor-pointer"
-                            >
-                              Filtro Rápido
-                              <ArrowUpRight className="w-3 h-3" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-
-                    {coordinatorPerformance.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="py-8 text-center text-slate-400">Nenhum coordenador correspondente.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </motion.div>
-          )}
 
           {/* TAB 4: PRISTINE FILTERABLE TABLE DATA EXPLORER */}
           {activeTab === 'detalhado' && allRecords.length > 0 && (
@@ -2747,7 +2729,7 @@ export default function App() {
                   <div>
                     <h3 className="font-bold text-slate-900 text-lg flex items-center gap-2">
                       <Target className="w-5 h-5 text-indigo-500" />
-                      Expectativa de Prévia ({selectedMonth}/{selectedYear})
+                      Importar Prévia ({selectedMonth}/{selectedYear})
                     </h3>
                     <p className="text-xs text-slate-400 mt-1">
                       Configure a expectativa (previsão) e as vendas do dia da prévia por representante comercial.
@@ -3612,7 +3594,7 @@ export default function App() {
                   </h3>
                   <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
                     Este menu associa códigos de representantes a estados específicos do Brasil (UFs).
-                    Esses dados são persistidos na nuvem de forma permanente para preencher a visualização do mapa "Vendas por Estado".
+                    Esses dados são persistidos na nuvem de forma permanente para preencher a visualização do mapa "Regiões".
                   </p>
                 </div>
                 <div className="bg-indigo-50/60 border border-indigo-100 rounded-2xl px-4 py-3 text-center shrink-0">

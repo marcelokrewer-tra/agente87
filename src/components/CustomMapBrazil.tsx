@@ -65,7 +65,7 @@ export const CustomMapBrazil: React.FC<CustomMapBrazilProps> = ({
     <div className="relative w-full flex flex-col items-center bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
       <div className="w-full flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
-          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Mapa de Desempenho por Estado</h3>
+          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Desempenho por Regiões</h3>
           <p className="text-xs text-slate-400 mt-1">
             Selecione um estado no mapa para filtrar representantes e analisar os resultados regionais.
           </p>
