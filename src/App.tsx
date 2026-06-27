@@ -164,6 +164,12 @@ export default function App() {
   const [isAccumulated, setIsAccumulated] = useState<boolean>(false);
   const [accumulateStartMonth, setAccumulateStartMonth] = useState<number>(1);
   const [accumulateEndMonth, setAccumulateEndMonth] = useState<number>(6);
+
+  const [tempYear, setTempYear] = useState<number>(2026);
+  const [tempMonth, setTempMonth] = useState<number>(6);
+  const [tempIsAccumulated, setTempIsAccumulated] = useState<boolean>(false);
+  const [tempAccumulateStartMonth, setTempAccumulateStartMonth] = useState<number>(1);
+  const [tempAccumulateEndMonth, setTempAccumulateEndMonth] = useState<number>(6);
   const [availablePeriods, setAvailablePeriods] = useState<Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }>>([]);
   const [isLoadingPeriod, setIsLoadingPeriod] = useState<boolean>(false);
   const [periodFetchError, setPeriodFetchError] = useState<string | null>(null);
@@ -237,14 +243,30 @@ export default function App() {
       });
       setSelectedYear(sorted[0].year);
       setSelectedMonth(sorted[0].month);
+      setTempYear(sorted[0].year);
+      setTempMonth(sorted[0].month);
       setHasSetInitialPeriod(true);
     }
   };
 
   const handleShowCurrentData = () => {
+    setIsAccumulated(false);
+    setTempIsAccumulated(false);
     const latest = getLatestPeriod();
     setSelectedYear(latest.year);
     setSelectedMonth(latest.month);
+    setTempYear(latest.year);
+    setTempMonth(latest.month);
+    setIsMobileFiltersExpanded(false);
+  };
+
+  const handleApplyPeriodFilter = () => {
+    setSelectedYear(tempYear);
+    setSelectedMonth(tempMonth);
+    setIsAccumulated(tempIsAccumulated);
+    setAccumulateStartMonth(tempAccumulateStartMonth);
+    setAccumulateEndMonth(tempAccumulateEndMonth);
+    setIsMobileFiltersExpanded(false);
   };
 
   const isDisplayingCurrentData = useMemo(() => {
@@ -772,6 +794,8 @@ export default function App() {
   const [selectedCoordinator, setSelectedCoordinator] = useState<string>('All');
   const [selectedProductGroups, setSelectedProductGroups] = useState<string[]>(['All']);
   const [searchText, setSearchText] = useState<string>('');
+  const [selectedRepIdFilter, setSelectedRepIdFilter] = useState<number | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
   const [namesSearchQuery, setNamesSearchQuery] = useState<string>('');
   const [progressThreshold, setProgressThreshold] = useState<string>('All'); // 'All', '100+', '75-99', 'under-75'
   const [showPreviewMetrics, setShowPreviewMetrics] = useState<boolean>(true);
@@ -799,6 +823,8 @@ export default function App() {
     setSelectedProductGroups(['All']);
     setSearchText('');
     setProgressThreshold('All');
+    setSelectedRepIdFilter(null);
+    setShowSuggestions(false);
   };
 
   // Dynamic mapped records with customized representative names prioritized
@@ -848,13 +874,18 @@ export default function App() {
         }
       }
       
-      // Search matching (by rep name or ID)
-      if (searchText.trim() !== '') {
-        const query = searchText.toLowerCase();
-        const matchName = r.repName.toLowerCase().includes(query);
-        const matchId = r.repId.toString().includes(query);
-        const matchGroup = r.groupName.toLowerCase().includes(query);
-        if (!matchName && !matchId && !matchGroup) return false;
+      // Representative exact ID filter
+      if (selectedRepIdFilter !== null) {
+        if (r.repId !== selectedRepIdFilter) return false;
+      } else {
+        // Search matching (by rep name or ID)
+        if (searchText.trim() !== '') {
+          const query = searchText.toLowerCase();
+          const matchName = r.repName.toLowerCase().includes(query);
+          const matchId = r.repId.toString().includes(query);
+          const matchGroup = r.groupName.toLowerCase().includes(query);
+          if (!matchName && !matchId && !matchGroup) return false;
+        }
       }
 
       // Achievement threshold filter
@@ -873,7 +904,7 @@ export default function App() {
 
       return true;
     });
-  }, [resolvedRecords, selectedCoordinator, selectedProductGroups, searchText, progressThreshold, selectedState, customRepLocations]);
+  }, [resolvedRecords, selectedCoordinator, selectedProductGroups, searchText, selectedRepIdFilter, progressThreshold, selectedState, customRepLocations]);
 
   // Dynamic Statistics computed from currently filtered subset
   const totals = useMemo(() => {
@@ -1103,11 +1134,37 @@ export default function App() {
     return map;
   }, [previews]);
 
+  // Suggestions based on search input
+  const searchSuggestions = useMemo(() => {
+    if (searchText.trim() === '') return [];
+    const query = searchText.toLowerCase();
+    
+    // Group unique reps from resolvedRecords
+    const repsMap = new Map<number, { repId: number; repName: string }>();
+    resolvedRecords.forEach(r => {
+      // Apply coordinator filter if selected
+      if (selectedCoordinator !== 'All' && r.coordName !== selectedCoordinator) return;
+      // Apply state filter if selected
+      if (selectedState) {
+        const repState = customRepLocations[r.repId.toString().trim() || r.repId];
+        if (repState !== selectedState) return;
+      }
+      
+      const name = r.repName || '';
+      const id = r.repId;
+      if (name.toLowerCase().includes(query) || id.toString().includes(query)) {
+        repsMap.set(id, { repId: id, repName: name });
+      }
+    });
+    
+    return Array.from(repsMap.values()).slice(0, 10);
+  }, [resolvedRecords, searchText, selectedCoordinator, selectedState, customRepLocations]);
+
   // Global helpers for checking active filters on representatives
   const activeRepIds = useMemo(() => new Set(repsAggregated.map(r => r.repId.toString().trim())), [repsAggregated]);
   const hasAnyFilter = useMemo(() => {
-    return selectedCoordinator !== 'All' || searchText.trim() !== '' || !selectedProductGroups.includes('All') || progressThreshold !== 'All' || selectedState !== null;
-  }, [selectedCoordinator, searchText, selectedProductGroups, progressThreshold, selectedState]);
+    return selectedCoordinator !== 'All' || searchText.trim() !== '' || !selectedProductGroups.includes('All') || progressThreshold !== 'All' || selectedState !== null || selectedRepIdFilter !== null;
+  }, [selectedCoordinator, searchText, selectedProductGroups, progressThreshold, selectedState, selectedRepIdFilter]);
 
   // Preview totals based on mapped previews
   const previewTotals = useMemo(() => {
@@ -1621,18 +1678,11 @@ export default function App() {
               {/* Botão Mostrar Dados Atuais */}
               <button
                 onClick={handleShowCurrentData}
-                className="w-full py-2 px-3 bg-blue-50/50 hover:bg-[#001A9C]/10 text-[#001A9C] border border-[#001A9C]/10 hover:border-[#001A9C]/20 rounded-xl text-xs font-extrabold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer shadow-3xs group"
+                className="w-full py-1.5 px-3 bg-blue-50/50 hover:bg-[#001A9C]/10 text-[#001A9C] border border-[#001A9C]/10 hover:border-[#001A9C]/20 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs group"
                 title="Voltar para o último período com dados (mês ativo)"
               >
-                <div className="flex items-center gap-1.5">
-                  <TrendingUp className="w-3.5 h-3.5 text-[#001A9C] group-hover:translate-y-[-1px] transition-transform" />
-                  <span>Mostrar dados atuais</span>
-                </div>
-                {availablePeriods.length > 0 && (
-                  <span className="text-[9px] text-[#001A9C]/75 font-semibold">
-                    ({['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][getLatestPeriod().month - 1] || getLatestPeriod().month}/{getLatestPeriod().year})
-                  </span>
-                )}
+                <TrendingUp className="w-3.5 h-3.5 text-[#001A9C] group-hover:translate-y-[-1px] transition-transform" />
+                <span>Mostrar dados atuais</span>
               </button>
 
               <div className="flex items-center justify-between pt-1">
@@ -1649,12 +1699,12 @@ export default function App() {
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
-                    checked={isAccumulated}
+                    checked={tempIsAccumulated}
                     onChange={(e) => {
-                      setIsAccumulated(e.target.checked);
+                      setTempIsAccumulated(e.target.checked);
                       if (e.target.checked) {
-                        setAccumulateStartMonth(1);
-                        setAccumulateEndMonth(selectedMonth);
+                        setTempAccumulateStartMonth(1);
+                        setTempAccumulateEndMonth(tempMonth);
                       }
                     }}
                     className="rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C] cursor-pointer"
@@ -1662,13 +1712,15 @@ export default function App() {
                   <span className="text-[11px] font-extrabold text-slate-700">Acumular Período</span>
                 </label>
 
-                {isAccumulated ? (
+                {tempIsAccumulated ? (
                   <div className="space-y-2 pt-1 border-t border-slate-150">
                     <div className="space-y-1">
                       <span className="text-[9px] text-slate-400 font-bold uppercase block">Ano de Análise</span>
                       <select
-                        value={selectedYear}
-                        onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                        value={tempYear}
+                        onChange={(e) => {
+                          setTempYear(parseInt(e.target.value));
+                        }}
                         className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
                       >
                         {[2025, 2026].map(y => (
@@ -1681,8 +1733,10 @@ export default function App() {
                       <div className="space-y-1">
                         <span className="text-[9px] text-slate-400 font-bold uppercase block">De (Mês)</span>
                         <select
-                          value={accumulateStartMonth}
-                          onChange={(e) => setAccumulateStartMonth(parseInt(e.target.value))}
+                          value={tempAccumulateStartMonth}
+                          onChange={(e) => {
+                            setTempAccumulateStartMonth(parseInt(e.target.value));
+                          }}
                           className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
                         >
                           {[
@@ -1707,8 +1761,10 @@ export default function App() {
                       <div className="space-y-1">
                         <span className="text-[9px] text-slate-400 font-bold uppercase block">Até (Mês)</span>
                         <select
-                          value={accumulateEndMonth}
-                          onChange={(e) => setAccumulateEndMonth(parseInt(e.target.value))}
+                          value={tempAccumulateEndMonth}
+                          onChange={(e) => {
+                            setTempAccumulateEndMonth(parseInt(e.target.value));
+                          }}
                           className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
                         >
                           {[
@@ -1736,8 +1792,10 @@ export default function App() {
                     <div className="space-y-1">
                       <span className="text-[9px] text-slate-400 font-bold uppercase block">Mês</span>
                       <select
-                        value={selectedMonth}
-                        onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                        value={tempMonth}
+                        onChange={(e) => {
+                          setTempMonth(parseInt(e.target.value));
+                        }}
                         className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
                       >
                         {[
@@ -1762,8 +1820,10 @@ export default function App() {
                     <div className="space-y-1">
                       <span className="text-[9px] text-slate-400 font-bold uppercase block">Ano</span>
                       <select
-                        value={selectedYear}
-                        onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                        value={tempYear}
+                        onChange={(e) => {
+                          setTempYear(parseInt(e.target.value));
+                        }}
                         className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
                       >
                         {[2025, 2026].map(y => (
@@ -1773,6 +1833,16 @@ export default function App() {
                     </div>
                   </div>
                 )}
+
+                {/* Apply Period Filter Button */}
+                <button
+                  type="button"
+                  onClick={handleApplyPeriodFilter}
+                  className="w-full mt-2 py-2 px-3 bg-[#001A9C] hover:bg-[#00147a] text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs"
+                >
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>Filtrar</span>
+                </button>
               </div>
 
 
@@ -1789,9 +1859,40 @@ export default function App() {
                   onChange={(e) => {
                     setSearchText(e.target.value);
                     setCurrentPage(1);
+                    setShowSuggestions(true);
+                  }}
+                  onFocus={() => setShowSuggestions(true)}
+                  onBlur={() => {
+                    setTimeout(() => setShowSuggestions(false), 200);
                   }}
                   className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-800 text-xs placeholder-slate-400 font-medium transition-all"
                 />
+
+                {showSuggestions && searchText.trim() !== '' && (
+                  <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-30 max-h-60 overflow-y-auto py-1.5 divide-y divide-slate-50 animate-fade-in">
+                    {searchSuggestions.map(rep => (
+                      <button
+                        key={rep.repId}
+                        type="button"
+                        onMouseDown={() => {
+                          setSelectedRepIdFilter(rep.repId);
+                          setSearchText(rep.repName);
+                          setShowSuggestions(false);
+                          setIsMobileFiltersExpanded(false);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex flex-col cursor-pointer transition-colors"
+                      >
+                        <span className="text-xs font-bold text-slate-800 truncate">{rep.repName}</span>
+                        <span className="text-[10px] text-slate-400 font-semibold font-mono">Código: #{rep.repId}</span>
+                      </button>
+                    ))}
+                    {searchSuggestions.length === 0 && (
+                      <div className="px-3 py-3 text-center text-slate-400 text-xs">
+                        Nenhum representante encontrado
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1804,6 +1905,7 @@ export default function App() {
                   onClick={() => {
                     setSelectedCoordinator('All');
                     setCurrentPage(1);
+                    setIsMobileFiltersExpanded(false);
                   }}
                   className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
                     selectedCoordinator === 'All'
@@ -1821,6 +1923,7 @@ export default function App() {
                     onClick={() => {
                       setSelectedCoordinator(c);
                       setCurrentPage(1);
+                      setIsMobileFiltersExpanded(false);
                     }}
                     className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
                       selectedCoordinator === c
@@ -1851,6 +1954,7 @@ export default function App() {
                         setSelectedProductGroups(['All']);
                       }
                       setCurrentPage(1);
+                      setIsMobileFiltersExpanded(false);
                     }}
                     className="w-4 h-4 rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C]/20 cursor-pointer accent-[#001A9C]"
                   />
@@ -1882,6 +1986,7 @@ export default function App() {
                           }
                           setSelectedProductGroups(updated);
                           setCurrentPage(1);
+                          setIsMobileFiltersExpanded(false);
                         }}
                         className="w-4 h-4 rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C]/20 cursor-pointer accent-[#001A9C]"
                       />
@@ -1908,6 +2013,7 @@ export default function App() {
                     onClick={() => {
                       setProgressThreshold(opt.id);
                       setCurrentPage(1);
+                      setIsMobileFiltersExpanded(false);
                     }}
                     className={`px-2 py-1.5 rounded-lg text-xs font-semibold border transition-all text-center cursor-pointer ${
                       progressThreshold === opt.id 
@@ -1936,6 +2042,34 @@ export default function App() {
           {/* Bento row of Core metrics cards (Filtered live) */}
           {allRecords.length > 0 && (
             <>
+              {selectedRepIdFilter !== null && (
+                <div className="bg-emerald-50/70 border border-emerald-150 p-3.5 rounded-2xl flex items-center justify-between shadow-3xs animate-fade-in">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                      <Users className="w-4 h-4 text-emerald-600" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-450 tracking-wider">Representante</span>
+                      <h4 className="text-sm font-black text-slate-800 leading-tight">
+                        {(() => {
+                          const rep = resolvedRecords.find(r => r.repId === selectedRepIdFilter);
+                          return rep ? `${rep.repName} (Cód: ${rep.repId})` : `Cód: ${selectedRepIdFilter}`;
+                        })()}
+                      </h4>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setSelectedRepIdFilter(null);
+                      setSearchText('');
+                    }}
+                    className="px-3 py-1.5 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-emerald-700 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-3xs"
+                  >
+                    <span>Limpar filtro</span>
+                  </button>
+                </div>
+              )}
+
               {selectedState && (
                 <div className="bg-indigo-50/70 border border-indigo-150 p-3.5 rounded-2xl flex items-center justify-between shadow-3xs animate-fade-in">
                   <div className="flex items-center gap-2.5">
@@ -3036,6 +3170,10 @@ export default function App() {
                   fetchAvailablePeriods();
                   setSelectedYear(year);
                   setSelectedMonth(month);
+                  setTempYear(year);
+                  setTempMonth(month);
+                  setTempIsAccumulated(false);
+                  setIsAccumulated(false);
                   setAllRecords(records);
                   setActiveTab('geral');
                   resetFilters();
