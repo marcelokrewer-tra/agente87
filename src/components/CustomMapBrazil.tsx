@@ -134,7 +134,7 @@ export const CustomMapBrazil: React.FC<CustomMapBrazilProps> = ({
                 RN: 'matrix(1 0 0 1 425 133)',
                 PB: 'matrix(1 0 0 1 424 148)',
                 PE: 'matrix(1 0 0 1 411 163)',
-                AL: 'matrix(1 0 0 1 430 174)',
+                AL: 'matrix(1 0 0 1 429 179)',
                 SE: 'matrix(1 0 0 1 418 187)',
               };
 
