@@ -161,21 +161,34 @@ export default function App() {
   // Month-to-month and server-side memory states
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [selectedMonth, setSelectedMonth] = useState<number>(6);
+  const [isAccumulated, setIsAccumulated] = useState<boolean>(false);
+  const [accumulateStartMonth, setAccumulateStartMonth] = useState<number>(1);
+  const [accumulateEndMonth, setAccumulateEndMonth] = useState<number>(6);
   const [availablePeriods, setAvailablePeriods] = useState<Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }>>([]);
   const [isLoadingPeriod, setIsLoadingPeriod] = useState<boolean>(false);
   const [periodFetchError, setPeriodFetchError] = useState<string | null>(null);
   const [usingLocalStorageFallback, setUsingLocalStorageFallback] = useState<boolean>(false);
   const [hasSetInitialPeriod, setHasSetInitialPeriod] = useState<boolean>(false);
 
-  // Helper to determine last update of current period
+  // Helper to determine last update of current period (range-aware)
   const currentPeriodUpdateDate = useMemo(() => {
-    const periodId = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
-    const found = availablePeriods.find(p => p.id === periodId);
-    if (found && found.updatedAt) {
-      return new Date(found.updatedAt);
-    }
-    return null;
-  }, [selectedYear, selectedMonth, availablePeriods]);
+    const monthsToCheck = isAccumulated 
+      ? Array.from({ length: Math.abs(accumulateEndMonth - accumulateStartMonth) + 1 }, (_, i) => Math.min(accumulateStartMonth, accumulateEndMonth) + i)
+      : [selectedMonth];
+
+    let latestDate: Date | null = null;
+    monthsToCheck.forEach(m => {
+      const periodId = `${selectedYear}-${String(m).padStart(2, '0')}`;
+      const found = availablePeriods.find(p => p.id === periodId);
+      if (found && found.updatedAt) {
+        const date = new Date(found.updatedAt);
+        if (!latestDate || date > latestDate) {
+          latestDate = date;
+        }
+      }
+    });
+    return latestDate;
+  }, [selectedYear, selectedMonth, isAccumulated, accumulateStartMonth, accumulateEndMonth, availablePeriods]);
 
   const formatUpdateDateTime = (dateStrOrDate: string | Date | undefined | null) => {
     if (!dateStrOrDate) return 'Sem atualizações registradas';
@@ -358,34 +371,82 @@ export default function App() {
     }
   };
 
-  const fetchPreviewsData = async (year: number, month: number) => {
-    if (getFirebaseConfig()) {
-      try {
-        const data = await fetchPreviewsWithMetaFromFirestore(year, month);
-        setPreviews(data.previews);
-        setPreviewsUpdatedAt(data.updatedAt || null);
-        return;
-      } catch (err) {
-        console.error("Firestore error loading previews, trying local fallback:", err);
+  const fetchPreviewsData = async (year: number, months: number[]) => {
+    let allPreviews: RepresentativePreview[] = [];
+    let latestUpdatedAt: string | null = null;
+
+    for (const m of months) {
+      let monthPreviews: RepresentativePreview[] = [];
+      let updatedAtStr: string | null = null;
+      
+      if (getFirebaseConfig()) {
+        try {
+          const data = await fetchPreviewsWithMetaFromFirestore(year, m);
+          monthPreviews = data.previews;
+          updatedAtStr = data.updatedAt || null;
+        } catch (err) {
+          console.error(`Firestore error loading previews for month ${m}, trying local fallback:`, err);
+          const localData = getLocalPreviewsWithMeta(year, m);
+          monthPreviews = localData.previews;
+          updatedAtStr = localData.updatedAt || null;
+        }
+      } else {
+        const localData = getLocalPreviewsWithMeta(year, m);
+        monthPreviews = localData.previews;
+        updatedAtStr = localData.updatedAt || null;
       }
+
+      if (updatedAtStr) {
+        if (!latestUpdatedAt || new Date(updatedAtStr) > new Date(latestUpdatedAt)) {
+          latestUpdatedAt = updatedAtStr;
+        }
+      }
+
+      // Aggregate previews
+      monthPreviews.forEach(item => {
+        const existing = allPreviews.find(p => p.repId.toString().trim() === item.repId.toString().trim());
+        if (existing) {
+          existing.previaValue += item.previaValue;
+          existing.vendaDiaPrevia += item.vendaDiaPrevia;
+        } else {
+          allPreviews.push({
+            repId: item.repId,
+            previaValue: item.previaValue,
+            vendaDiaPrevia: item.vendaDiaPrevia
+          });
+        }
+      });
     }
-    const localData = getLocalPreviewsWithMeta(year, month);
-    setPreviews(localData.previews);
-    setPreviewsUpdatedAt(localData.updatedAt || null);
+
+    setPreviews(allPreviews);
+    setPreviewsUpdatedAt(latestUpdatedAt);
   };
 
   const fetchPeriodData = async (year: number, month: number) => {
     setIsLoadingPeriod(true);
     setPeriodFetchError(null);
+
+    const monthsToFetch: number[] = [];
+    if (isAccumulated) {
+      const start = Math.min(accumulateStartMonth, accumulateEndMonth);
+      const end = Math.max(accumulateStartMonth, accumulateEndMonth);
+      for (let m = start; m <= end; m++) {
+        monthsToFetch.push(m);
+      }
+    } else {
+      monthsToFetch.push(month);
+    }
     
-    // Load previews for this period
-    fetchPreviewsData(year, month);
+    // Load previews for these months
+    fetchPreviewsData(year, monthsToFetch);
 
     // 1. Prioritize Firebase Firestore if configured
     if (getFirebaseConfig()) {
       try {
-        const records = await fetchPeriodDataFromFirestore(year, month);
-        setAllRecords(records);
+        const promises = monthsToFetch.map(m => fetchPeriodDataFromFirestore(year, m));
+        const results = await Promise.all(promises);
+        const combined = results.flat();
+        setAllRecords(combined);
         setUsingLocalStorageFallback(false);
       } catch (err: any) {
         console.error("Firestore error loading period records:", err);
@@ -399,19 +460,26 @@ export default function App() {
 
     // 2. Fallback to Express backend or LocalStorage
     try {
-      const response = await fetch(`/api/monthly-data/${year}/${month}`);
-      if (response.ok) {
-        const data = await response.json();
-        setAllRecords(data.records || []);
-        setUsingLocalStorageFallback(false);
-      } else {
-        setUsingLocalStorageFallback(true);
-        setAllRecords(getLocalPeriodData(year, month));
-      }
+      const results = await Promise.all(monthsToFetch.map(async (m) => {
+        try {
+          const response = await fetch(`/api/monthly-data/${year}/${m}`);
+          if (response.ok) {
+            const data = await response.json();
+            return data.records || [];
+          }
+        } catch (err) {
+          console.warn(`Error fetching monthly data for ${year}/${m}, trying localStorage fallback`, err);
+        }
+        return getLocalPeriodData(year, m);
+      }));
+      const combined = results.flat();
+      setAllRecords(combined);
+      setUsingLocalStorageFallback(false);
     } catch (err: any) {
       console.warn("Error fetching period data, using localStorage fallback:", err);
       setUsingLocalStorageFallback(true);
-      setAllRecords(getLocalPeriodData(year, month));
+      const combined = monthsToFetch.flatMap(m => getLocalPeriodData(year, m));
+      setAllRecords(combined);
     } finally {
       setIsLoadingPeriod(false);
     }
@@ -462,10 +530,10 @@ export default function App() {
     fetchLocations();
   }, [isFirebaseConnected]);
 
-  // Fetch period data when year or month changes
+  // Fetch period data when year, month or cumulative range changes
   useEffect(() => {
     fetchPeriodData(selectedYear, selectedMonth);
-  }, [selectedYear, selectedMonth]);
+  }, [selectedYear, selectedMonth, isAccumulated, accumulateStartMonth, accumulateEndMonth]);
 
   // Product Group mappings as requested by the user
   const PRODUCT_GROUP_MAPPING = {
@@ -1478,8 +1546,18 @@ export default function App() {
             </div>
 
             {/* Compact and discrete last update info without balloon/icons */}
-            <div className="text-[11px] font-medium text-slate-500 pb-1.5 border-b border-slate-100">
-              <span>Última atualização: <strong className="text-slate-800 font-extrabold">{currentPeriodUpdateDate ? formatUpdateDateTimeCompact(currentPeriodUpdateDate) : 'Sem envio'}</strong></span>
+            <div className="text-[11px] font-medium text-slate-500 pb-1.5 border-b border-slate-100 space-y-1">
+              <div>
+                Período: <strong className="text-slate-800 font-extrabold">
+                  {isAccumulated 
+                    ? `${['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][accumulateStartMonth - 1]} a ${['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][accumulateEndMonth - 1]} / ${selectedYear}`
+                    : `${['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'][selectedMonth - 1]} / ${selectedYear}`
+                  }
+                </strong>
+              </div>
+              <div>
+                Última atualização: <strong className="text-slate-800 font-extrabold">{currentPeriodUpdateDate ? formatUpdateDateTimeCompact(currentPeriodUpdateDate) : 'Sem envio'}</strong>
+              </div>
             </div>
 
             {/* Mobile Toggle Button */}
@@ -1535,45 +1613,134 @@ export default function App() {
                 )}
               </div>
               
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Mês</span>
-                  <select
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
-                  >
-                    {[
-                      { value: 1, label: 'Jan' },
-                      { value: 2, label: 'Fev' },
-                      { value: 3, label: 'Mar' },
-                      { value: 4, label: 'Abr' },
-                      { value: 5, label: 'Mai' },
-                      { value: 6, label: 'Jun' },
-                      { value: 7, label: 'Jul' },
-                      { value: 8, label: 'Ago' },
-                      { value: 9, label: 'Set' },
-                      { value: 10, label: 'Out' },
-                      { value: 11, label: 'Nov' },
-                      { value: 12, label: 'Dez' }
-                    ].map(m => (
-                      <option key={m.value} value={m.value}>{m.label}</option>
-                    ))}
-                  </select>
-                </div>
+              <div className="bg-slate-50/60 p-2.5 rounded-xl border border-slate-150 space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={isAccumulated}
+                    onChange={(e) => {
+                      setIsAccumulated(e.target.checked);
+                      if (e.target.checked) {
+                        setAccumulateStartMonth(1);
+                        setAccumulateEndMonth(selectedMonth);
+                      }
+                    }}
+                    className="rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C] cursor-pointer"
+                  />
+                  <span className="text-[11px] font-extrabold text-slate-700">Acumular Período</span>
+                </label>
 
-                <div className="space-y-1">
-                  <span className="text-[9px] text-slate-400 font-bold uppercase block">Ano</span>
-                  <select
-                    value={selectedYear}
-                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
-                  >
-                    {[2025, 2026].map(y => (
-                      <option key={y} value={y}>{y}</option>
-                    ))}
-                  </select>
-                </div>
+                {isAccumulated ? (
+                  <div className="space-y-2 pt-1 border-t border-slate-150">
+                    <div className="space-y-1">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Ano de Análise</span>
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                        className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
+                      >
+                        {[2025, 2026].map(y => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase block">De (Mês)</span>
+                        <select
+                          value={accumulateStartMonth}
+                          onChange={(e) => setAccumulateStartMonth(parseInt(e.target.value))}
+                          className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
+                        >
+                          {[
+                            { value: 1, label: 'Jan' },
+                            { value: 2, label: 'Fev' },
+                            { value: 3, label: 'Mar' },
+                            { value: 4, label: 'Abr' },
+                            { value: 5, label: 'Mai' },
+                            { value: 6, label: 'Jun' },
+                            { value: 7, label: 'Jul' },
+                            { value: 8, label: 'Ago' },
+                            { value: 9, label: 'Set' },
+                            { value: 10, label: 'Out' },
+                            { value: 11, label: 'Nov' },
+                            { value: 12, label: 'Dez' }
+                          ].map(m => (
+                            <option key={m.value} value={m.value}>{m.label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase block">Até (Mês)</span>
+                        <select
+                          value={accumulateEndMonth}
+                          onChange={(e) => setAccumulateEndMonth(parseInt(e.target.value))}
+                          className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
+                        >
+                          {[
+                            { value: 1, label: 'Jan' },
+                            { value: 2, label: 'Fev' },
+                            { value: 3, label: 'Mar' },
+                            { value: 4, label: 'Abr' },
+                            { value: 5, label: 'Mai' },
+                            { value: 6, label: 'Jun' },
+                            { value: 7, label: 'Jul' },
+                            { value: 8, label: 'Ago' },
+                            { value: 9, label: 'Set' },
+                            { value: 10, label: 'Out' },
+                            { value: 11, label: 'Nov' },
+                            { value: 12, label: 'Dez' }
+                          ].map(m => (
+                            <option key={m.value} value={m.value}>{m.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-150">
+                    <div className="space-y-1">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Mês</span>
+                      <select
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                        className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
+                      >
+                        {[
+                          { value: 1, label: 'Jan' },
+                          { value: 2, label: 'Fev' },
+                          { value: 3, label: 'Mar' },
+                          { value: 4, label: 'Abr' },
+                          { value: 5, label: 'Mai' },
+                          { value: 6, label: 'Jun' },
+                          { value: 7, label: 'Jul' },
+                          { value: 8, label: 'Ago' },
+                          { value: 9, label: 'Set' },
+                          { value: 10, label: 'Out' },
+                          { value: 11, label: 'Nov' },
+                          { value: 12, label: 'Dez' }
+                        ].map(m => (
+                          <option key={m.value} value={m.value}>{m.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Ano</span>
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                        className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
+                      >
+                        {[2025, 2026].map(y => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
               </div>
 
 
