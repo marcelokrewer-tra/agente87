@@ -852,31 +852,20 @@ export default function App() {
   // Dynamic mapped records with customized representative names prioritized
   const resolvedRecords = useMemo(() => {
     return allRecords
-      .filter(r => {
-        const coordLower = (r.coordName || '').toLowerCase().trim();
-        const isTargetCoord = 
-          coordLower.includes("juan") || 
-          coordLower.includes("adriano") || 
-          coordLower.includes("dionatan") || 
-          coordLower.includes("julio") ||
-          coordLower.includes("júlio");
-
-        const emp = (r.emp || '').trim().toUpperCase();
-        const isGaribaldi = emp === 'GAR' || emp.includes('GAR');
-
-        if (isTargetCoord && isGaribaldi) {
-          // Only keep "Tramontina Master" (Garibaldi Master Mon)
-          const isMaster = (r.groupName || '').toLowerCase().includes('master');
-          return isMaster;
-        }
-        return true;
-      })
       .map(r => {
-        const customName = customRepNames[r.repId.toString().trim() || r.repId];
-        if (customName) {
-          return { ...r, repName: customName };
+        let coordName = r.coordName;
+        // If it is Tramontina Pro (Garibaldi Pro Monet), assign coordinator to "Marcelo Krewer"
+        const isPro = (r.groupName || '').toLowerCase().includes('pro');
+        if (isPro) {
+          coordName = "Marcelo Krewer";
         }
-        return r;
+
+        const customName = customRepNames[r.repId.toString().trim() || r.repId];
+        return {
+          ...r,
+          coordName,
+          repName: customName || r.repName
+        };
       });
   }, [allRecords, customRepNames]);
 
@@ -894,13 +883,8 @@ export default function App() {
 
   // Extract distinct product groups present in the data matching allowed filter options
   const distinctProductGroups = useMemo(() => {
-    const present = new Set<string>();
-    resolvedRecords.forEach(r => {
-      const mapped = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING];
-      if (mapped) present.add(mapped);
-    });
-    return ALLOWED_PRODUCT_GROUPS.filter(g => present.has(g));
-  }, [resolvedRecords]);
+    return Array.from(ALLOWED_PRODUCT_GROUPS);
+  }, []);
 
   // Compute filtered records based on interactive panel
   const filteredRecords = useMemo(() => {
