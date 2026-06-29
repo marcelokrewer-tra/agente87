@@ -814,8 +814,8 @@ export default function App() {
   const itemsPerPage = 10;
 
   // Sorting for detailed table
-  const [sortField, setSortField] = useState<keyof SalesRecord>('repName');
-  const [sortAscending, setSortAscending] = useState<boolean>(true);
+  const [sortField, setSortField] = useState<keyof SalesRecord>('pctVenda');
+  const [sortAscending, setSortAscending] = useState<boolean>(false);
 
   // Reset all active filters
   const resetFilters = () => {
@@ -1297,7 +1297,7 @@ export default function App() {
         pedidosNovos: pNovos,
       };
       return agg;
-    });
+    }).filter(r => r.quotaTotal > 0);
   }, [filteredRecords, previews]);
 
   // Sorting logic for details table
@@ -1376,6 +1376,192 @@ export default function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Export representative sales percentage to a high-quality JPEG image
+  const exportPctVendasToJPG = () => {
+    const periodText = isAccumulated
+      ? `Período: ${['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][accumulateStartMonth - 1]} a ${['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][accumulateEndMonth - 1]} / ${selectedYear}`
+      : `Período: ${['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'][selectedMonth - 1]} / ${selectedYear}`;
+
+    const width = 800;
+    const headerHeight = 120;
+    const columnHeaderHeight = 40;
+    const rowHeight = 35;
+    const footerHeight = 60;
+    const rows = sortedDetails;
+    const totalRows = rows.length;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = headerHeight + columnHeaderHeight + (totalRows * rowHeight) + footerHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // 1. Draw Background
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, canvas.height);
+
+    // 2. Draw Header Blue bar
+    ctx.fillStyle = '#001A9C';
+    ctx.fillRect(0, 0, width, headerHeight);
+
+    // 3. Draw Header Title and branding
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 20px Arial, Helvetica, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('Agente 87 - Ferramentas', width - 40, 45);
+
+    ctx.fillStyle = '#93C5FD'; // Light blue 300
+    ctx.font = 'bold 11px Arial, Helvetica, sans-serif';
+    ctx.fillText('RELATÓRIO DE PERCENTUAL DE VENDAS', width - 40, 70);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '12px Arial, Helvetica, sans-serif';
+    ctx.fillText(periodText, width - 40, 92);
+
+    const svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 133.33 20" width="133.33" height="20">
+      <polygon fill="#FFFFFF" points="4.06 0 0 3.41 0 4.2 10.52 4.2 6.9 7.17 6.9 20 7.7 20 12.16 16.25 12.16 4.2 16.33 4.2 20.39 .79 20.39 0 4.06 0"/>
+      <path fill="#FFFFFF" d="M28.16,6.44h-3.27v-2.24h8.99v2.24h-3.27v9.8h-2.45V6.44ZM35.23,4.2h4.7c2.98,0,4.46,1.42,4.46,3.82,0,1.75-1.35,3.34-3.6,3.58l3.43,4.64h-2.86l-3.35-4.6h-.33v4.6h-2.45V4.2ZM41.85,8.03c0-1.18-.78-1.71-2.17-1.71h-2v3.74h1.59c1.72,0,2.57-.53,2.57-2.03ZM49.86,4.2h1.23l5.03,12.04h-2.58l-.78-2.03h-4.58l-.78,2.03h-2.53l4.99-12.04ZM52.07,12.38l-1.51-4.07h-.16l-1.51,4.07h3.19ZM56.93,4.2h2.53l3.52,7.04h.08l3.64-7.04h2.49v12.04h-2.45v-6.83h-.16l-3.39,5.94h-.45l-3.19-5.94h-.16v6.83h-2.45V4.2ZM70.63,10.27c0-3.86,2.66-6.27,6.09-6.27s5.97,2.4,5.97,6.22-2.66,6.22-6.05,6.22-6.01-2.4-6.01-6.18ZM80.07,10.23c0-2.32-1.43-3.95-3.39-3.95s-3.43,1.63-3.43,3.95,1.43,3.95,3.43,3.95,3.39-1.63,3.39-3.95ZM84.11,4.2h1.23l6.34,7h.16v-7h2.45v12.04h-1.23l-6.34-7h-.16v7h-2.45V4.2ZM99.16,6.44h-3.27v-2.24h8.99v2.24h-3.27v9.8h-2.45V6.44ZM106.39,4.2h2.45v12.04h-2.45V4.2ZM111.13,4.2h1.47l6.09,7h.16v-7h2.45v12.04h-1.47l-6.09-7h-.16v7h-2.45V4.2ZM127.07,4.2h1.23l5.03,12.04h-2.57l-.78-2.03h-4.58l-.78,2.03h-2.53l4.99-12.04ZM129.28,12.38l-1.51-4.07h-.16l-1.51,4.07h3.19Z"/>
+    </svg>`;
+
+    const img = new Image();
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+
+    const finishDrawing = () => {
+      // 5. Draw Column Headers Row
+      const colY = headerHeight;
+      ctx.fillStyle = '#F1F5F9'; // Slate 100 background
+      ctx.fillRect(0, colY, width, columnHeaderHeight);
+
+      ctx.strokeStyle = '#E2E8F0';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, colY + columnHeaderHeight);
+      ctx.lineTo(width, colY + columnHeaderHeight);
+      ctx.stroke();
+
+      ctx.fillStyle = '#475569'; // Slate 600
+      ctx.font = 'bold 11px Arial, Helvetica, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('REP ID', 40, colY + 24);
+      ctx.fillText('REPRESENTANTE', 140, colY + 24);
+      ctx.fillText('DESEMPENHO GRÁFICO', 520, colY + 24);
+      ctx.textAlign = 'right';
+      ctx.fillText('% VENDA', width - 40, colY + 24);
+
+      // 6. Draw Table Rows
+      for (let i = 0; i < totalRows; i++) {
+        const r = rows[i];
+        const rowY = headerHeight + columnHeaderHeight + (i * rowHeight);
+
+        // Background
+        ctx.fillStyle = i % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
+        ctx.fillRect(0, rowY, width, rowHeight);
+
+        // Row border
+        ctx.strokeStyle = '#F1F5F9';
+        ctx.beginPath();
+        ctx.moveTo(0, rowY + rowHeight);
+        ctx.lineTo(width, rowY + rowHeight);
+        ctx.stroke();
+
+        // Rep ID
+        ctx.fillStyle = '#0F172A'; // Slate 900
+        ctx.font = 'bold 12px Arial, Helvetica, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(r.repId.toString(), 40, rowY + 22);
+
+        // Rep Name
+        ctx.fillStyle = '#334155'; // Slate 700
+        ctx.font = '12px Arial, Helvetica, sans-serif';
+        let displayName = r.repName;
+        if (displayName.length > 40) {
+          displayName = displayName.substring(0, 37) + '...';
+        }
+        ctx.fillText(displayName, 140, rowY + 22);
+
+        // Progress bar visual representation of pctVenda
+        const pctVal = r.pctVenda;
+        const barX = 520;
+        const barY = rowY + 14;
+        const barW = 120;
+        const barH = 8;
+
+        // Progress bar background (gray track)
+        ctx.fillStyle = '#E2E8F0';
+        ctx.fillRect(barX, barY, barW, barH);
+
+        // Progress bar fill
+        let pctColor = '#001A9C'; // Tramontina Blue
+        if (pctVal >= 100) {
+          pctColor = '#16A34A'; // Green 600
+        } else if (pctVal < 70) {
+          pctColor = '#DC2626'; // Red 600
+        } else {
+          pctColor = '#001A9C'; // Blue
+        }
+
+        ctx.fillStyle = pctColor;
+        const fillW = Math.min(barW, Math.max(0, (pctVal / 100) * barW));
+        ctx.fillRect(barX, barY, fillW, barH);
+
+        // Textual Percentage Value
+        ctx.fillStyle = pctColor;
+        ctx.font = 'bold 12px Arial, Helvetica, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${pctVal.toFixed(1)}%`, width - 40, rowY + 22);
+      }
+
+      // 7. Draw Footer
+      const footerY = canvas.height - footerHeight;
+      ctx.fillStyle = '#F8FAFC'; // Slate 50
+      ctx.fillRect(0, footerY, width, footerHeight);
+
+      ctx.strokeStyle = '#E2E8F0';
+      ctx.beginPath();
+      ctx.moveTo(0, footerY);
+      ctx.lineTo(width, footerY);
+      ctx.stroke();
+
+      ctx.fillStyle = '#64748B'; // Slate 500
+      ctx.font = '9px Arial, Helvetica, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Gerado via Agente 87 - Performance de Representantes Tramontina Ferramentas', width / 2, footerY + 25);
+      ctx.fillText(`Data de Exportação: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}`, width / 2, footerY + 40);
+
+      // 8. Download
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const downloadUrl = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = downloadUrl;
+          link.download = `Exportacao_Percentual_Vendas_${new Date().toISOString().slice(0,10)}.jpg`;
+          link.click();
+          URL.revokeObjectURL(downloadUrl);
+        }
+      }, 'image/jpeg', 0.95);
+    };
+
+    img.onload = () => {
+      ctx.drawImage(img, 40, 32, 160, 24);
+      URL.revokeObjectURL(url);
+      finishDrawing();
+    };
+
+    img.onerror = () => {
+      // Draw text as fallback if SVG image fails
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 24px Arial, Helvetica, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('TRAMONTINA', 40, 48);
+      
+      URL.revokeObjectURL(url);
+      finishDrawing();
+    };
+
+    img.src = url;
   };
 
   // Find the selected representative for the detailed group-split modal
@@ -2700,18 +2886,28 @@ export default function App() {
               <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-4">
                 
                 {/* Header row in explorer */}
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                  <div>
-                    <h3 className="font-bold text-slate-900 text-base">Registros de Vendas Detalhados</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">Mostrando {sortedDetails.length} linhas filtradas. Clique nos cabeçalhos para ordenar.</p>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-4 border-b border-slate-100">
+                  <div className="flex items-center gap-4">
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-150 flex items-center justify-center">
+                      <TramontinaLogo className="h-5 w-auto text-[#001A9C]" fillColor="#001A9C" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+                          Agente 87 - Ferramentas
+                        </span>
+                      </div>
+                      <h3 className="font-bold text-slate-900 text-base mt-0.5">Registros de Vendas Detalhados</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">Mostrando {sortedDetails.length} linhas de representantes ativos. Clique nos cabeçalhos para ordenar.</p>
+                    </div>
                   </div>
                   
                   <button
-                    onClick={exportToCSV}
-                    className="flex items-center gap-1.5 self-start md:self-center bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 px-3 rounded-xl shadow-xs transition-colors cursor-pointer"
+                    onClick={exportPctVendasToJPG}
+                    className="flex items-center gap-1.5 self-start md:self-center bg-[#001A9C] hover:bg-[#00147a] text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    Baixar Filtro Ativo (.CSV)
+                    Exportar % Vendas
                   </button>
                 </div>
 
