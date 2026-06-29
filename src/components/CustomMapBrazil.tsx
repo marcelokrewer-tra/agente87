@@ -197,7 +197,7 @@ export const CustomMapBrazil: React.FC<CustomMapBrazilProps> = ({
         {/* Dynamic Tooltip following mouse */}
         {hoveredState && hoveredStats && (
           <div
-            className="absolute pointer-events-none z-50 bg-slate-900/95 text-white p-3.5 rounded-xl shadow-xl border border-slate-700/50 text-xs min-w-[210px] space-y-2 backdrop-blur-xs transition-opacity duration-150"
+            className="absolute pointer-events-none z-50 bg-slate-900/95 text-white p-3.5 rounded-[20px] shadow-xl border border-slate-700/50 text-xs min-w-[210px] space-y-2 backdrop-blur-xs transition-opacity duration-150"
             style={{
               left: `${tooltipPos.x}px`,
               top: `${tooltipPos.y}px`

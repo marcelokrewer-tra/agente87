@@ -41,6 +41,7 @@ import { MetricCard } from './components/MetricCard';
 import { KPIGauge } from './components/KPIGauge';
 import { ImportDataTab } from './components/ImportDataTab';
 import { TramontinaLogo } from './components/TramontinaLogo';
+import { generateSalesPresentation } from './presentation';
 import { 
   TrendingUp, 
   Users, 
@@ -81,7 +82,8 @@ import {
   Check,
   Map as MapIcon,
   MapPin,
-  Clock
+  Clock,
+  Presentation
 } from 'lucide-react';
 
 export const parseBrazilianNumber = (val: string | undefined): number => {
@@ -735,6 +737,26 @@ export default function App() {
     }
   };
 
+  const [isGeneratingPresentation, setIsGeneratingPresentation] = useState<boolean>(false);
+
+  const handleExportPresentation = async () => {
+    setIsGeneratingPresentation(true);
+    try {
+      await generateSalesPresentation({
+        allRecords,
+        customRepNames,
+        customRepLocations,
+        selectedMonth,
+        selectedYear
+      });
+    } catch (err: any) {
+      console.error("Erro ao gerar apresentação de vendas:", err);
+      alert("Erro ao gerar apresentação de vendas: " + err.message);
+    } finally {
+      setIsGeneratingPresentation(false);
+    }
+  };
+
   const handlePasteRepLocations = (text: string) => {
     const lines = text.split('\n');
     const newLocs: Record<string, string> = {};
@@ -829,13 +851,33 @@ export default function App() {
 
   // Dynamic mapped records with customized representative names prioritized
   const resolvedRecords = useMemo(() => {
-    return allRecords.map(r => {
-      const customName = customRepNames[r.repId.toString().trim() || r.repId];
-      if (customName) {
-        return { ...r, repName: customName };
-      }
-      return r;
-    });
+    return allRecords
+      .filter(r => {
+        const coordLower = (r.coordName || '').toLowerCase().trim();
+        const isTargetCoord = 
+          coordLower.includes("juan") || 
+          coordLower.includes("adriano") || 
+          coordLower.includes("dionatan") || 
+          coordLower.includes("julio") ||
+          coordLower.includes("júlio");
+
+        const emp = (r.emp || '').trim().toUpperCase();
+        const isGaribaldi = emp === 'GAR' || emp.includes('GAR');
+
+        if (isTargetCoord && isGaribaldi) {
+          // Only keep "Tramontina Master" (Garibaldi Master Mon)
+          const isMaster = (r.groupName || '').toLowerCase().includes('master');
+          return isMaster;
+        }
+        return true;
+      })
+      .map(r => {
+        const customName = customRepNames[r.repId.toString().trim() || r.repId];
+        if (customName) {
+          return { ...r, repName: customName };
+        }
+        return r;
+      });
   }, [allRecords, customRepNames]);
 
   // Extract distinct lists dynamically from database state to populate select menus
@@ -1446,8 +1488,9 @@ export default function App() {
       ctx.font = 'bold 11px Arial, Helvetica, sans-serif';
       ctx.textAlign = 'left';
       ctx.fillText('REP ID', 40, colY + 24);
-      ctx.fillText('REPRESENTANTE', 140, colY + 24);
-      ctx.fillText('DESEMPENHO GRÁFICO', 520, colY + 24);
+      ctx.fillText('REPRESENTANTE', 110, colY + 24);
+      ctx.fillText('REPRESENTADA', 340, colY + 24);
+      ctx.fillText('DESEMPENHO GRÁFICO', 570, colY + 24);
       ctx.textAlign = 'right';
       ctx.fillText('% VENDA', width - 40, colY + 24);
 
@@ -1476,17 +1519,35 @@ export default function App() {
         // Rep Name
         ctx.fillStyle = '#334155'; // Slate 700
         ctx.font = '12px Arial, Helvetica, sans-serif';
-        let displayName = r.repName;
-        if (displayName.length > 40) {
-          displayName = displayName.substring(0, 37) + '...';
+        const originalRep = allRecords.find(x => x.repId === r.repId);
+        let displayName = originalRep ? originalRep.repName : r.repName;
+        if (displayName.length > 25) {
+          displayName = displayName.substring(0, 23) + '...';
         }
-        ctx.fillText(displayName, 140, rowY + 22);
+        ctx.fillText(displayName, 110, rowY + 22);
+
+        // Representada
+        ctx.fillStyle = '#475569'; // Slate 600
+        ctx.font = '12px Arial, Helvetica, sans-serif';
+        
+        let displayRep = r.emp ? r.emp.split(',').map(e => {
+          const t = e.trim().toUpperCase();
+          if (t === 'CUT') return 'Cutelaria';
+          if (t === 'GAR') return 'Garibaldi';
+          if (t === 'MUL') return 'Multi';
+          return t;
+        }).join(', ') : 'Multi';
+
+        if (displayRep.length > 28) {
+          displayRep = displayRep.substring(0, 25) + '...';
+        }
+        ctx.fillText(displayRep, 340, rowY + 22);
 
         // Progress bar visual representation of pctVenda
         const pctVal = r.pctVenda;
-        const barX = 520;
+        const barX = 570;
         const barY = rowY + 14;
-        const barW = 120;
+        const barW = 100;
         const barH = 8;
 
         // Progress bar background (gray track)
@@ -2572,11 +2633,20 @@ export default function App() {
                 
                 {/* Visual Coordinator Bar chart inside standard container */}
                 <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm md:col-span-2 space-y-4">
-                  <div>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-55 pb-2">
                     <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
                       <LineChart className="w-4.5 h-4.5 text-indigo-500" />
                       Metas por Coordenador (CD + VP)
                     </h3>
+                    <button
+                      onClick={handleExportPresentation}
+                      disabled={isGeneratingPresentation}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-xl shadow-sm transition-all cursor-pointer border border-indigo-200"
+                      title="Gerar Apresentação de Vendas PPTX"
+                    >
+                      <Presentation className="w-4 h-4" />
+                      {isGeneratingPresentation ? 'Gerando Apresentação...' : 'Gerar Apresentação de Vendas'}
+                    </button>
                   </div>
 
                   <div className="space-y-4 pt-1">
@@ -2887,19 +2957,14 @@ export default function App() {
                 
                 {/* Header row in explorer */}
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-4 border-b border-slate-100">
-                  <div className="flex items-center gap-4">
-                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-150 flex items-center justify-center">
-                      <TramontinaLogo className="h-5 w-auto text-[#001A9C]" fillColor="#001A9C" />
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#001A9C]">
+                        Agente 87 - Ferramentas
+                      </span>
                     </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
-                          Agente 87 - Ferramentas
-                        </span>
-                      </div>
-                      <h3 className="font-bold text-slate-900 text-base mt-0.5">Registros de Vendas Detalhados</h3>
-                      <p className="text-xs text-slate-400 mt-0.5">Mostrando {sortedDetails.length} linhas de representantes ativos. Clique nos cabeçalhos para ordenar.</p>
-                    </div>
+                    <h3 className="font-bold text-slate-900 text-base mt-0.5">Registros de Vendas Detalhados</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Mostrando {sortedDetails.length} linhas de representantes ativos. Clique nos cabeçalhos para ordenar.</p>
                   </div>
                   
                   <button

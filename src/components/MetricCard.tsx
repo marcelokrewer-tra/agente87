@@ -48,7 +48,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="bg-white border border-slate-200 rounded-xl p-2.5 sm:p-3.5 shadow-sm hover:shadow-md transition-all duration-200 relative overflow-hidden group"
+      className="bg-white border border-slate-200 rounded-[24px] p-2.5 sm:p-3.5 shadow-sm hover:shadow-md transition-all duration-200 relative overflow-hidden group"
     >
       {/* Decorative vertical line */}
       <div className={`absolute top-0 bottom-0 left-0 w-1 ${dotAccentClasses}`} />
@@ -69,7 +69,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
           )}
         </div>
         
-        <div className={`p-1.5 rounded-lg border ${accentClasses} shadow-xs transition-transform duration-300 group-hover:rotate-6 shrink-0`}>
+        <div className={`p-1.5 rounded-xl border ${accentClasses} shadow-xs transition-transform duration-300 group-hover:rotate-6 shrink-0`}>
           {icon}
         </div>
       </div>
