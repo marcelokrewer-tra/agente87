@@ -319,6 +319,12 @@ export default function App() {
   const [isFirebaseModalOpen, setIsFirebaseModalOpen] = useState<boolean>(false);
   const [isFirebaseConnected, setIsFirebaseConnected] = useState<boolean>(false);
 
+  // Presentation date range filter modal states
+  const [isPresentationModalOpen, setIsPresentationModalOpen] = useState<boolean>(false);
+  const [presStartMonth, setPresStartMonth] = useState<number>(1);
+  const [presEndMonth, setPresEndMonth] = useState<number>(selectedMonth);
+  const [presentationProgressText, setPresentationProgressText] = useState<string>('');
+
   // Mobile filters expansion state
   const [isMobileFiltersExpanded, setIsMobileFiltersExpanded] = useState<boolean>(false);
 
@@ -739,21 +745,91 @@ export default function App() {
 
   const [isGeneratingPresentation, setIsGeneratingPresentation] = useState<boolean>(false);
 
-  const handleExportPresentation = async () => {
+  const handleExportPresentation = () => {
+    setPresStartMonth(1);
+    setPresEndMonth(selectedMonth);
+    setPresentationProgressText('');
+    setIsPresentationModalOpen(true);
+  };
+
+  const fetchRecordsForPresentation = async (year: number, startM: number, endM: number): Promise<any[]> => {
+    const monthsToFetch: number[] = [];
+    for (let m = startM; m <= endM; m++) {
+      monthsToFetch.push(m);
+    }
+    
+    const results = await Promise.all(monthsToFetch.map(async (m) => {
+      let records: any[] = [];
+      // Try Firestore if configured
+      const config = getFirebaseConfig();
+      if (config && config.apiKey) {
+        try {
+          const fsData = await fetchPeriodDataFromFirestore(year, m);
+          if (fsData && fsData.length > 0) {
+            records = fsData;
+          }
+        } catch (err) {
+          console.warn(`Firestore load failed for ${year}/${m}:`, err);
+        }
+      }
+      // Try server-side API
+      if (records.length === 0) {
+        try {
+          const response = await fetch(`/api/monthly-data/${year}/${m}`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.records && data.records.length > 0) {
+              records = data.records;
+            }
+          }
+        } catch (err) {
+          console.warn(`API load failed for ${year}/${m}:`, err);
+        }
+      }
+      // Try local fallback
+      if (records.length === 0) {
+        records = getLocalPeriodData(year, m);
+      }
+
+      // Attach month property to each record
+      return records.map(r => ({ ...r, month: m }));
+    }));
+
+    return results.flat();
+  };
+
+  const handlePresentationSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setIsGeneratingPresentation(true);
+    setPresentationProgressText('Preparando geração...');
     try {
+      // 1. Fetch current year records in the range
+      setPresentationProgressText(`Carregando dados de ${selectedYear}...`);
+      const currentYearRecords = await fetchRecordsForPresentation(selectedYear, presStartMonth, presEndMonth);
+
+      // 2. Fetch previous year records in the same range
+      setPresentationProgressText(`Carregando dados de ${selectedYear - 1}...`);
+      const previousYearRecords = await fetchRecordsForPresentation(selectedYear - 1, presStartMonth, presEndMonth);
+
+      // 3. Generate presentation
+      setPresentationProgressText('Gerando arquivo PowerPoint (.pptx)...');
       await generateSalesPresentation({
-        allRecords,
+        currentYearRecords,
+        previousYearRecords,
         customRepNames,
         customRepLocations,
-        selectedMonth,
+        startMonth: presStartMonth,
+        endMonth: presEndMonth,
         selectedYear
       });
+      
+      setIsPresentationModalOpen(false);
     } catch (err: any) {
       console.error("Erro ao gerar apresentação de vendas:", err);
       alert("Erro ao gerar apresentação de vendas: " + err.message);
     } finally {
       setIsGeneratingPresentation(false);
+      setPresentationProgressText('');
     }
   };
 
@@ -894,8 +970,8 @@ export default function App() {
       
       // Product Group filter
       if (!selectedProductGroups.includes('All') && selectedProductGroups.length > 0) {
-        const mappedGroupName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING];
-        if (!mappedGroupName || !selectedProductGroups.includes(mappedGroupName)) {
+        const mappedGroupName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING] || "Tramontina Multi";
+        if (!selectedProductGroups.includes(mappedGroupName)) {
           return false;
         }
       }
@@ -1072,8 +1148,8 @@ export default function App() {
         
         // Product Group filter
         if (!selectedProductGroups.includes('All') && selectedProductGroups.length > 0) {
-          const mappedGroupName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING];
-          if (!mappedGroupName || !selectedProductGroups.includes(mappedGroupName)) {
+          const mappedGroupName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING] || "Tramontina Multi";
+          if (!selectedProductGroups.includes(mappedGroupName)) {
             return;
           }
         }
@@ -1092,7 +1168,7 @@ export default function App() {
     let totalAll = 0;
     
     filteredRecords.forEach(r => {
-      const mappedName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING] || "Outros";
+      const mappedName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING] || "Tramontina Multi";
       if (!groups[mappedName]) groups[mappedName] = 0;
       groups[mappedName] += r.valorVendaTotal;
       totalAll += r.valorVendaTotal;
@@ -4375,6 +4451,144 @@ export default function App() {
         onClose={() => setIsFirebaseModalOpen(false)}
         onConnectionStatusChange={checkFirebaseStatus}
       />
+
+      {/* Date range filter modal for presentation generation */}
+      <AnimatePresence>
+        {isPresentationModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white border border-slate-200 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col p-6 space-y-4"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 bg-blue-50 border border-blue-100 rounded-xl flex items-center justify-center text-blue-600">
+                    <Presentation className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800">Exportar Apresentação</h3>
+                    <p className="text-[10px] text-slate-400 font-medium">Selecione o período de consolidação dos dados</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isGeneratingPresentation}
+                  onClick={() => setIsPresentationModalOpen(false)}
+                  className="p-1.5 hover:bg-slate-100 active:bg-slate-200 rounded-lg text-slate-400 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Progress/Form Content */}
+              {isGeneratingPresentation ? (
+                <div className="py-8 flex flex-col items-center justify-center space-y-4">
+                  <div className="w-12 h-12 rounded-full border-4 border-blue-100 border-t-blue-600 animate-spin" />
+                  <div className="text-center">
+                    <p className="text-xs font-bold text-slate-700">{presentationProgressText || 'Gerando apresentação...'}</p>
+                    <p className="text-[10px] text-slate-400 font-medium mt-1">Isso pode levar alguns segundos dependendo do volume de dados.</p>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handlePresentationSubmit} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Mês Inicial
+                      </label>
+                      <select
+                        value={presStartMonth}
+                        onChange={(e) => setPresStartMonth(Number(e.target.value))}
+                        className="w-full text-xs bg-slate-50 border border-slate-200 py-2.5 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/15 focus:border-[#001A9C]/30 text-slate-800 font-semibold cursor-pointer"
+                      >
+                        {[
+                          { value: 1, name: "Janeiro" },
+                          { value: 2, name: "Fevereiro" },
+                          { value: 3, name: "Março" },
+                          { value: 4, name: "Abril" },
+                          { value: 5, name: "Maio" },
+                          { value: 6, name: "Junho" },
+                          { value: 7, name: "Julho" },
+                          { value: 8, name: "Agosto" },
+                          { value: 9, name: "Setembro" },
+                          { value: 10, name: "Outubro" },
+                          { value: 11, name: "Novembro" },
+                          { value: 12, name: "Dezembro" }
+                        ].map((m) => (
+                          <option key={m.value} value={m.value}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Mês Final
+                      </label>
+                      <select
+                        value={presEndMonth}
+                        onChange={(e) => setPresEndMonth(Number(e.target.value))}
+                        className="w-full text-xs bg-slate-50 border border-slate-200 py-2.5 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/15 focus:border-[#001A9C]/30 text-slate-800 font-semibold cursor-pointer"
+                      >
+                        {[
+                          { value: 1, name: "Janeiro" },
+                          { value: 2, name: "Fevereiro" },
+                          { value: 3, name: "Março" },
+                          { value: 4, name: "Abril" },
+                          { value: 5, name: "Maio" },
+                          { value: 6, name: "Junho" },
+                          { value: 7, name: "Julho" },
+                          { value: 8, name: "Agosto" },
+                          { value: 9, name: "Setembro" },
+                          { value: 10, name: "Outubro" },
+                          { value: 11, name: "Novembro" },
+                          { value: 12, name: "Dezembro" }
+                        ].map((m) => (
+                          <option key={m.value} value={m.value} disabled={m.value < presStartMonth}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3 flex gap-2.5">
+                    <div className="w-5 h-5 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-center text-blue-600 shrink-0 mt-0.5">
+                      <Calendar className="w-3 h-3" />
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
+                      As vendas, as cotas, as KPIs e os relatórios de atingimento da apresentação gerada serão automaticamente consolidados e acumulados entre os meses selecionados de <strong className="text-slate-700">{selectedYear}</strong>, com comparações contra o mesmo período de <strong className="text-slate-700">{selectedYear - 1}</strong>.
+                    </p>
+                  </div>
+
+                  {/* Footer Buttons */}
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      disabled={isGeneratingPresentation}
+                      onClick={() => setIsPresentationModalOpen(false)}
+                      className="flex-1 py-2.5 bg-slate-50 hover:bg-slate-100 active:scale-[0.98] text-slate-700 text-xs font-bold rounded-xl transition-all border border-slate-200 cursor-pointer text-center disabled:opacity-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isGeneratingPresentation}
+                      className="flex-1 py-2.5 bg-[#001A9C] hover:bg-blue-700 active:scale-[0.98] text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer text-center disabled:opacity-50"
+                    >
+                      Gerar Apresentação
+                    </button>
+                  </div>
+                </form>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

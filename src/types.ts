@@ -29,6 +29,7 @@ export interface SalesRecord {
   pctVenda: number;
   previaValue?: number;
   pedidosNovos?: number;
+  month?: number;
 }
 
 export interface RepresentativeSummary {
