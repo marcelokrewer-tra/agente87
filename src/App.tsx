@@ -1473,8 +1473,7 @@ export default function App() {
       ctx.textAlign = 'left';
       ctx.fillText('REP ID', 40, colY + 24);
       ctx.fillText('REPRESENTANTE', 110, colY + 24);
-      ctx.fillText('REPRESENTADA', 340, colY + 24);
-      ctx.fillText('DESEMPENHO GRÁFICO', 570, colY + 24);
+      ctx.fillText('DESEMPENHO GRÁFICO', 480, colY + 24);
       ctx.textAlign = 'right';
       ctx.fillText('% VENDA', width - 40, colY + 24);
 
@@ -1505,33 +1504,16 @@ export default function App() {
         ctx.font = '12px Arial, Helvetica, sans-serif';
         const originalRep = allRecords.find(x => x.repId === r.repId);
         let displayName = originalRep ? originalRep.repName : r.repName;
-        if (displayName.length > 25) {
-          displayName = displayName.substring(0, 23) + '...';
+        if (displayName.length > 40) {
+          displayName = displayName.substring(0, 38) + '...';
         }
         ctx.fillText(displayName, 110, rowY + 22);
 
-        // Representada
-        ctx.fillStyle = '#475569'; // Slate 600
-        ctx.font = '12px Arial, Helvetica, sans-serif';
-        
-        let displayRep = r.emp ? r.emp.split(',').map(e => {
-          const t = e.trim().toUpperCase();
-          if (t === 'CUT') return 'Cutelaria';
-          if (t === 'GAR') return 'Garibaldi';
-          if (t === 'MUL') return 'Multi';
-          return t;
-        }).join(', ') : 'Multi';
-
-        if (displayRep.length > 28) {
-          displayRep = displayRep.substring(0, 25) + '...';
-        }
-        ctx.fillText(displayRep, 340, rowY + 22);
-
         // Progress bar visual representation of pctVenda
         const pctVal = r.pctVenda;
-        const barX = 570;
+        const barX = 480;
         const barY = rowY + 14;
-        const barW = 100;
+        const barW = 200;
         const barH = 8;
 
         // Progress bar background (gray track)
