@@ -1,3 +1,26 @@
+export function getBrasiliaDate(): Date {
+  const localDate = new Date();
+  const utcMs = localDate.getTime() + (localDate.getTimezoneOffset() * 60000);
+  const brasiliaMs = utcMs - (3 * 3600000); // Brasília is UTC-3
+  return new Date(brasiliaMs);
+}
+
+export function getMappedGroupName(groupName: string | undefined): string {
+  const name = (groupName || '').trim();
+  const nameLower = name.toLowerCase();
+  
+  if (nameLower === "cut geral monet.") {
+    return "Tramontina Cutelaria";
+  }
+  if (nameLower === "garibaldi master mon") {
+    return "Tramontina Master";
+  }
+  if (nameLower === "garibaldi pro monet" || nameLower.includes("pro")) {
+    return "Tramontina Pro";
+  }
+  return "Tramontina Multi";
+}
+
 export interface SalesRecord {
   id: string; // Unique row ID
   age: number;
@@ -5,6 +28,7 @@ export interface SalesRecord {
   repName: string;
   coordId: number;
   coordName: string;
+  originalCoordName?: string;
   emp: string; // Company prefix (e.g. CUT, GAR)
   linha: string; // Line of business (e.g. Utilidades, Ferramentas)
   groupId: number;

@@ -5,7 +5,9 @@ import {
   parseTSV 
 } from './rawData';
 import { 
-  SalesRecord 
+  SalesRecord,
+  getMappedGroupName,
+  getBrasiliaDate
  } from './types';
 import {
   getLocalPeriodsIndex,
@@ -160,18 +162,22 @@ export default function App() {
   // Selected state on the Brazil map
   const [selectedState, setSelectedState] = useState<string | null>(null);
 
+  const bDate = getBrasiliaDate();
+  const currentBYear = bDate.getFullYear();
+  const currentBMonth = bDate.getMonth() + 1;
+
   // Month-to-month and server-side memory states
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [selectedMonth, setSelectedMonth] = useState<number>(6);
+  const [selectedYear, setSelectedYear] = useState<number>(currentBYear);
+  const [selectedMonth, setSelectedMonth] = useState<number>(currentBMonth);
   const [isAccumulated, setIsAccumulated] = useState<boolean>(false);
   const [accumulateStartMonth, setAccumulateStartMonth] = useState<number>(1);
-  const [accumulateEndMonth, setAccumulateEndMonth] = useState<number>(6);
+  const [accumulateEndMonth, setAccumulateEndMonth] = useState<number>(currentBMonth);
 
-  const [tempYear, setTempYear] = useState<number>(2026);
-  const [tempMonth, setTempMonth] = useState<number>(6);
+  const [tempYear, setTempYear] = useState<number>(currentBYear);
+  const [tempMonth, setTempMonth] = useState<number>(currentBMonth);
   const [tempIsAccumulated, setTempIsAccumulated] = useState<boolean>(false);
   const [tempAccumulateStartMonth, setTempAccumulateStartMonth] = useState<number>(1);
-  const [tempAccumulateEndMonth, setTempAccumulateEndMonth] = useState<number>(6);
+  const [tempAccumulateEndMonth, setTempAccumulateEndMonth] = useState<number>(currentBMonth);
   const [availablePeriods, setAvailablePeriods] = useState<Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }>>([]);
   const [isLoadingPeriod, setIsLoadingPeriod] = useState<boolean>(false);
   const [periodFetchError, setPeriodFetchError] = useState<string | null>(null);
@@ -227,14 +233,8 @@ export default function App() {
   };
 
   const getLatestPeriod = () => {
-    if (availablePeriods.length === 0) {
-      return { year: 2026, month: 6 };
-    }
-    const sorted = [...availablePeriods].sort((a, b) => {
-      if (b.year !== a.year) return b.year - a.year;
-      return b.month - a.month;
-    });
-    return { year: sorted[0].year, month: sorted[0].month };
+    const brasiliaDate = getBrasiliaDate();
+    return { year: brasiliaDate.getFullYear(), month: brasiliaDate.getMonth() + 1 };
   };
 
   const selectLatestPeriod = (periods: Array<{ year: number; month: number }>) => {
@@ -927,9 +927,28 @@ export default function App() {
 
   // Dynamic mapped records with customized representative names prioritized
   const resolvedRecords = useMemo(() => {
+    // Pre-calculate the original non-PRO coordinator for each representative (if any exists)
+    // to keep the proper relationship with their region coordinator when displaying PRO lines.
+    const repToOrigCoord: Record<string, string> = {};
+    allRecords.forEach(r => {
+      const isPro = (r.groupName || '').toLowerCase().includes('pro');
+      const isMarcelo = (r.coordName || '').toLowerCase().includes('marcelo') || (r.coordName || '').toLowerCase().includes('krewer');
+      if (!isPro && !isMarcelo && r.coordName) {
+        repToOrigCoord[r.repId.toString().trim()] = r.coordName;
+      }
+    });
+
+    allRecords.forEach(r => {
+      const key = r.repId.toString().trim();
+      if (!repToOrigCoord[key] && r.coordName) {
+        repToOrigCoord[key] = r.coordName;
+      }
+    });
+
     return allRecords
       .map(r => {
         let coordName = r.coordName;
+        const originalCoordName = repToOrigCoord[r.repId.toString().trim()] || r.coordName || '';
         // If it is Tramontina Pro (Garibaldi Pro Monet), assign coordinator to "Marcelo Krewer"
         const isPro = (r.groupName || '').toLowerCase().includes('pro');
         if (isPro) {
@@ -939,6 +958,7 @@ export default function App() {
         const customName = customRepNames[r.repId.toString().trim() || r.repId];
         return {
           ...r,
+          originalCoordName,
           coordName,
           repName: customName || r.repName
         };
@@ -965,12 +985,16 @@ export default function App() {
   // Compute filtered records based on interactive panel
   const filteredRecords = useMemo(() => {
     return resolvedRecords.filter(r => {
-      // Coordinator filter
-      if (selectedCoordinator !== 'All' && r.coordName !== selectedCoordinator) return false;
+      // Coordinator filter (using original coordinator name to allow proper Pro/Master filtering)
+      if (selectedCoordinator !== 'All') {
+        const matchOriginal = r.originalCoordName.toLowerCase().trim() === selectedCoordinator.toLowerCase().trim() ||
+                              r.originalCoordName.toLowerCase().trim().includes(selectedCoordinator.toLowerCase().trim().split(' ')[0]);
+        if (!matchOriginal) return false;
+      }
       
       // Product Group filter
       if (!selectedProductGroups.includes('All') && selectedProductGroups.length > 0) {
-        const mappedGroupName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING] || "Tramontina Multi";
+        const mappedGroupName = getMappedGroupName(r.groupName);
         if (!selectedProductGroups.includes(mappedGroupName)) {
           return false;
         }
@@ -1144,11 +1168,15 @@ export default function App() {
       const repState = customRepLocations[r.repId.toString().trim() || r.repId];
       if (repState && stats[repState]) {
         // Coordinator filter
-        if (selectedCoordinator !== 'All' && r.coordName !== selectedCoordinator) return;
+        if (selectedCoordinator !== 'All') {
+          const matchOriginal = r.originalCoordName.toLowerCase().trim() === selectedCoordinator.toLowerCase().trim() ||
+                                r.originalCoordName.toLowerCase().trim().includes(selectedCoordinator.toLowerCase().trim().split(' ')[0]);
+          if (!matchOriginal) return;
+        }
         
         // Product Group filter
         if (!selectedProductGroups.includes('All') && selectedProductGroups.length > 0) {
-          const mappedGroupName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING] || "Tramontina Multi";
+          const mappedGroupName = getMappedGroupName(r.groupName);
           if (!selectedProductGroups.includes(mappedGroupName)) {
             return;
           }
@@ -1168,7 +1196,7 @@ export default function App() {
     let totalAll = 0;
     
     filteredRecords.forEach(r => {
-      const mappedName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING] || "Tramontina Multi";
+      const mappedName = getMappedGroupName(r.groupName);
       if (!groups[mappedName]) groups[mappedName] = 0;
       groups[mappedName] += r.valorVendaTotal;
       totalAll += r.valorVendaTotal;
@@ -1212,7 +1240,7 @@ export default function App() {
       return {
         repId: first.repId,
         repName: first.repName,
-        coordName: first.coordName,
+        coordName: first.originalCoordName || first.coordName,
         totalQuota: qTotal,
         totalFaturado: vVenda,
         totalFaturadoCD: fCD,
@@ -1244,8 +1272,12 @@ export default function App() {
     // Group unique reps from resolvedRecords
     const repsMap = new Map<number, { repId: number; repName: string }>();
     resolvedRecords.forEach(r => {
-      // Apply coordinator filter if selected
-      if (selectedCoordinator !== 'All' && r.coordName !== selectedCoordinator) return;
+      // Apply coordinator filter if selected (using original coordinator name to allow proper Pro/Master filtering)
+      if (selectedCoordinator !== 'All') {
+        const matchOriginal = r.originalCoordName.toLowerCase().trim() === selectedCoordinator.toLowerCase().trim() ||
+                              r.originalCoordName.toLowerCase().trim().includes(selectedCoordinator.toLowerCase().trim().split(' ')[0]);
+        if (!matchOriginal) return;
+      }
       // Apply state filter if selected
       if (selectedState) {
         const repState = customRepLocations[r.repId.toString().trim() || r.repId];
@@ -1372,7 +1404,7 @@ export default function App() {
         repId: first.repId,
         repName: first.repName,
         coordId: first.coordId,
-        coordName: first.coordName,
+        coordName: first.originalCoordName || first.coordName,
         emp: uniqueEmps.join(', '),
         linha: uniqueLinhas.join(', '),
         groupId: first.groupId,
@@ -1689,7 +1721,7 @@ export default function App() {
     const aggregatedByGroup: { [key: string]: { mappedGroupName: string; quotaTotal: number; valorVendaTotal: number; defasagem: number } } = {};
     
     items.forEach(r => {
-      const mappedGroupName = PRODUCT_GROUP_MAPPING[r.groupName as keyof typeof PRODUCT_GROUP_MAPPING] || "Tramontina Multi";
+      const mappedGroupName = getMappedGroupName(r.groupName);
       if (!aggregatedByGroup[mappedGroupName]) {
         aggregatedByGroup[mappedGroupName] = {
           mappedGroupName,
@@ -1708,7 +1740,7 @@ export default function App() {
     return {
       repId: selectedRepDetailId,
       repName: items[0].repName,
-      coordName: items[0].coordName,
+      coordName: items[0].originalCoordName || items[0].coordName,
       quota,
       faturado: valorVenda,
       defasagem,

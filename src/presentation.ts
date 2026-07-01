@@ -1,5 +1,5 @@
 import pptxgen from 'pptxgenjs';
-import { SalesRecord } from './types';
+import { SalesRecord, getMappedGroupName } from './types';
 
 interface PresentationProps {
   currentYearRecords: SalesRecord[];
@@ -432,25 +432,25 @@ export const generateSalesPresentation = async ({
     let cutQ = 0, cutS = 0, prevCutS = 0;
 
     recs.forEach(r => {
-      const groupName = (r.groupName || '').trim();
-      if (groupName === "Cut Geral Monet.") {
+      const mappedGroup = getMappedGroupName(r.groupName);
+      if (mappedGroup === "Tramontina Cutelaria") {
         cutQ += r.quotaTotal;
         cutS += r.valorVendaTotal;
-      } else if (groupName === "Garibaldi Master Mon" || groupName === "Garibaldi Pro Monet") {
+      } else if (mappedGroup === "Tramontina Master" || mappedGroup === "Tramontina Pro") {
         garQ += r.quotaTotal;
         garS += r.valorVendaTotal;
       } else {
-        // Sem Grupo or any other unmapped group goes to Tramontina Multi
+        // Tramontina Multi
         multiQ += r.quotaTotal;
         multiS += r.valorVendaTotal;
       }
     });
 
     prevRecs.forEach(r => {
-      const groupName = (r.groupName || '').trim();
-      if (groupName === "Cut Geral Monet.") {
+      const mappedGroup = getMappedGroupName(r.groupName);
+      if (mappedGroup === "Tramontina Cutelaria") {
         prevCutS += r.valorVendaTotal;
-      } else if (groupName === "Garibaldi Master Mon" || groupName === "Garibaldi Pro Monet") {
+      } else if (mappedGroup === "Tramontina Master" || mappedGroup === "Tramontina Pro") {
         prevGarS += r.valorVendaTotal;
       } else {
         prevMultiS += r.valorVendaTotal;
