@@ -239,14 +239,45 @@ export default function App() {
 
   const selectLatestPeriod = (periods: Array<{ year: number; month: number }>) => {
     if (periods.length > 0 && !hasSetInitialPeriod) {
-      const sorted = [...periods].sort((a, b) => {
-        if (b.year !== a.year) return b.year - a.year;
-        return b.month - a.month;
-      });
-      setSelectedYear(sorted[0].year);
-      setSelectedMonth(sorted[0].month);
-      setTempYear(sorted[0].year);
-      setTempMonth(sorted[0].month);
+      const bDate = getBrasiliaDate();
+      const currentYear = bDate.getFullYear();
+      const currentMonth = bDate.getMonth() + 1;
+
+      // Find if we have an exact match for the current month and year
+      const currentPeriod = periods.find(p => p.year === currentYear && p.month === currentMonth);
+
+      let targetPeriod;
+      if (currentPeriod) {
+        targetPeriod = currentPeriod;
+      } else {
+        // Find periods that are less than or equal to current month & year (past or present)
+        const pastOrPresentPeriods = periods.filter(p => {
+          if (p.year < currentYear) return true;
+          if (p.year === currentYear && p.month <= currentMonth) return true;
+          return false;
+        });
+
+        if (pastOrPresentPeriods.length > 0) {
+          // Sort descending to get the latest past/present period
+          const sorted = [...pastOrPresentPeriods].sort((a, b) => {
+            if (b.year !== a.year) return b.year - a.year;
+            return b.month - a.month;
+          });
+          targetPeriod = sorted[0];
+        } else {
+          // If only future periods exist, sort ascending to get the closest future period
+          const sorted = [...periods].sort((a, b) => {
+            if (a.year !== b.year) return a.year - b.year;
+            return a.month - b.month;
+          });
+          targetPeriod = sorted[0];
+        }
+      }
+
+      setSelectedYear(targetPeriod.year);
+      setSelectedMonth(targetPeriod.month);
+      setTempYear(targetPeriod.year);
+      setTempMonth(targetPeriod.month);
       setHasSetInitialPeriod(true);
     }
   };
