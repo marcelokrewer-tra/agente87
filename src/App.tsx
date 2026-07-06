@@ -1146,12 +1146,13 @@ export default function App() {
     const groups: { [key: string]: { quota: number; faturado: number; name: string; reps: Set<number> } } = {};
     
     filteredRecords.forEach(r => {
-      if (!groups[r.coordName]) {
-        groups[r.coordName] = { quota: 0, faturado: 0, name: r.coordName, reps: new Set() };
+      const cName = r.originalCoordName || r.coordName;
+      if (!groups[cName]) {
+        groups[cName] = { quota: 0, faturado: 0, name: cName, reps: new Set() };
       }
-      groups[r.coordName].quota += r.quotaTotal;
-      groups[r.coordName].faturado += r.valorVendaTotal;
-      groups[r.coordName].reps.add(r.repId);
+      groups[cName].quota += r.quotaTotal;
+      groups[cName].faturado += r.valorVendaTotal;
+      groups[cName].reps.add(r.repId);
     });
 
     return Object.values(groups)
