@@ -12,7 +12,9 @@ import {
   Clock, 
   RefreshCw,
   Users,
-  Eye
+  Eye,
+  Lock,
+  ShieldCheck
 } from 'lucide-react';
 import { fetchAnalyticsStats, logAnalyticsEvent, AnalyticsStats } from '../lib/analytics';
 
@@ -26,7 +28,26 @@ export function AnalyticsDashboard({ isFirebaseConnected }: AnalyticsDashboardPr
   const [stats, setStats] = useState<AnalyticsStats | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<'geral' | 'regioes' | 'features' | 'tecnologia' | 'logs'>('geral');
 
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return sessionStorage.getItem('analytics_auth') === 'true';
+  });
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  const handlePasswordSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordInput === 'mak.0708') {
+      setIsAuthenticated(true);
+      sessionStorage.setItem('analytics_auth', 'true');
+      setPasswordError(null);
+      setPasswordInput('');
+    } else {
+      setPasswordError('Senha incorreta. Verifique os dados e tente novamente.');
+    }
+  };
+
   const loadStats = async () => {
+    if (!isAuthenticated) return;
     setIsLoading(true);
     try {
       const data = await fetchAnalyticsStats();
@@ -39,10 +60,10 @@ export function AnalyticsDashboard({ isFirebaseConnected }: AnalyticsDashboardPr
   };
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && isAuthenticated) {
       loadStats();
     }
-  }, [isOpen, isFirebaseConnected]);
+  }, [isOpen, isAuthenticated, isFirebaseConnected]);
 
   const toggleModal = () => {
     setIsOpen(!isOpen);
@@ -65,9 +86,9 @@ export function AnalyticsDashboard({ isFirebaseConnected }: AnalyticsDashboardPr
         type="button"
         id="btn-footer-analytics"
         onClick={toggleModal}
-        className="px-4 py-2 bg-slate-850 hover:bg-slate-800 active:bg-slate-900 text-slate-100 hover:text-white text-xs font-bold rounded-xl flex items-center gap-2 cursor-pointer border border-slate-750 transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5"
+        className="px-4 py-2 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 hover:text-slate-950 text-xs font-bold rounded-xl flex items-center gap-2 cursor-pointer border border-slate-200 transition-all shadow-xs hover:shadow-md hover:-translate-y-0.5"
       >
-        <BarChart3 className="w-4 h-4 text-sky-400 animate-pulse" />
+        <BarChart3 className="w-4 h-4 text-sky-600 animate-pulse" />
         <span>Métricas & Analytics do Painel</span>
       </button>
 
@@ -111,8 +132,57 @@ export function AnalyticsDashboard({ isFirebaseConnected }: AnalyticsDashboardPr
                 </div>
               </div>
 
-              {/* Navigation Sub-Tabs */}
-              <div className="flex gap-1.5 px-6 pt-3 pb-3 border-b border-slate-100 bg-slate-50/20 overflow-x-auto">
+              {!isAuthenticated ? (
+                /* Password protection screen */
+                <div className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-50/30 min-h-[400px]">
+                  <div className="max-w-md w-full bg-white p-8 border border-slate-200/80 rounded-2xl shadow-3xs text-center space-y-6">
+                    <div className="w-12 h-12 bg-amber-50 border border-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto shadow-3xs">
+                      <Lock className="w-5 h-5 text-amber-600 animate-pulse" />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-bold text-slate-800">Acesso Restrito ao Analytics</h3>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        Este painel de métricas contém registros de logs de auditoria interna, acessos regionais por geolocalização IP e telemetria de uso. Digite a senha de acesso para prosseguir.
+                      </p>
+                    </div>
+
+                    <form onSubmit={handlePasswordSubmit} className="space-y-4">
+                      <div className="relative">
+                        <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-400">
+                          <Lock className="w-4 h-4" />
+                        </span>
+                        <input
+                          type="password"
+                          placeholder="Digite a senha..."
+                          value={passwordInput}
+                          onChange={(e) => setPasswordInput(e.target.value)}
+                          className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 transition-all text-slate-800 font-bold"
+                          autoFocus
+                        />
+                      </div>
+
+                      {passwordError && (
+                        <div className="text-red-600 bg-red-50 text-[11px] font-bold px-3 py-2.5 border border-red-100 rounded-xl text-left flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 bg-red-500 rounded-full shrink-0" />
+                          <span>{passwordError}</span>
+                        </div>
+                      )}
+
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white text-xs font-bold rounded-xl transition-all shadow-xs hover:shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>Verificar Senha</span>
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Navigation Sub-Tabs */}
+                  <div className="flex gap-1.5 px-6 pt-3 pb-3 border-b border-slate-100 bg-slate-50/20 overflow-x-auto">
                 <button
                   onClick={() => setActiveSubTab('geral')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
@@ -535,6 +605,8 @@ export function AnalyticsDashboard({ isFirebaseConnected }: AnalyticsDashboardPr
                   </motion.div>
                 )}
               </div>
+                </>
+              )}
 
               {/* Footer */}
               <div className="p-4 border-t border-slate-100 flex justify-between items-center bg-slate-50/50">
