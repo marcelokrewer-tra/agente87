@@ -12,6 +12,7 @@ import {
   savePeriodToFirestore,
   deletePeriodFromFirestore
 } from '../lib/firebase';
+import { logAnalyticsEvent } from '../lib/analytics';
 import { 
   FileSpreadsheet, 
   Upload, 
@@ -119,6 +120,7 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
       try {
         await savePeriodToFirestore(selectedYear, selectedMonth, parsedRecords);
         setSuccessStatus(`✨ Sucesso! Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram salvos com sucesso na nuvem do Firebase Firestore e estão públicos para qualquer dispositivo!`);
+        logAnalyticsEvent('data_import', `${parsedRecords.length} reg. p/ ${selectedMonth}/${selectedYear} (Cloud)`);
         onDataSaved(selectedYear, selectedMonth, parsedRecords);
         setParsedRecords([]);
         setTsvText('');
@@ -151,6 +153,7 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
           const result = await response.json();
           if (result.success) {
             setSuccessStatus(`Sucesso! Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram gravados com sucesso na memória pública do servidor.`);
+            logAnalyticsEvent('data_import', `${parsedRecords.length} reg. p/ ${selectedMonth}/${selectedYear} (Server)`);
             onDataSaved(selectedYear, selectedMonth, parsedRecords);
             setParsedRecords([]);
             setTsvText('');
@@ -169,6 +172,7 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
       if (isLocalFallback) {
         saveLocalPeriod(selectedYear, selectedMonth, parsedRecords);
         setSuccessStatus(`⚠️ Ambiente estático (Vercel) detectado. Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram salvos localmente no seu navegador! Para persistência pública global, conecte o Firebase no botão da barra lateral.`);
+        logAnalyticsEvent('data_import', `${parsedRecords.length} reg. p/ ${selectedMonth}/${selectedYear} (Local)`);
         onDataSaved(selectedYear, selectedMonth, parsedRecords);
         setParsedRecords([]);
         setTsvText('');

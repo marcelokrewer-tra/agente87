@@ -44,6 +44,8 @@ import { KPIGauge } from './components/KPIGauge';
 import { ImportDataTab } from './components/ImportDataTab';
 import { TramontinaLogo } from './components/TramontinaLogo';
 import { generateSalesPresentation } from './presentation';
+import { logAnalyticsEvent, logSessionIfNeeded } from './lib/analytics';
+import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { 
   TrendingUp, 
   Users, 
@@ -550,6 +552,7 @@ export default function App() {
   useEffect(() => {
     checkFirebaseStatus();
     fetchAvailablePeriods();
+    logSessionIfNeeded();
   }, []);
 
   // Re-fetch when Firebase status shifts or active period shifts
@@ -614,6 +617,21 @@ export default function App() {
   // Dashboard Core Navigation Tabs
   const [activeTab, setActiveTab] = useState<'geral' | 'representantes' | 'detalhado' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao'>('geral');
   const [isImportDropdownOpen, setIsImportDropdownOpen] = useState(false);
+
+  // Log tab view analytics
+  useEffect(() => {
+    const tabNames: Record<string, string> = {
+      geral: 'Panorama Geral',
+      representantes: 'Análise de Representantes',
+      detalhado: 'Explorador de Dados',
+      previa: 'Configuração de Prévias',
+      importar: 'Importação de Dados',
+      nomes: 'Nomes de Representantes',
+      vendas_estado: 'Vendas por Estado',
+      localizacao: 'Localizações de Representantes'
+    };
+    logAnalyticsEvent('tab_view', tabNames[activeTab] || activeTab);
+  }, [activeTab]);
 
   const [previews, setPreviews] = useState<RepresentativePreview[]>([]);
   const [previewsUpdatedAt, setPreviewsUpdatedAt] = useState<string | null>(null);
@@ -723,6 +741,7 @@ export default function App() {
       const nowString = new Date().toISOString();
       setPreviewsUpdatedAt(nowString);
       setSaveSuccessMessage("Configurações de prévia salvas com sucesso!");
+      logAnalyticsEvent('data_save', `Prévias de ${selectedMonth}/${selectedYear} (${previews.length} itens)`);
       setTimeout(() => setSaveSuccessMessage(null), 3000);
     } catch (err: any) {
       console.error("Error saving previews:", err);
@@ -744,6 +763,7 @@ export default function App() {
       }
       saveLocalRepNames(namesToSave);
       setSaveNamesSuccessMessage("Nomes de representantes salvos com sucesso!");
+      logAnalyticsEvent('custom_name_save', `${Object.keys(namesToSave).length} nomes customizados`);
       setTimeout(() => setSaveNamesSuccessMessage(null), 3500);
     } catch (err: any) {
       console.error("Error saving representative names:", err);
@@ -765,6 +785,7 @@ export default function App() {
       }
       saveLocalRepLocations(locationsToSave);
       setSaveLocationsSuccessMessage("Localizações de representantes salvas com sucesso!");
+      logAnalyticsEvent('location_save', `${Object.keys(locationsToSave).length} estados mapeados`);
       setTimeout(() => setSaveLocationsSuccessMessage(null), 3500);
     } catch (err: any) {
       console.error("Error saving representative locations:", err);
@@ -854,6 +875,7 @@ export default function App() {
         selectedYear
       });
       
+      logAnalyticsEvent('presentation_export', `Período ${presStartMonth}/${selectedYear} a ${presEndMonth}/${selectedYear}`);
       setIsPresentationModalOpen(false);
     } catch (err: any) {
       console.error("Erro ao gerar apresentação de vendas:", err);
@@ -4425,6 +4447,8 @@ export default function App() {
             )}
           </div>
         </div>
+
+        <AnalyticsDashboard isFirebaseConnected={isFirebaseConnected} />
 
         <p className="text-xs text-slate-400 font-medium">© 2026 Tramontina S/A. Todos os direitos reservados. Sistema interno de performance de representantes.</p>
       </footer>
