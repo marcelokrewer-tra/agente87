@@ -12,7 +12,7 @@ export interface AnalyticsEvent {
   id: string;
   timestamp: string; // ISO string
   date: string; // YYYY-MM-DD
-  type: 'session_start' | 'tab_view' | 'data_import' | 'presentation_export' | 'data_save' | 'custom_name_save' | 'location_save';
+  type: 'session_start' | 'tab_view' | 'data_import' | 'presentation_export' | 'data_save' | 'custom_name_save' | 'location_save' | 'excel_preview_export';
   details?: string; // name of the tab, UFs, rows count
   ip?: string;
   city?: string;
@@ -342,6 +342,8 @@ export const fetchAnalyticsStats = async (): Promise<AnalyticsStats> => {
         fKey = `Cadastrou Nomes Customizados`;
       } else if (evt.type === 'location_save') {
         fKey = `Mapeou Estados/Localizações`;
+      } else if (evt.type === 'excel_preview_export') {
+        fKey = `Exportou Planilha Modelo de Prévia`;
       }
       mostUsedFeatures[fKey] = (mostUsedFeatures[fKey] || 0) + 1;
     }

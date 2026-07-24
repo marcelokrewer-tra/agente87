@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   INITIAL_RAW_DATA, 
@@ -644,25 +645,128 @@ export default function App() {
     
     lines.forEach(line => {
       if (!line.trim()) return;
-      const parts = line.split(/\t|;|,(?!\d)/);
-      if (parts.length >= 2) {
-        const repId = parts[0].trim();
-        const rawPrevia = parts[1].trim();
-        const rawVendaDia = parts[2] ? parts[2].trim() : "0";
-        
-        if (repId.toLowerCase().includes('representante') || repId.toLowerCase().includes('código') || repId.toLowerCase().includes('repid')) {
-          return;
+      const parts = line.split(/\t|;|,(?!\d)/).map(p => p.trim());
+      
+      const lineLower = line.toLowerCase();
+      if (
+        lineLower.includes('nome do representante') ||
+        lineLower.includes('nome do coordenador') ||
+        lineLower.includes('código do representante') ||
+        lineLower.includes('prévia ferramentas') ||
+        lineLower.includes('prévia linha pro') ||
+        lineLower.includes('prévia total') ||
+        lineLower.includes('venda no dia da prévia') ||
+        lineLower.includes('cód_representante') ||
+        lineLower.includes('valor_expectativa') ||
+        lineLower.includes('repid')
+      ) {
+        return;
+      }
+      
+      if (parts.length >= 7) {
+        // Col 0: Rep Name, Col 1: Coord Name, Col 2: Rep ID, Col 3: Ferramentas, Col 4: Linha Pro, Col 5: Total, Col 6: Venda Dia
+        let repId = parts[2];
+        if (!repId || !/^\d+$/.test(repId)) {
+          const found = parts.find(p => /^\d+$/.test(p));
+          if (found) repId = found;
         }
         
-        const previaValue = parseBrazilianNumber(rawPrevia);
-        const vendaDiaPrevia = parseBrazilianNumber(rawVendaDia);
+        const valFerramentas = parseBrazilianNumber(parts[3]) || 0;
+        const valLinhaPro = parseBrazilianNumber(parts[4]) || 0;
+        const valTotal = parseBrazilianNumber(parts[5]) || 0;
+        const valVendaDia = parseBrazilianNumber(parts[6]) || 0;
+        
+        const previaValue = (valTotal > 0) ? valTotal : (valFerramentas + valLinhaPro);
         
         if (repId) {
           newPreviews.push({
             repId,
             previaValue,
-            vendaDiaPrevia
+            vendaDiaPrevia: valVendaDia
           });
+        }
+      } else if (parts.length === 6) {
+        let repId = parts[2];
+        let valFerramentas = 0;
+        let valLinhaPro = 0;
+        let valTotal = 0;
+        let valVendaDia = 0;
+
+        if (/^\d+$/.test(parts[2])) {
+          repId = parts[2];
+          valFerramentas = parseBrazilianNumber(parts[3]) || 0;
+          valLinhaPro = parseBrazilianNumber(parts[4]) || 0;
+          valVendaDia = parseBrazilianNumber(parts[5]) || 0;
+        } else if (/^\d+$/.test(parts[1])) {
+          repId = parts[1];
+          valFerramentas = parseBrazilianNumber(parts[2]) || 0;
+          valLinhaPro = parseBrazilianNumber(parts[3]) || 0;
+          valTotal = parseBrazilianNumber(parts[4]) || 0;
+          valVendaDia = parseBrazilianNumber(parts[5]) || 0;
+        } else if (/^\d+$/.test(parts[0])) {
+          repId = parts[0];
+          valFerramentas = parseBrazilianNumber(parts[1]) || 0;
+          valLinhaPro = parseBrazilianNumber(parts[2]) || 0;
+          valTotal = parseBrazilianNumber(parts[3]) || 0;
+          valVendaDia = parseBrazilianNumber(parts[4]) || 0;
+        }
+
+        const previaValue = (valTotal > 0) ? valTotal : (valFerramentas + valLinhaPro);
+        if (repId) {
+          newPreviews.push({
+            repId,
+            previaValue,
+            vendaDiaPrevia: valVendaDia
+          });
+        }
+      } else if (parts.length === 5) {
+        let repId = parts[1];
+        let valFerramentas = parseBrazilianNumber(parts[2]) || 0;
+        let valLinhaPro = parseBrazilianNumber(parts[3]) || 0;
+        let valVendaDia = parseBrazilianNumber(parts[4]) || 0;
+
+        if (/^\d+$/.test(parts[0]) && !/^\d+$/.test(parts[1])) {
+          repId = parts[0];
+        } else if (!repId && parts[0]) {
+          repId = parts[0];
+        }
+
+        if (repId) {
+          newPreviews.push({
+            repId,
+            previaValue: valFerramentas + valLinhaPro,
+            vendaDiaPrevia: valVendaDia
+          });
+        }
+      } else if (parts.length === 4) {
+        let repId = parts[0];
+        if (!/^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
+          repId = parts[1];
+          const previaValue = parseBrazilianNumber(parts[2]) || 0;
+          const vendaDiaPrevia = parseBrazilianNumber(parts[3]) || 0;
+          newPreviews.push({ repId, previaValue, vendaDiaPrevia });
+        } else {
+          const valFerramentas = parseBrazilianNumber(parts[1]) || 0;
+          const valLinhaPro = parseBrazilianNumber(parts[2]) || 0;
+          const valVendaDia = parseBrazilianNumber(parts[3]) || 0;
+          newPreviews.push({
+            repId,
+            previaValue: valFerramentas + valLinhaPro,
+            vendaDiaPrevia: valVendaDia
+          });
+        }
+      } else if (parts.length === 3) {
+        const repId = parts[0];
+        const previaValue = parseBrazilianNumber(parts[1]) || 0;
+        const vendaDiaPrevia = parseBrazilianNumber(parts[2]) || 0;
+        if (repId) {
+          newPreviews.push({ repId, previaValue, vendaDiaPrevia });
+        }
+      } else if (parts.length === 2) {
+        const repId = parts[0];
+        const previaValue = parseBrazilianNumber(parts[1]) || 0;
+        if (repId) {
+          newPreviews.push({ repId, previaValue, vendaDiaPrevia: 0 });
         }
       }
     });
@@ -677,6 +781,43 @@ export default function App() {
       return true;
     }
     return false;
+  };
+
+  const handleExportPreviewExcelModel = () => {
+    if (!repsAggregated || repsAggregated.length === 0) {
+      alert('Nenhum representante encontrado no período selecionado.');
+      return;
+    }
+
+    const excelRows = repsAggregated.map(rep => ({
+      'Nome do Representante': rep.repName || '',
+      'Nome do Coordenador': rep.coordName || '',
+      'Código do Representante': rep.repId,
+      'Prévia Ferramentas': '',
+      'Prévia Linha Pro': '',
+      'Prévia Total': '',
+      'Venda no Dia da Prévia': rep.totalVendido || 0
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(excelRows);
+
+    worksheet['!cols'] = [
+      { wch: 38 },
+      { wch: 30 },
+      { wch: 24 },
+      { wch: 22 },
+      { wch: 22 },
+      { wch: 20 },
+      { wch: 26 }
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Modelo de Prévia');
+
+    const fileName = `Modelo_Previa_${selectedMonth}_${selectedYear}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
+
+    logAnalyticsEvent('excel_preview_export', `Modelo Excel baixado (${repsAggregated.length} reps)`);
   };
 
   const handlePasteRepNames = (text: string) => {
@@ -3259,7 +3400,17 @@ export default function App() {
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={handleExportPreviewExcelModel}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-xs hover:shadow-md"
+                      title="Gera arquivo Excel com representantes, códigos, colunas vazias para prévias e total de vendas do dia preenchido"
+                    >
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
+                      <span>Gerar Excel de Modelo para Prévia</span>
+                    </button>
+
                     <button
                       onClick={handleSavePreviews}
                       disabled={isSavingPreviews}
@@ -3282,20 +3433,46 @@ export default function App() {
                   
                   {/* Left block: Excel Paste area */}
                   <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/60 space-y-3.5">
-                    <div>
-                      <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
-                        <FileSpreadsheet className="w-4.5 h-4.5 text-emerald-600" />
-                        Colar do Excel (Importação Rápida)
-                      </h4>
-                      <p className="text-[11px] text-slate-400 mt-0.5 animate-pulse">
-                        Copie e cole colunas do Excel sem cabeçalhos. A ordem esperada é: <br />
-                        <span className="font-semibold text-slate-600 font-mono">CÓD_REPRESENTANTE</span> | <span className="font-semibold text-slate-600 font-mono">VALOR_EXPECTATIVA</span> | <span className="font-semibold text-slate-600 font-mono">VALOR_DIA_PRÉVIA</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                          <FileSpreadsheet className="w-4.5 h-4.5 text-emerald-600" />
+                          Colar do Excel (Importação Rápida)
+                        </h4>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Copie e cole dados do Excel. Você pode usar a planilha de modelo gerada!
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleExportPreviewExcelModel}
+                        className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-800 border border-emerald-200/80 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1.5 shrink-0 cursor-pointer shadow-2xs"
+                      >
+                        <Download className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Baixar Planilha Excel</span>
+                      </button>
+                    </div>
+
+                    <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-xl text-[11px] text-emerald-950 space-y-1">
+                      <p className="font-bold flex items-center gap-1.5 text-emerald-900">
+                        <Info className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        Colunas da Planilha Excel Exportada:
                       </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-2 gap-y-0.5 text-[10.5px] font-medium text-emerald-850 pt-0.5">
+                        <span>• <b>Nome do Representante</b></span>
+                        <span>• <b>Nome do Coordenador</b></span>
+                        <span>• <b>Código do Representante</b></span>
+                        <span>• <b>Prévia Ferramentas</b> (vazia)</span>
+                        <span>• <b>Prévia Linha Pro</b> (vazia)</span>
+                        <span>• <b>Prévia Total</b> (vazia)</span>
+                        <span className="sm:col-span-2">• <b>Venda no Dia da Prévia</b> (total de vendas preenchido)</span>
+                      </div>
                     </div>
 
                     <textarea
-                      placeholder="Exemplo de linhas:&#10;439&#9;150000&#9;45000&#10;512&#9;95000&#9;23000"
-                      rows={6}
+                      placeholder="Cole aqui as linhas copiadas do Excel..."
+                      rows={5}
                       className="w-full text-xs font-mono p-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 placeholder:text-slate-300"
                       id="tsv_preview_input"
                     />
@@ -3415,14 +3592,30 @@ export default function App() {
                     </h4>
                     {previews.length > 0 && (
                       <button
-                        onClick={() => {
-                          if (confirm('Tem certeza que deseja limpar todas as configurações desta lista?')) {
+                        type="button"
+                        onClick={async () => {
+                          if (confirm('Tem certeza que deseja limpar todas as configurações de prévia para este período?')) {
                             setPreviews([]);
+                            try {
+                              if (getFirebaseConfig()) {
+                                await savePreviewsToFirestore(selectedYear, selectedMonth, []);
+                              }
+                              saveLocalPreviews(selectedYear, selectedMonth, []);
+                              const nowString = new Date().toISOString();
+                              setPreviewsUpdatedAt(nowString);
+                              setSaveSuccessMessage("Todas as prévias foram removidas e salvas com sucesso!");
+                              setTimeout(() => setSaveSuccessMessage(null), 3000);
+                              logAnalyticsEvent('data_save', `Prévias limpas de ${selectedMonth}/${selectedYear}`);
+                            } catch (err: any) {
+                              console.error("Erro ao limpar prévias:", err);
+                              alert("Prévias limpas na tela, mas houve erro ao salvar no banco: " + err.message);
+                            }
                           }
                         }}
-                        className="text-xs font-bold text-rose-600 hover:underline cursor-pointer"
+                        className="text-xs font-bold text-rose-600 hover:bg-rose-50 px-2.5 py-1 rounded-lg transition-all cursor-pointer border border-rose-200 shadow-2xs hover:shadow-xs flex items-center gap-1"
                       >
-                        Limpar Todos
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Limpar Todos</span>
                       </button>
                     )}
                   </div>
@@ -3469,7 +3662,16 @@ export default function App() {
                                 <td className="py-3 px-4 text-center">
                                   <button
                                     onClick={() => {
-                                      setPreviews(current => current.filter(item => item.repId !== prev.repId));
+                                      const updated = previews.filter(item => item.repId.toString().trim() !== prev.repId.toString().trim());
+                                      setPreviews(updated);
+                                      try {
+                                        if (getFirebaseConfig()) {
+                                          savePreviewsToFirestore(selectedYear, selectedMonth, updated);
+                                        }
+                                        saveLocalPreviews(selectedYear, selectedMonth, updated);
+                                      } catch (e) {
+                                        console.error(e);
+                                      }
                                     }}
                                     className="p-1 text-rose-500 hover:text-rose-700 rounded transition-colors cursor-pointer"
                                     title="Remover"
