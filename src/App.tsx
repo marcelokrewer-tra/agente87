@@ -2953,10 +2953,10 @@ export default function App() {
 
               {/* PREVIEW METRICS SECTION */}
               {isDisplayingCurrentData && selectedProductGroups.includes('All') && previewTotals.hasAnyPreview && (
-                <div className="bg-gradient-to-r from-amber-500/10 via-amber-50/50 to-slate-50/80 border border-amber-200/90 rounded-2xl p-3.5 sm:p-5 space-y-3.5 shadow-2xs transition-all">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/60 pb-3">
+                <div className="bg-gradient-to-r from-indigo-50/70 via-slate-50/60 to-blue-50/50 border border-indigo-200/70 rounded-2xl p-3.5 sm:p-5 space-y-3.5 shadow-2xs transition-all">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100 pb-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="p-2 bg-amber-500 text-white rounded-xl shadow-2xs shrink-0 flex items-center justify-center">
+                      <div className="p-2 bg-[#001A9C] text-white rounded-xl shadow-2xs shrink-0 flex items-center justify-center">
                         <Target className="w-4 h-4" />
                       </div>
                       <div>
@@ -2964,13 +2964,13 @@ export default function App() {
                           <h3 className="text-xs sm:text-sm font-black text-slate-900 uppercase tracking-wider">
                             Análise de Prévia de Vendas
                           </h3>
-                          <span className="text-[9px] bg-amber-500/15 text-amber-800 border border-amber-300/60 px-2 py-0.5 rounded-full font-extrabold uppercase">
+                          <span className="text-[9px] bg-indigo-100/80 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded-full font-extrabold uppercase">
                             Ativa
                           </span>
                         </div>
                         {previewsUpdatedAt && (
                           <p className="text-[10.5px] text-slate-500 font-semibold flex items-center gap-1 mt-0.5">
-                            <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                            <Clock className="w-3 h-3 text-indigo-600 shrink-0" />
                             <span>Enviada em <strong className="text-slate-700">{formatPreviewsDate(previewsUpdatedAt)}</strong></span>
                           </p>
                         )}
@@ -3002,8 +3002,8 @@ export default function App() {
                       <MetricCard
                         title="Expectativa Prévia"
                         value={formatCurrency(previewTotals.totalExpectativa)}
-                        icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600" />}
-                        accentColor="amber"
+                        icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600" />}
+                        accentColor="indigo"
                       />
 
                       {/* Card 2: Vendas no Dia da Prévia */}
@@ -3088,7 +3088,7 @@ export default function App() {
                   <div className="absolute left-0 mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 z-20 origin-top-left">
                     {[
                       { id: 'importar', label: 'Importar Dados de Vendas', icon: <FileSpreadsheet className="w-4 h-4 text-indigo-500" /> },
-                      { id: 'previa', label: 'Importar Prévia', icon: <Target className="w-4 h-4 text-amber-500" /> },
+                      { id: 'previa', label: 'Importar Prévia', icon: <Target className="w-4 h-4 text-indigo-600" /> },
                       { id: 'nomes', label: 'Importar Nomes', icon: <UserCog className="w-4 h-4 text-emerald-500" /> },
                       { id: 'localizacao', label: 'Importar Localização', icon: <MapPin className="w-4 h-4 text-rose-500" /> }
                     ].map(subTab => (
