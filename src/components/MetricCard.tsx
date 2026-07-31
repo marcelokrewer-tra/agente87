@@ -57,8 +57,8 @@ export const MetricCard: React.FC<MetricCardProps> = ({
       
       <div className="flex justify-between items-start gap-1 sm:gap-1.5 pl-1.5">
         <div className="min-w-0 flex-1">
-          <p className={`text-[8.5px] min-[360px]:text-[9px] sm:text-[10px] font-extrabold text-slate-500 uppercase tracking-wider truncate ${titleClassName || ''}`}>{title}</p>
-          <h3 className={`text-[10.5px] min-[350px]:text-[11.5px] min-[400px]:text-xs sm:text-base md:text-lg font-black tracking-tight font-sans transition-all group-hover:scale-[1.01] whitespace-nowrap overflow-hidden text-ellipsis ${valueClassName || 'text-slate-900'}`}>{value}</h3>
+          <p className={`text-[8.5px] min-[360px]:text-[9px] sm:text-[10px] font-extrabold text-slate-500 uppercase tracking-tight sm:tracking-wider leading-tight whitespace-normal break-words ${titleClassName || ''}`}>{title}</p>
+          <h3 className={`text-[10px] min-[350px]:text-[11px] min-[400px]:text-[12px] sm:text-base md:text-lg font-black tracking-tight font-sans transition-all group-hover:scale-[1.01] whitespace-nowrap overflow-hidden text-ellipsis ${valueClassName || 'text-slate-900'}`}>{value}</h3>
           
           {trend && (
             <div className="flex items-center gap-1 mt-1 flex-wrap">
