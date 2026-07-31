@@ -2573,28 +2573,10 @@ export default function App() {
               </div>
             </div>
 
-            {/* Sales Type Filter (Tipo de Venda: Todos na mesma linha) */}
+            {/* Sales Type Filter (Tipo de Venda: CD e VP) */}
             <div className="space-y-2 border-t border-slate-100 pt-3">
               <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Tipo de Venda</label>
               <div className="flex flex-wrap items-center gap-4 pt-1">
-                {/* "Ambos" Checkbox */}
-                <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={selectedSalesTypes.includes('CD') && selectedSalesTypes.includes('VP')}
-                    onChange={() => {
-                      if (selectedSalesTypes.includes('CD') && selectedSalesTypes.includes('VP')) {
-                        setSelectedSalesTypes(['CD']);
-                      } else {
-                        setSelectedSalesTypes(['CD', 'VP']);
-                      }
-                      setCurrentPage(1);
-                    }}
-                    className="w-4 h-4 rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C]/20 cursor-pointer accent-[#001A9C]"
-                  />
-                  <span>Ambos</span>
-                </label>
-
                 {/* "CD" Checkbox */}
                 <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors">
                   <input
