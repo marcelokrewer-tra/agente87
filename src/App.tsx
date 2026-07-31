@@ -3147,18 +3147,27 @@ export default function App() {
 
                   <div className="space-y-4 pt-1">
                     {coordinatorPerformance.map((item, idx) => {
-                      const cappedPercent = Math.min(item.percent, 100);
+                      const defasagemColor = item.percent >= 100 
+                        ? 'text-emerald-600' 
+                        : item.percent >= 75 
+                        ? 'text-amber-600' 
+                        : 'text-rose-600';
+
                       return (
                         <div key={item.name} className="space-y-1.5 group cursor-pointer" onClick={() => setSelectedCoordinator(item.name)}>
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="font-semibold text-slate-700 group-hover:text-indigo-600 transition-colors flex items-center gap-1">
+                          <div className="flex justify-between items-start sm:items-center text-xs gap-2">
+                            <span className="font-semibold text-slate-700 group-hover:text-indigo-600 transition-colors flex items-center gap-1 flex-wrap">
                               <span className="text-slate-300 font-bold">#{idx+1}</span>
                               {item.name}
                               <span className="text-[10px] text-slate-400 font-normal">({item.repsCount} reps)</span>
                             </span>
-                            <div className="text-right">
+                            <div className="text-right shrink-0">
                               <span className="font-extrabold text-slate-900">{formatPercent(item.percent)}</span>
-                              <span className="text-[10px] text-slate-400 block mt-0.5">Vnd: {formatCurrency(item.faturado)}</span>
+                              <div className="text-[10px] text-slate-500 mt-0.5 flex items-center justify-end gap-1.5 flex-wrap">
+                                <span>Venda: <strong className="font-bold text-slate-700">{formatCurrency(item.faturado)}</strong></span>
+                                <span className="text-slate-300">•</span>
+                                <span>Defasagem: <strong className={`font-extrabold ${defasagemColor}`}>{formatDefasagem(item.defasagem)}</strong></span>
+                              </div>
                             </div>
                           </div>
 
@@ -3277,7 +3286,7 @@ export default function App() {
 
                           <div className="text-right">
                             <span className="text-xs font-extrabold text-emerald-600 block">{formatPercent(rep.pctTotal)}</span>
-                            <span className="text-[10px] text-slate-400 block mt-0.5">Vnd: {formatCurrency(rep.totalFaturado)}</span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5">Venda: {formatCurrency(rep.totalFaturado)}</span>
                           </div>
                         </div>
                       );
