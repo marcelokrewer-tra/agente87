@@ -2757,117 +2757,35 @@ export default function App() {
               {selectedSalesTypes.includes('CD') && selectedSalesTypes.includes('VP') ? (
                 <div className="space-y-4">
                   {/* SECTION 1: TOTAL GERAL */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-blue-600" />
-                      <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-600">Total Geral (CD + VP)</h4>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
-                      <MetricCard
-                        title="Cota Total"
-                        value={formatCurrency(totals.quotaTotal)}
-                        icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
-                        accentColor="blue"
-                      />
-                      <MetricCard
-                        title="Vendas Total"
-                        value={formatCurrency(totals.valorVendaTotal)}
-                        icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
-                        accentColor="blue"
-                      />
-                      <MetricCard
-                        title="% Vendas Total"
-                        value={formatPercent(totals.achTotal)}
-                        icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
-                        accentColor="blue"
-                      />
-                      <MetricCard
-                        title="Defasagem Total"
-                        value={formatDefasagem(totals.defasagem)}
-                        icon={totals.defasagem >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
-                        accentColor={totals.defasagem >= 0 ? "emerald" : "rose"}
-                        valueClassName={totals.defasagem >= 0 ? "text-emerald-600" : "text-rose-600"}
-                      />
-                    </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+                    <MetricCard
+                      title="Cota Total"
+                      value={formatCurrency(totals.quotaTotal)}
+                      icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
+                      accentColor="blue"
+                    />
+                    <MetricCard
+                      title="Vendas Total"
+                      value={formatCurrency(totals.valorVendaTotal)}
+                      icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
+                      accentColor="blue"
+                    />
+                    <MetricCard
+                      title="% Vendas Total"
+                      value={formatPercent(totals.achTotal)}
+                      icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
+                      accentColor="blue"
+                    />
+                    <MetricCard
+                      title="Defasagem Total"
+                      value={formatDefasagem(totals.defasagem)}
+                      icon={totals.defasagem >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                      accentColor={totals.defasagem >= 0 ? "emerald" : "rose"}
+                      valueClassName={totals.defasagem >= 0 ? "text-emerald-600" : "text-rose-600"}
+                    />
                   </div>
 
                   {/* SECTION 2: CANAL CD */}
-                  <div className="space-y-2 pt-1">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-purple-600" />
-                      <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-600">Vendas CD</h4>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
-                      <MetricCard
-                        title="Cota CD"
-                        value={formatCurrency(totals.quotaCD)}
-                        icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
-                        accentColor="purple"
-                      />
-                      <MetricCard
-                        title="Vendas CD"
-                        value={formatCurrency(totals.valorVendaCD)}
-                        icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
-                        accentColor="purple"
-                      />
-                      <MetricCard
-                        title="% Vendas CD"
-                        value={formatPercent(totals.achCD)}
-                        icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
-                        accentColor="purple"
-                      />
-                      <MetricCard
-                        title="Defasagem CD"
-                        value={formatDefasagem(totals.valorVendaCD - totals.quotaCD)}
-                        icon={(totals.valorVendaCD - totals.quotaCD) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
-                        accentColor={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "emerald" : "rose"}
-                        valueClassName={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "text-emerald-600" : "text-rose-600"}
-                      />
-                    </div>
-                  </div>
-
-                  {/* SECTION 3: CANAL VP */}
-                  <div className="space-y-2 pt-1">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-teal-600" />
-                      <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-600">Vendas VP</h4>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
-                      <MetricCard
-                        title="Cota VP"
-                        value={formatCurrency(totals.quotaVP)}
-                        icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
-                        accentColor="teal"
-                      />
-                      <MetricCard
-                        title="Vendas VP"
-                        value={formatCurrency(totals.valorVendaVP)}
-                        icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
-                        accentColor="teal"
-                      />
-                      <MetricCard
-                        title="% Vendas VP"
-                        value={formatPercent(totals.achVP)}
-                        icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
-                        accentColor="teal"
-                      />
-                      <MetricCard
-                        title="Defasagem VP"
-                        value={formatDefasagem(totals.valorVendaVP - totals.quotaVP)}
-                        icon={(totals.valorVendaVP - totals.quotaVP) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
-                        accentColor={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "emerald" : "rose"}
-                        valueClassName={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "text-emerald-600" : "text-rose-600"}
-                      />
-                    </div>
-                  </div>
-                </div>
-              ) : selectedSalesTypes.includes('CD') ? (
-                /* ONLY CD SELECTED */
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-purple-600" />
-                    <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-600">Vendas CD</h4>
-                  </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
                     <MetricCard
                       title="Cota CD"
@@ -2895,14 +2813,8 @@ export default function App() {
                       valueClassName={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "text-emerald-600" : "text-rose-600"}
                     />
                   </div>
-                </div>
-              ) : (
-                /* ONLY VP SELECTED */
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-teal-600" />
-                    <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-600">Vendas VP</h4>
-                  </div>
+
+                  {/* SECTION 3: CANAL VP */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
                     <MetricCard
                       title="Cota VP"
@@ -2930,6 +2842,64 @@ export default function App() {
                       valueClassName={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "text-emerald-600" : "text-rose-600"}
                     />
                   </div>
+                </div>
+              ) : selectedSalesTypes.includes('CD') ? (
+                /* ONLY CD SELECTED */
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+                  <MetricCard
+                    title="Cota CD"
+                    value={formatCurrency(totals.quotaCD)}
+                    icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
+                    accentColor="purple"
+                  />
+                  <MetricCard
+                    title="Vendas CD"
+                    value={formatCurrency(totals.valorVendaCD)}
+                    icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
+                    accentColor="purple"
+                  />
+                  <MetricCard
+                    title="% Vendas CD"
+                    value={formatPercent(totals.achCD)}
+                    icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
+                    accentColor="purple"
+                  />
+                  <MetricCard
+                    title="Defasagem CD"
+                    value={formatDefasagem(totals.valorVendaCD - totals.quotaCD)}
+                    icon={(totals.valorVendaCD - totals.quotaCD) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                    accentColor={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "emerald" : "rose"}
+                    valueClassName={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "text-emerald-600" : "text-rose-600"}
+                  />
+                </div>
+              ) : (
+                /* ONLY VP SELECTED */
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+                  <MetricCard
+                    title="Cota VP"
+                    value={formatCurrency(totals.quotaVP)}
+                    icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
+                    accentColor="teal"
+                  />
+                  <MetricCard
+                    title="Vendas VP"
+                    value={formatCurrency(totals.valorVendaVP)}
+                    icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
+                    accentColor="teal"
+                  />
+                  <MetricCard
+                    title="% Vendas VP"
+                    value={formatPercent(totals.achVP)}
+                    icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
+                    accentColor="teal"
+                  />
+                  <MetricCard
+                    title="Defasagem VP"
+                    value={formatDefasagem(totals.valorVendaVP - totals.quotaVP)}
+                    icon={(totals.valorVendaVP - totals.quotaVP) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                    accentColor={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "emerald" : "rose"}
+                    valueClassName={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "text-emerald-600" : "text-rose-600"}
+                  />
                 </div>
               )}
 
