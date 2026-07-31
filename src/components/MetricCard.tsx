@@ -11,6 +11,7 @@ interface MetricCardProps {
   };
   accentColor?: string; // e.g. 'emerald', 'amber', 'rose', 'sky'
   valueClassName?: string;
+  titleClassName?: string;
 }
 
 export const MetricCard: React.FC<MetricCardProps> = ({
@@ -19,7 +20,8 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   icon,
   trend,
   accentColor = 'sky',
-  valueClassName
+  valueClassName,
+  titleClassName
 }) => {
   const accentClasses = {
     emerald: 'bg-emerald-50 text-emerald-700 border-emerald-100',
@@ -48,19 +50,19 @@ export const MetricCard: React.FC<MetricCardProps> = ({
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="bg-white border border-slate-200 rounded-[24px] p-2.5 sm:p-3.5 shadow-sm hover:shadow-md transition-all duration-200 relative overflow-hidden group"
+      className="bg-white border border-slate-200 rounded-xl sm:rounded-2xl p-2 sm:p-3.5 shadow-xs hover:shadow-md transition-all duration-200 relative overflow-hidden group flex flex-col justify-between"
     >
       {/* Decorative vertical line */}
       <div className={`absolute top-0 bottom-0 left-0 w-1 ${dotAccentClasses}`} />
       
-      <div className="flex justify-between items-start">
-        <div className="space-y-0.5">
-          <p className="text-[9px] sm:text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">{title}</p>
-          <h3 className={`text-base sm:text-lg font-black tracking-tight font-sans transition-all group-hover:scale-[1.01] ${valueClassName || 'text-slate-900'}`}>{value}</h3>
+      <div className="flex justify-between items-start gap-1 sm:gap-1.5 pl-1.5">
+        <div className="min-w-0 flex-1">
+          <p className={`text-[8.5px] min-[360px]:text-[9px] sm:text-[10px] font-extrabold text-slate-500 uppercase tracking-wider truncate ${titleClassName || ''}`}>{title}</p>
+          <h3 className={`text-[10.5px] min-[350px]:text-[11.5px] min-[400px]:text-xs sm:text-base md:text-lg font-black tracking-tight font-sans transition-all group-hover:scale-[1.01] whitespace-nowrap overflow-hidden text-ellipsis ${valueClassName || 'text-slate-900'}`}>{value}</h3>
           
           {trend && (
-            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-              <span className={`text-[10px] px-1.5 py-0.25 rounded font-extrabold ${
+            <div className="flex items-center gap-1 mt-1 flex-wrap">
+              <span className={`text-[8.5px] sm:text-[10px] px-1.5 py-0.5 rounded font-extrabold ${
                 trend.isPositive ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
               }`}>
                 {trend.isPositive ? '+' : ''}{trend.value}
@@ -69,7 +71,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
           )}
         </div>
         
-        <div className={`p-1.5 rounded-xl border ${accentClasses} shadow-xs transition-transform duration-300 group-hover:rotate-6 shrink-0`}>
+        <div className={`p-1 sm:p-1.5 rounded-lg sm:rounded-xl border ${accentClasses} shadow-xs transition-transform duration-300 group-hover:rotate-6 shrink-0`}>
           {icon}
         </div>
       </div>

@@ -1085,6 +1085,8 @@ export default function App() {
   // Filter States
   const [selectedCoordinator, setSelectedCoordinator] = useState<string>('All');
   const [selectedProductGroups, setSelectedProductGroups] = useState<string[]>(['All']);
+  const [selectedSalesTypes, setSelectedSalesTypes] = useState<string[]>(['CD', 'VP']);
+  const [showPeriodFilter, setShowPeriodFilter] = useState<boolean>(false);
   const [searchText, setSearchText] = useState<string>('');
   const [selectedRepIdFilter, setSelectedRepIdFilter] = useState<number | null>(null);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
@@ -1113,6 +1115,7 @@ export default function App() {
   const resetFilters = () => {
     setSelectedCoordinator('All');
     setSelectedProductGroups(['All']);
+    setSelectedSalesTypes(['CD', 'VP']);
     setSearchText('');
     setProgressThreshold('All');
     setSelectedRepIdFilter(null);
@@ -1178,53 +1181,103 @@ export default function App() {
 
   // Compute filtered records based on interactive panel
   const filteredRecords = useMemo(() => {
-    return resolvedRecords.filter(r => {
+    const isOnlyCD = selectedSalesTypes.includes('CD') && !selectedSalesTypes.includes('VP');
+    const isOnlyVP = selectedSalesTypes.includes('VP') && !selectedSalesTypes.includes('CD');
+
+    const result: SalesRecord[] = [];
+
+    resolvedRecords.forEach(r => {
       // Coordinator filter (using original coordinator name to allow proper Pro/Master filtering)
       if (selectedCoordinator !== 'All') {
         const matchOriginal = r.originalCoordName.toLowerCase().trim() === selectedCoordinator.toLowerCase().trim() ||
                               r.originalCoordName.toLowerCase().trim().includes(selectedCoordinator.toLowerCase().trim().split(' ')[0]);
-        if (!matchOriginal) return false;
+        if (!matchOriginal) return;
       }
       
       // Product Group filter
-      if (!selectedProductGroups.includes('All') && selectedProductGroups.length > 0) {
+      if (!selectedProductGroups.includes('All')) {
+        if (selectedProductGroups.length === 0) {
+          return;
+        }
         const mappedGroupName = getMappedGroupName(r.groupName);
         if (!selectedProductGroups.includes(mappedGroupName)) {
-          return false;
+          return;
         }
+      }
+
+      // Sales Type Filter (CD / VP adaptation)
+      let recordToAdd: SalesRecord = r;
+      if (isOnlyCD) {
+        if (r.quotaCD === 0 && r.valorVendaCD === 0 && r.faturadoCD === 0 && r.pendenteCD === 0) {
+          return;
+        }
+        const qTotal = r.quotaCD;
+        const vVenda = r.valorVendaCD;
+        const fTotal = r.faturadoCD;
+        const fEP = r.faturadoCD + r.pendenteCD;
+        recordToAdd = {
+          ...r,
+          quotaTotal: qTotal,
+          faturadoTotal: fTotal,
+          faturadoEPendente: fEP,
+          valorVendaTotal: vVenda,
+          defasagem: vVenda - qTotal,
+          pctVenda: qTotal > 0 ? (vVenda / qTotal) * 100 : 0,
+          pctTotal: qTotal > 0 ? (fTotal / qTotal) * 100 : 0,
+        };
+      } else if (isOnlyVP) {
+        if (r.quotaVP === 0 && r.valorVendaVP === 0 && r.faturadoVP === 0 && r.pendenteVP === 0) {
+          return;
+        }
+        const qTotal = r.quotaVP;
+        const vVenda = r.valorVendaVP;
+        const fTotal = r.faturadoVP;
+        const fEP = r.faturadoVP + r.pendenteVP;
+        recordToAdd = {
+          ...r,
+          quotaTotal: qTotal,
+          faturadoTotal: fTotal,
+          faturadoEPendente: fEP,
+          valorVendaTotal: vVenda,
+          defasagem: vVenda - qTotal,
+          pctVenda: qTotal > 0 ? (vVenda / qTotal) * 100 : 0,
+          pctTotal: qTotal > 0 ? (fTotal / qTotal) * 100 : 0,
+        };
       }
       
       // Representative exact ID filter
       if (selectedRepIdFilter !== null) {
-        if (r.repId !== selectedRepIdFilter) return false;
+        if (recordToAdd.repId !== selectedRepIdFilter) return;
       } else {
         // Search matching (by rep name or ID)
         if (searchText.trim() !== '') {
           const query = searchText.toLowerCase();
-          const matchName = r.repName.toLowerCase().includes(query);
-          const matchId = r.repId.toString().includes(query);
-          const matchGroup = r.groupName.toLowerCase().includes(query);
-          if (!matchName && !matchId && !matchGroup) return false;
+          const matchName = recordToAdd.repName.toLowerCase().includes(query);
+          const matchId = recordToAdd.repId.toString().includes(query);
+          const matchGroup = recordToAdd.groupName.toLowerCase().includes(query);
+          if (!matchName && !matchId && !matchGroup) return;
         }
       }
 
       // Achievement threshold filter
       if (progressThreshold !== 'All') {
-        const rate = r.quotaTotal > 0 ? (r.valorVendaTotal / r.quotaTotal) * 100 : 0;
-        if (progressThreshold === '100+' && rate < 100) return false;
-        if (progressThreshold === '75-99' && (rate < 75 || rate >= 100)) return false;
-        if (progressThreshold === 'under-75' && rate >= 75) return false;
+        const rate = recordToAdd.quotaTotal > 0 ? (recordToAdd.valorVendaTotal / recordToAdd.quotaTotal) * 100 : 0;
+        if (progressThreshold === '100+' && rate < 100) return;
+        if (progressThreshold === '75-99' && (rate < 75 || rate >= 100)) return;
+        if (progressThreshold === 'under-75' && rate >= 75) return;
       }
 
       // State filter (clicked on the map)
       if (selectedState) {
-        const repState = customRepLocations[r.repId.toString().trim() || r.repId];
-        if (repState !== selectedState) return false;
+        const repState = customRepLocations[recordToAdd.repId.toString().trim() || recordToAdd.repId];
+        if (repState !== selectedState) return;
       }
 
-      return true;
+      result.push(recordToAdd);
     });
-  }, [resolvedRecords, selectedCoordinator, selectedProductGroups, searchText, selectedRepIdFilter, progressThreshold, selectedState, customRepLocations]);
+
+    return result;
+  }, [resolvedRecords, selectedCoordinator, selectedProductGroups, selectedSalesTypes, searchText, selectedRepIdFilter, progressThreshold, selectedState, customRepLocations]);
 
   // Dynamic Statistics computed from currently filtered subset
   const totals = useMemo(() => {
@@ -1358,32 +1411,17 @@ export default function App() {
       };
     });
 
-    // Aggregate quotas and sales from resolvedRecords matching active filters (coordinator & products)
-    resolvedRecords.forEach(r => {
+    // Aggregate quotas and sales from filteredRecords matching active filters
+    filteredRecords.forEach(r => {
       const repState = customRepLocations[r.repId.toString().trim() || r.repId];
       if (repState && stats[repState]) {
-        // Coordinator filter
-        if (selectedCoordinator !== 'All') {
-          const matchOriginal = r.originalCoordName.toLowerCase().trim() === selectedCoordinator.toLowerCase().trim() ||
-                                r.originalCoordName.toLowerCase().trim().includes(selectedCoordinator.toLowerCase().trim().split(' ')[0]);
-          if (!matchOriginal) return;
-        }
-        
-        // Product Group filter
-        if (!selectedProductGroups.includes('All') && selectedProductGroups.length > 0) {
-          const mappedGroupName = getMappedGroupName(r.groupName);
-          if (!selectedProductGroups.includes(mappedGroupName)) {
-            return;
-          }
-        }
-
         stats[repState].quota += r.quotaTotal;
         stats[repState].sales += r.valorVendaTotal;
       }
     });
 
     return stats;
-  }, [resolvedRecords, customRepLocations, selectedCoordinator, selectedProductGroups]);
+  }, [filteredRecords, customRepLocations]);
 
   // Group by Product Group (using the mapped groupName) to build structural segmentation charts
   const enterpriseDonutData = useMemo(() => {
@@ -1492,8 +1530,15 @@ export default function App() {
   // Global helpers for checking active filters on representatives
   const activeRepIds = useMemo(() => new Set(repsAggregated.map(r => r.repId.toString().trim())), [repsAggregated]);
   const hasAnyFilter = useMemo(() => {
-    return selectedCoordinator !== 'All' || searchText.trim() !== '' || !selectedProductGroups.includes('All') || progressThreshold !== 'All' || selectedState !== null || selectedRepIdFilter !== null;
-  }, [selectedCoordinator, searchText, selectedProductGroups, progressThreshold, selectedState, selectedRepIdFilter]);
+    return selectedCoordinator !== 'All' || 
+           searchText.trim() !== '' || 
+           !selectedProductGroups.includes('All') || 
+           !selectedSalesTypes.includes('CD') || 
+           !selectedSalesTypes.includes('VP') || 
+           progressThreshold !== 'All' || 
+           selectedState !== null || 
+           selectedRepIdFilter !== null;
+  }, [selectedCoordinator, searchText, selectedProductGroups, selectedSalesTypes, progressThreshold, selectedState, selectedRepIdFilter]);
 
   // Preview totals based on mapped previews
   const previewTotals = useMemo(() => {
@@ -2201,165 +2246,175 @@ export default function App() {
                 <span>Mostrar dados atuais</span>
               </button>
 
-              <div className="flex items-center justify-between pt-1">
-                <label className="text-[10px] font-extrabold text-slate-450 uppercase tracking-widest flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-[#001A9C]" />
-                  Período de Análise
-                </label>
-                {isLoadingPeriod && (
-                  <RefreshCw className="w-3 h-3 text-[#001A9C] animate-spin" />
-                )}
-              </div>
-              
-              <div className="bg-slate-50/60 p-2.5 rounded-xl border border-slate-150 space-y-2">
+              <div className="pt-1">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
-                    checked={tempIsAccumulated}
-                    onChange={(e) => {
-                      setTempIsAccumulated(e.target.checked);
-                      if (e.target.checked) {
-                        setTempAccumulateStartMonth(1);
-                        setTempAccumulateEndMonth(tempMonth);
-                      }
-                    }}
-                    className="rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C] cursor-pointer"
+                    checked={showPeriodFilter}
+                    onChange={(e) => setShowPeriodFilter(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C]/20 cursor-pointer accent-[#001A9C]"
                   />
-                  <span className="text-[11px] font-extrabold text-slate-700">Acumular Período</span>
+                  <span className="text-[10px] font-extrabold text-slate-600 uppercase tracking-widest flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-[#001A9C]" />
+                    Analisar por Período
+                  </span>
+                  {isLoadingPeriod && (
+                    <RefreshCw className="w-3 h-3 text-[#001A9C] animate-spin ml-auto" />
+                  )}
                 </label>
-
-                {tempIsAccumulated ? (
-                  <div className="space-y-2 pt-1 border-t border-slate-150">
-                    <div className="space-y-1">
-                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Ano de Análise</span>
-                      <select
-                        value={tempYear}
-                        onChange={(e) => {
-                          setTempYear(parseInt(e.target.value));
-                        }}
-                        className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
-                      >
-                        {[2025, 2026].map(y => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <span className="text-[9px] text-slate-400 font-bold uppercase block">De (Mês)</span>
-                        <select
-                          value={tempAccumulateStartMonth}
-                          onChange={(e) => {
-                            setTempAccumulateStartMonth(parseInt(e.target.value));
-                          }}
-                          className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
-                        >
-                          {[
-                            { value: 1, label: 'Jan' },
-                            { value: 2, label: 'Fev' },
-                            { value: 3, label: 'Mar' },
-                            { value: 4, label: 'Abr' },
-                            { value: 5, label: 'Mai' },
-                            { value: 6, label: 'Jun' },
-                            { value: 7, label: 'Jul' },
-                            { value: 8, label: 'Ago' },
-                            { value: 9, label: 'Set' },
-                            { value: 10, label: 'Out' },
-                            { value: 11, label: 'Nov' },
-                            { value: 12, label: 'Dez' }
-                          ].map(m => (
-                            <option key={m.value} value={m.value}>{m.label}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="space-y-1">
-                        <span className="text-[9px] text-slate-400 font-bold uppercase block">Até (Mês)</span>
-                        <select
-                          value={tempAccumulateEndMonth}
-                          onChange={(e) => {
-                            setTempAccumulateEndMonth(parseInt(e.target.value));
-                          }}
-                          className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
-                        >
-                          {[
-                            { value: 1, label: 'Jan' },
-                            { value: 2, label: 'Fev' },
-                            { value: 3, label: 'Mar' },
-                            { value: 4, label: 'Abr' },
-                            { value: 5, label: 'Mai' },
-                            { value: 6, label: 'Jun' },
-                            { value: 7, label: 'Jul' },
-                            { value: 8, label: 'Ago' },
-                            { value: 9, label: 'Set' },
-                            { value: 10, label: 'Out' },
-                            { value: 11, label: 'Nov' },
-                            { value: 12, label: 'Dez' }
-                          ].map(m => (
-                            <option key={m.value} value={m.value}>{m.label}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-150">
-                    <div className="space-y-1">
-                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Mês</span>
-                      <select
-                        value={tempMonth}
-                        onChange={(e) => {
-                          setTempMonth(parseInt(e.target.value));
-                        }}
-                        className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
-                      >
-                        {[
-                          { value: 1, label: 'Jan' },
-                          { value: 2, label: 'Fev' },
-                          { value: 3, label: 'Mar' },
-                          { value: 4, label: 'Abr' },
-                          { value: 5, label: 'Mai' },
-                          { value: 6, label: 'Jun' },
-                          { value: 7, label: 'Jul' },
-                          { value: 8, label: 'Ago' },
-                          { value: 9, label: 'Set' },
-                          { value: 10, label: 'Out' },
-                          { value: 11, label: 'Nov' },
-                          { value: 12, label: 'Dez' }
-                        ].map(m => (
-                          <option key={m.value} value={m.value}>{m.label}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Ano</span>
-                      <select
-                        value={tempYear}
-                        onChange={(e) => {
-                          setTempYear(parseInt(e.target.value));
-                        }}
-                        className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
-                      >
-                        {[2025, 2026].map(y => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
-
-                {/* Apply Period Filter Button */}
-                <button
-                  type="button"
-                  onClick={handleApplyPeriodFilter}
-                  className="w-full mt-2 py-2 px-3 bg-[#001A9C] hover:bg-[#00147a] text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs"
-                >
-                  <Filter className="w-3.5 h-3.5" />
-                  <span>Filtrar</span>
-                </button>
               </div>
+              
+              {showPeriodFilter && (
+                <div className="bg-slate-50/60 p-2.5 rounded-xl border border-slate-150 space-y-2 animate-fade-in">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={tempIsAccumulated}
+                      onChange={(e) => {
+                        setTempIsAccumulated(e.target.checked);
+                        if (e.target.checked) {
+                          setTempAccumulateStartMonth(1);
+                          setTempAccumulateEndMonth(tempMonth);
+                        }
+                      }}
+                      className="rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C] cursor-pointer"
+                    />
+                    <span className="text-[11px] font-extrabold text-slate-700">Acumular Período</span>
+                  </label>
+
+                  {tempIsAccumulated ? (
+                    <div className="space-y-2 pt-1 border-t border-slate-150">
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase block">Ano de Análise</span>
+                        <select
+                          value={tempYear}
+                          onChange={(e) => {
+                            setTempYear(parseInt(e.target.value));
+                          }}
+                          className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
+                        >
+                          {[2025, 2026].map(y => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-[9px] text-slate-400 font-bold uppercase block">De (Mês)</span>
+                          <select
+                            value={tempAccumulateStartMonth}
+                            onChange={(e) => {
+                              setTempAccumulateStartMonth(parseInt(e.target.value));
+                            }}
+                            className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
+                          >
+                            {[
+                              { value: 1, label: 'Jan' },
+                              { value: 2, label: 'Fev' },
+                              { value: 3, label: 'Mar' },
+                              { value: 4, label: 'Abr' },
+                              { value: 5, label: 'Mai' },
+                              { value: 6, label: 'Jun' },
+                              { value: 7, label: 'Jul' },
+                              { value: 8, label: 'Ago' },
+                              { value: 9, label: 'Set' },
+                              { value: 10, label: 'Out' },
+                              { value: 11, label: 'Nov' },
+                              { value: 12, label: 'Dez' }
+                            ].map(m => (
+                              <option key={m.value} value={m.value}>{m.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="text-[9px] text-slate-400 font-bold uppercase block">Até (Mês)</span>
+                          <select
+                            value={tempAccumulateEndMonth}
+                            onChange={(e) => {
+                              setTempAccumulateEndMonth(parseInt(e.target.value));
+                            }}
+                            className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
+                          >
+                            {[
+                              { value: 1, label: 'Jan' },
+                              { value: 2, label: 'Fev' },
+                              { value: 3, label: 'Mar' },
+                              { value: 4, label: 'Abr' },
+                              { value: 5, label: 'Mai' },
+                              { value: 6, label: 'Jun' },
+                              { value: 7, label: 'Jul' },
+                              { value: 8, label: 'Ago' },
+                              { value: 9, label: 'Set' },
+                              { value: 10, label: 'Out' },
+                              { value: 11, label: 'Nov' },
+                              { value: 12, label: 'Dez' }
+                            ].map(m => (
+                              <option key={m.value} value={m.value}>{m.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-150">
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase block">Mês</span>
+                        <select
+                          value={tempMonth}
+                          onChange={(e) => {
+                            setTempMonth(parseInt(e.target.value));
+                          }}
+                          className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
+                        >
+                          {[
+                            { value: 1, label: 'Jan' },
+                            { value: 2, label: 'Fev' },
+                            { value: 3, label: 'Mar' },
+                            { value: 4, label: 'Abr' },
+                            { value: 5, label: 'Mai' },
+                            { value: 6, label: 'Jun' },
+                            { value: 7, label: 'Jul' },
+                            { value: 8, label: 'Ago' },
+                            { value: 9, label: 'Set' },
+                            { value: 10, label: 'Out' },
+                            { value: 11, label: 'Nov' },
+                            { value: 12, label: 'Dez' }
+                          ].map(m => (
+                            <option key={m.value} value={m.value}>{m.label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase block">Ano</span>
+                        <select
+                          value={tempYear}
+                          onChange={(e) => {
+                            setTempYear(parseInt(e.target.value));
+                          }}
+                          className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700 font-semibold cursor-pointer"
+                        >
+                          {[2025, 2026].map(y => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Apply Period Filter Button */}
+                  <button
+                    type="button"
+                    onClick={handleApplyPeriodFilter}
+                    className="w-full mt-2 py-2 px-3 bg-[#001A9C] hover:bg-[#00147a] text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs"
+                  >
+                    <Filter className="w-3.5 h-3.5" />
+                    <span>Filtrar</span>
+                  </button>
+                </div>
+              )}
 
 
             </div>
@@ -2415,51 +2470,56 @@ export default function App() {
             {/* Coordinator Selector List */}
             <div className="space-y-2">
               <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Coordenador</label>
-              <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+              <div className="grid grid-cols-2 lg:grid-cols-1 gap-1.5 max-h-56 overflow-y-auto pr-1">
                 <button
                   type="button"
                   onClick={() => {
                     setSelectedCoordinator('All');
                     setCurrentPage(1);
-                    setIsMobileFiltersExpanded(false);
                   }}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                  className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer truncate ${
                     selectedCoordinator === 'All'
                       ? 'bg-[#001A9C] text-white shadow-xs'
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full ${selectedCoordinator === 'All' ? 'bg-white' : 'bg-slate-300'}`} />
-                  Todos
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${selectedCoordinator === 'All' ? 'bg-white' : 'bg-slate-300'}`} />
+                  <span className="truncate">Todos</span>
                 </button>
-                {distinctCoordinators.map(c => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => {
-                      setSelectedCoordinator(c);
-                      setCurrentPage(1);
-                      setIsMobileFiltersExpanded(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-                      selectedCoordinator === c
-                        ? 'bg-[#001A9C] text-white shadow-xs'
-                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                    }`}
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full ${selectedCoordinator === c ? 'bg-white' : 'bg-[#001A9C]'}`} />
-                    {c}
-                  </button>
-                ))}
+                {distinctCoordinators.map(c => {
+                  const firstName = c.trim().split(/\s+/)[0];
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCoordinator(c);
+                        setCurrentPage(1);
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer truncate ${
+                        selectedCoordinator === c
+                          ? 'bg-[#001A9C] text-white shadow-xs'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      }`}
+                      title={c}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${selectedCoordinator === c ? 'bg-white' : 'bg-[#001A9C]'}`} />
+                      <span className="truncate">
+                        <span className="lg:hidden">{firstName}</span>
+                        <span className="hidden lg:inline">{c}</span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
             {/* Product Group Filter (Grupo de Produtos) Checkboxes */}
             <div className="space-y-2">
               <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Grupo de Produtos</label>
-              <div className="space-y-2.5 pt-1">
+              <div className="grid grid-cols-2 lg:grid-cols-1 gap-2 pt-1 max-h-36 overflow-y-auto pr-1">
                 {/* "Todos" Checkbox */}
-                <label className="flex items-center gap-2.5 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors">
+                <label className="col-span-2 lg:col-span-1 flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors">
                   <input
                     type="checkbox"
                     checked={selectedProductGroups.includes('All')}
@@ -2470,7 +2530,6 @@ export default function App() {
                         setSelectedProductGroups(['All']);
                       }
                       setCurrentPage(1);
-                      setIsMobileFiltersExpanded(false);
                     }}
                     className="w-4 h-4 rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C]/20 cursor-pointer accent-[#001A9C]"
                   />
@@ -2479,42 +2538,113 @@ export default function App() {
 
                 {/* Individual dynamic allowed groups as checkboxes */}
                 {distinctProductGroups.map(g => {
-                  const isChecked = selectedProductGroups.includes(g) || selectedProductGroups.includes('All');
+                  const isChecked = selectedProductGroups.includes('All') || selectedProductGroups.includes(g);
+                  const shortName = g.replace(/^Tramontina\s+/i, '');
                   return (
-                    <label key={g} className="flex items-center gap-2.5 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors">
+                    <label key={g} className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors truncate">
                       <input
                         type="checkbox"
                         checked={isChecked}
                         onChange={() => {
-                          let updated = [...selectedProductGroups];
-                          if (updated.includes('All')) {
-                            updated = [g];
+                          let updated: string[];
+                          if (selectedProductGroups.includes('All')) {
+                            updated = distinctProductGroups.filter(item => item !== g);
+                          } else if (selectedProductGroups.includes(g)) {
+                            updated = selectedProductGroups.filter(item => item !== g);
                           } else {
-                            if (updated.includes(g)) {
-                              updated = updated.filter(item => item !== g);
-                            } else {
-                              updated.push(g);
-                            }
+                            updated = [...selectedProductGroups, g];
                           }
-                          
-                          if (updated.length === 0 || updated.length === distinctProductGroups.length) {
+
+                          if (updated.length === distinctProductGroups.length) {
                             updated = ['All'];
                           }
                           setSelectedProductGroups(updated);
                           setCurrentPage(1);
-                          setIsMobileFiltersExpanded(false);
                         }}
                         className="w-4 h-4 rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C]/20 cursor-pointer accent-[#001A9C]"
                       />
-                      <span>{g}</span>
+                      <span className="truncate">
+                        <span className="lg:hidden">{shortName}</span>
+                        <span className="hidden lg:inline">{g}</span>
+                      </span>
                     </label>
                   );
                 })}
               </div>
             </div>
 
-            {/* Achievement Rate Filter */}
+            {/* Sales Type Filter (Tipo de Venda: Todos na mesma linha) */}
             <div className="space-y-2 border-t border-slate-100 pt-3">
+              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Tipo de Venda</label>
+              <div className="flex flex-wrap items-center gap-4 pt-1">
+                {/* "Ambos" Checkbox */}
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={selectedSalesTypes.includes('CD') && selectedSalesTypes.includes('VP')}
+                    onChange={() => {
+                      if (selectedSalesTypes.includes('CD') && selectedSalesTypes.includes('VP')) {
+                        setSelectedSalesTypes(['CD']);
+                      } else {
+                        setSelectedSalesTypes(['CD', 'VP']);
+                      }
+                      setCurrentPage(1);
+                    }}
+                    className="w-4 h-4 rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C]/20 cursor-pointer accent-[#001A9C]"
+                  />
+                  <span>Ambos</span>
+                </label>
+
+                {/* "CD" Checkbox */}
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={selectedSalesTypes.includes('CD')}
+                    onChange={() => {
+                      let updated = [...selectedSalesTypes];
+                      if (updated.includes('CD')) {
+                        updated = updated.filter(s => s !== 'CD');
+                      } else {
+                        updated.push('CD');
+                      }
+                      if (updated.length === 0) {
+                        updated = ['CD', 'VP'];
+                      }
+                      setSelectedSalesTypes(updated);
+                      setCurrentPage(1);
+                    }}
+                    className="w-4 h-4 rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C]/20 cursor-pointer accent-[#001A9C]"
+                  />
+                  <span>Venda CD</span>
+                </label>
+
+                {/* "VP" Checkbox */}
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none hover:text-slate-900 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={selectedSalesTypes.includes('VP')}
+                    onChange={() => {
+                      let updated = [...selectedSalesTypes];
+                      if (updated.includes('VP')) {
+                        updated = updated.filter(s => s !== 'VP');
+                      } else {
+                        updated.push('VP');
+                      }
+                      if (updated.length === 0) {
+                        updated = ['CD', 'VP'];
+                      }
+                      setSelectedSalesTypes(updated);
+                      setCurrentPage(1);
+                    }}
+                    className="w-4 h-4 rounded border-slate-300 text-[#001A9C] focus:ring-[#001A9C]/20 cursor-pointer accent-[#001A9C]"
+                  />
+                  <span>Venda VP</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Achievement Rate Filter - Hidden on Mobile */}
+            <div className="hidden lg:block space-y-2 border-t border-slate-100 pt-3">
               <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Desempenho (% Total)</label>
               <div className="grid grid-cols-2 gap-2">
                 {[
@@ -2529,7 +2659,6 @@ export default function App() {
                     onClick={() => {
                       setProgressThreshold(opt.id);
                       setCurrentPage(1);
-                      setIsMobileFiltersExpanded(false);
                     }}
                     className={`px-2 py-1.5 rounded-lg text-xs font-semibold border transition-all text-center cursor-pointer ${
                       progressThreshold === opt.id 
@@ -2543,10 +2672,22 @@ export default function App() {
               </div>
             </div>
 
-            {/* Filter stats footer */}
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-450 font-bold">
+            {/* Filter stats footer - Hidden on Mobile */}
+            <div className="pt-3 border-t border-slate-100 hidden lg:flex items-center justify-between text-xs text-slate-450 font-bold">
               <span>Registros filtrados:</span>
               <strong className="text-slate-800 text-xs font-sans font-extrabold">{filteredRecords.length} / {allRecords.length}</strong>
+            </div>
+
+            {/* Mobile "Filtrar" action button at the bottom */}
+            <div className="pt-3 border-t border-slate-100 lg:hidden">
+              <button
+                type="button"
+                onClick={() => setIsMobileFiltersExpanded(false)}
+                className="w-full py-2.5 px-4 bg-[#001A9C] hover:bg-[#00147a] active:bg-[#000f60] text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md cursor-pointer"
+              >
+                <Filter className="w-4 h-4" />
+                <span>Filtrar</span>
+              </button>
             </div>
             </div>
           </div>
@@ -2608,145 +2749,288 @@ export default function App() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* ROW 1: QUOTAS */}
-                <MetricCard
-                  title="Cota Total"
-                  value={formatCurrency(totals.quotaTotal)}
-                  icon={<Target className="w-5 h-5 text-blue-600" />}
-                  accentColor="blue"
-                />
-                <MetricCard
-                  title="Cota CD"
-                  value={formatCurrency(totals.quotaCD)}
-                  icon={<Target className="w-5 h-5 text-purple-600" />}
-                  accentColor="purple"
-                />
-                <MetricCard
-                  title="Cota VP"
-                  value={formatCurrency(totals.quotaVP)}
-                  icon={<Target className="w-5 h-5 text-teal-600" />}
-                  accentColor="teal"
-                />
+              {(!selectedSalesTypes.includes('CD') || !selectedSalesTypes.includes('VP')) && (
+                <div className="bg-amber-50/70 border border-amber-200/80 p-3.5 rounded-2xl flex items-center justify-between shadow-3xs animate-fade-in">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                      <Filter className="w-4 h-4 text-amber-600" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-amber-600/80 tracking-wider">Filtro de Tipo de Venda</span>
+                      <h4 className="text-sm font-black text-slate-800 leading-tight">
+                        Exibindo apenas: {selectedSalesTypes.includes('CD') ? 'Venda CD' : 'Venda VP'}
+                      </h4>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedSalesTypes(['CD', 'VP'])}
+                    className="px-3 py-1.5 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-amber-700 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-3xs"
+                  >
+                    <span>Exibir Ambos</span>
+                  </button>
+                </div>
+              )}
 
-                {/* ROW 2: VENDAS */}
-                <MetricCard
-                  title="Vendas Total"
-                  value={formatCurrency(totals.valorVendaTotal)}
-                  icon={<DollarSign className="w-5 h-5 text-blue-600" />}
-                  accentColor="blue"
-                />
-                <MetricCard
-                  title="Vendas CD"
-                  value={formatCurrency(totals.valorVendaCD)}
-                  icon={<DollarSign className="w-5 h-5 text-purple-600" />}
-                  accentColor="purple"
-                />
-                <MetricCard
-                  title="Vendas VP"
-                  value={formatCurrency(totals.valorVendaVP)}
-                  icon={<DollarSign className="w-5 h-5 text-teal-600" />}
-                  accentColor="teal"
-                />
+              {/* METRIC CARDS GRID ACCORDING TO SELECTED SALES TYPE */}
+              {selectedSalesTypes.includes('CD') && selectedSalesTypes.includes('VP') ? (
+                <div className="space-y-4">
+                  {/* SECTION 1: TOTAL GERAL */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-600" />
+                      <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-600">Total Geral (CD + VP)</h4>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+                      <MetricCard
+                        title="Cota Total"
+                        value={formatCurrency(totals.quotaTotal)}
+                        icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
+                        accentColor="blue"
+                      />
+                      <MetricCard
+                        title="Vendas Total"
+                        value={formatCurrency(totals.valorVendaTotal)}
+                        icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
+                        accentColor="blue"
+                      />
+                      <MetricCard
+                        title="% Vendas Total"
+                        value={formatPercent(totals.achTotal)}
+                        icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
+                        accentColor="blue"
+                      />
+                      <MetricCard
+                        title="Defasagem Total"
+                        value={formatDefasagem(totals.defasagem)}
+                        icon={totals.defasagem >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                        accentColor={totals.defasagem >= 0 ? "emerald" : "rose"}
+                        valueClassName={totals.defasagem >= 0 ? "text-emerald-600" : "text-rose-600"}
+                      />
+                    </div>
+                  </div>
 
-                {/* ROW 3: % ATINGIMENTO */}
-                <MetricCard
-                  title="% VENDAS TOTAL"
-                  value={formatPercent(totals.achTotal)}
-                  icon={<TrendingUp className="w-5 h-5 text-blue-600" />}
-                  accentColor="blue"
-                />
-                <MetricCard
-                  title="% VENDAS CD"
-                  value={formatPercent(totals.achCD)}
-                  icon={<TrendingUp className="w-5 h-5 text-purple-600" />}
-                  accentColor="purple"
-                />
-                <MetricCard
-                  title="% VENDAS VP"
-                  value={formatPercent(totals.achVP)}
-                  icon={<TrendingUp className="w-5 h-5 text-teal-600" />}
-                  accentColor="teal"
-                />
+                  {/* SECTION 2: CANAL CD */}
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-purple-600" />
+                      <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-600">Vendas CD</h4>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+                      <MetricCard
+                        title="Cota CD"
+                        value={formatCurrency(totals.quotaCD)}
+                        icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
+                        accentColor="purple"
+                      />
+                      <MetricCard
+                        title="Vendas CD"
+                        value={formatCurrency(totals.valorVendaCD)}
+                        icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
+                        accentColor="purple"
+                      />
+                      <MetricCard
+                        title="% Vendas CD"
+                        value={formatPercent(totals.achCD)}
+                        icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
+                        accentColor="purple"
+                      />
+                      <MetricCard
+                        title="Defasagem CD"
+                        value={formatDefasagem(totals.valorVendaCD - totals.quotaCD)}
+                        icon={(totals.valorVendaCD - totals.quotaCD) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                        accentColor={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "emerald" : "rose"}
+                        valueClassName={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "text-emerald-600" : "text-rose-600"}
+                      />
+                    </div>
+                  </div>
 
-                {/* ROW 4: DEFASAGEM */}
-                <MetricCard
-                  title="Defasagem Total"
-                  value={formatDefasagem(totals.defasagem)}
-                  icon={totals.defasagem >= 0 ? <Check className="w-5 h-5 text-emerald-600" /> : <ShieldAlert className="w-5 h-5 text-rose-600" />}
-                  accentColor={totals.defasagem >= 0 ? "emerald" : "rose"}
-                  valueClassName={totals.defasagem >= 0 ? "text-emerald-600" : "text-rose-600"}
-                />
-                <MetricCard
-                  title="Defasagem CD"
-                  value={formatDefasagem(totals.valorVendaCD - totals.quotaCD)}
-                  icon={(totals.valorVendaCD - totals.quotaCD) >= 0 ? <Check className="w-5 h-5 text-emerald-600" /> : <ShieldAlert className="w-5 h-5 text-rose-600" />}
-                  accentColor={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "emerald" : "rose"}
-                  valueClassName={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "text-emerald-600" : "text-rose-600"}
-                />
-                <MetricCard
-                  title="Defasagem VP"
-                  value={formatDefasagem(totals.valorVendaVP - totals.quotaVP)}
-                  icon={(totals.valorVendaVP - totals.quotaVP) >= 0 ? <Check className="w-5 h-5 text-emerald-600" /> : <ShieldAlert className="w-5 h-5 text-rose-600" />}
-                  accentColor={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "emerald" : "rose"}
-                  valueClassName={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "text-emerald-600" : "text-rose-600"}
-                />
-              </div>
+                  {/* SECTION 3: CANAL VP */}
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-teal-600" />
+                      <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-600">Vendas VP</h4>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+                      <MetricCard
+                        title="Cota VP"
+                        value={formatCurrency(totals.quotaVP)}
+                        icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
+                        accentColor="teal"
+                      />
+                      <MetricCard
+                        title="Vendas VP"
+                        value={formatCurrency(totals.valorVendaVP)}
+                        icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
+                        accentColor="teal"
+                      />
+                      <MetricCard
+                        title="% Vendas VP"
+                        value={formatPercent(totals.achVP)}
+                        icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
+                        accentColor="teal"
+                      />
+                      <MetricCard
+                        title="Defasagem VP"
+                        value={formatDefasagem(totals.valorVendaVP - totals.quotaVP)}
+                        icon={(totals.valorVendaVP - totals.quotaVP) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                        accentColor={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "emerald" : "rose"}
+                        valueClassName={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "text-emerald-600" : "text-rose-600"}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : selectedSalesTypes.includes('CD') ? (
+                /* ONLY CD SELECTED */
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-purple-600" />
+                    <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-600">Vendas CD</h4>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+                    <MetricCard
+                      title="Cota CD"
+                      value={formatCurrency(totals.quotaCD)}
+                      icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
+                      accentColor="purple"
+                    />
+                    <MetricCard
+                      title="Vendas CD"
+                      value={formatCurrency(totals.valorVendaCD)}
+                      icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
+                      accentColor="purple"
+                    />
+                    <MetricCard
+                      title="% Vendas CD"
+                      value={formatPercent(totals.achCD)}
+                      icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
+                      accentColor="purple"
+                    />
+                    <MetricCard
+                      title="Defasagem CD"
+                      value={formatDefasagem(totals.valorVendaCD - totals.quotaCD)}
+                      icon={(totals.valorVendaCD - totals.quotaCD) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                      accentColor={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "emerald" : "rose"}
+                      valueClassName={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "text-emerald-600" : "text-rose-600"}
+                    />
+                  </div>
+                </div>
+              ) : (
+                /* ONLY VP SELECTED */
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-teal-600" />
+                    <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-600">Vendas VP</h4>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+                    <MetricCard
+                      title="Cota VP"
+                      value={formatCurrency(totals.quotaVP)}
+                      icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
+                      accentColor="teal"
+                    />
+                    <MetricCard
+                      title="Vendas VP"
+                      value={formatCurrency(totals.valorVendaVP)}
+                      icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
+                      accentColor="teal"
+                    />
+                    <MetricCard
+                      title="% Vendas VP"
+                      value={formatPercent(totals.achVP)}
+                      icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
+                      accentColor="teal"
+                    />
+                    <MetricCard
+                      title="Defasagem VP"
+                      value={formatDefasagem(totals.valorVendaVP - totals.quotaVP)}
+                      icon={(totals.valorVendaVP - totals.quotaVP) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                      accentColor={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "emerald" : "rose"}
+                      valueClassName={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "text-emerald-600" : "text-rose-600"}
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* PREVIEW METRICS SECTION */}
               {isDisplayingCurrentData && selectedProductGroups.includes('All') && previewTotals.hasAnyPreview && (
-                <div className="bg-amber-50/40 border border-amber-200 p-5 rounded-2xl space-y-4">
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                      <Target className="w-4 h-4 text-amber-600" />
-                      <span className="text-[10px] font-black text-amber-800 uppercase tracking-widest">
-                        PRÉVIA
-                      </span>
+                <div className="bg-gradient-to-r from-amber-500/10 via-amber-50/50 to-slate-50/80 border border-amber-200/90 rounded-2xl p-3.5 sm:p-5 space-y-3.5 shadow-2xs transition-all">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/60 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-amber-500 text-white rounded-xl shadow-2xs shrink-0 flex items-center justify-center">
+                        <Target className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-xs sm:text-sm font-black text-slate-900 uppercase tracking-wider">
+                            Análise de Prévia de Vendas
+                          </h3>
+                          <span className="text-[9px] bg-amber-500/15 text-amber-800 border border-amber-300/60 px-2 py-0.5 rounded-full font-extrabold uppercase">
+                            Ativa
+                          </span>
+                        </div>
+                        {previewsUpdatedAt && (
+                          <p className="text-[10.5px] text-slate-500 font-semibold flex items-center gap-1 mt-0.5">
+                            <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                            <span>Enviada em <strong className="text-slate-700">{formatPreviewsDate(previewsUpdatedAt)}</strong></span>
+                          </p>
+                        )}
+                      </div>
                     </div>
+
                     <button
+                      type="button"
                       onClick={() => setShowPreviewMetrics(!showPreviewMetrics)}
-                      className="text-xs font-bold text-[#001A9C] hover:underline cursor-pointer"
+                      className="text-xs font-extrabold text-[#001A9C] hover:bg-[#001A9C]/10 px-3 py-1.5 rounded-xl border border-[#001A9C]/20 transition-all flex items-center gap-1.5 cursor-pointer shadow-3xs"
                     >
-                      {showPreviewMetrics ? 'Ocultar Detalhes' : 'Mostrar Detalhes'}
+                      {showPreviewMetrics ? (
+                        <>
+                          <ChevronUp className="w-3.5 h-3.5" />
+                          <span>Ocultar Prévia</span>
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="w-3.5 h-3.5" />
+                          <span>Ver Prévia ({formatCurrency(previewTotals.totalExpectativa)})</span>
+                        </>
+                      )}
                     </button>
                   </div>
 
                   {showPreviewMetrics && (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {/* Card 1: Prévia */}
-                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                          <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">PRÉVIA</span>
-                          <div className="text-lg font-black text-slate-900">{formatCurrency(previewTotals.totalExpectativa)}</div>
-                        </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4 pt-0.5">
+                      {/* Card 1: Prévia (Expectativa) */}
+                      <MetricCard
+                        title="Expectativa Prévia"
+                        value={formatCurrency(previewTotals.totalExpectativa)}
+                        icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600" />}
+                        accentColor="amber"
+                      />
 
-                        {/* Card 2: Vendas do Dia da Prévia */}
-                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                          <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">VENDAS NO DIA DA PRÉVIA</span>
-                          <div className="text-lg font-black text-slate-900">{formatCurrency(previewTotals.totalVendaDiaPrevia)}</div>
-                          {previewsUpdatedAt && (
-                            <p className="text-[10px] text-emerald-600 font-bold bg-emerald-50/50 py-1 px-2.5 rounded-lg inline-block mt-1">
-                              Prévia enviada no dia {formatPreviewsDate(previewsUpdatedAt)}
-                            </p>
-                          )}
-                        </div>
+                      {/* Card 2: Vendas no Dia da Prévia */}
+                      <MetricCard
+                        title="Vendas na Prévia"
+                        value={formatCurrency(previewTotals.totalVendaDiaPrevia)}
+                        icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
+                        accentColor="blue"
+                      />
 
-                        {/* Card 3: Defasagem Prévia */}
-                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                          <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">DEFASAGEM DA PRÉVIA</span>
-                          <div className={`text-lg font-black ${previewTotals.defasagemPrevia >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                            {formatDefasagem(previewTotals.defasagemPrevia)}
-                          </div>
-                        </div>
+                      {/* Card 3: Defasagem da Prévia */}
+                      <MetricCard
+                        title="Defasagem Prévia"
+                        value={formatDefasagem(previewTotals.defasagemPrevia)}
+                        icon={previewTotals.defasagemPrevia >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                        accentColor={previewTotals.defasagemPrevia >= 0 ? "emerald" : "rose"}
+                        valueClassName={previewTotals.defasagemPrevia >= 0 ? "text-emerald-600" : "text-rose-600"}
+                      />
 
-                        {/* Card 4: Pedidos Novos */}
-                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs space-y-1.5 transition-all hover:border-amber-300">
-                          <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">PEDIDOS NOVOS</span>
-                          <div className={`text-lg font-black ${previewTotals.totalPedidosNovos >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                            {formatCurrency(previewTotals.totalPedidosNovos)}
-                          </div>
-                        </div>
-                      </div>
+                      {/* Card 4: Pedidos Novos */}
+                      <MetricCard
+                        title="Pedidos Novos"
+                        value={formatCurrency(previewTotals.totalPedidosNovos)}
+                        icon={<Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600" />}
+                        accentColor="indigo"
+                        valueClassName={previewTotals.totalPedidosNovos >= 0 ? "text-slate-900" : "text-rose-600"}
+                      />
                     </div>
                   )}
                 </div>
@@ -2907,15 +3191,6 @@ export default function App() {
                       <LineChart className="w-4.5 h-4.5 text-indigo-500" />
                       Metas por Coordenador (CD + VP)
                     </h3>
-                    <button
-                      onClick={handleExportPresentation}
-                      disabled={isGeneratingPresentation}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-xl shadow-sm transition-all cursor-pointer border border-indigo-200"
-                      title="Gerar Apresentação de Vendas PPTX"
-                    >
-                      <Presentation className="w-4 h-4" />
-                      {isGeneratingPresentation ? 'Gerando Apresentação...' : 'Gerar Apresentação de Vendas'}
-                    </button>
                   </div>
 
                   <div className="space-y-4 pt-1">
