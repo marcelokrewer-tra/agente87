@@ -89,7 +89,8 @@ import {
   MapPin,
   Clock,
   Presentation,
-  History
+  History,
+  LogOut
 } from 'lucide-react';
 
 export const parseBrazilianNumber = (val: string | undefined): number => {
@@ -131,23 +132,70 @@ export const formatPreviewsDate = (isoString: string | null | undefined): string
   }
 };
 
+// Representative Password Credentials Mapping
+const REP_PASSWORDS: Record<string, { repId: number; repName: string }> = {
+  '1234': { repId: 437, repName: 'Lazaro' },
+};
+
 export default function App() {
-  // Authentication states
+  // Authentication & Role states
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('kpi_authenticated') === 'true';
+  });
+  const [userRole, setUserRole] = useState<'admin' | 'rep'>(() => {
+    return (localStorage.getItem('kpi_user_role') as 'admin' | 'rep') || 'admin';
+  });
+  const [userRepId, setUserRepId] = useState<number | null>(() => {
+    const saved = localStorage.getItem('kpi_user_rep_id');
+    return saved ? Number(saved) : null;
+  });
+  const [userRepName, setUserRepName] = useState<string | null>(() => {
+    return localStorage.getItem('kpi_user_rep_name') || null;
   });
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
 
   const handleAuthSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (passwordInput === '8701') {
+    const cleanPass = passwordInput.trim();
+    if (cleanPass === '8701') {
       setIsAuthenticated(true);
+      setUserRole('admin');
+      setUserRepId(null);
+      setUserRepName(null);
       localStorage.setItem('kpi_authenticated', 'true');
+      localStorage.setItem('kpi_user_role', 'admin');
+      localStorage.removeItem('kpi_user_rep_id');
+      localStorage.removeItem('kpi_user_rep_name');
+      setAuthError('');
+    } else if (REP_PASSWORDS[cleanPass]) {
+      const repInfo = REP_PASSWORDS[cleanPass];
+      setIsAuthenticated(true);
+      setUserRole('rep');
+      setUserRepId(repInfo.repId);
+      setUserRepName(repInfo.repName);
+      setSelectedRepIdFilter(repInfo.repId);
+      localStorage.setItem('kpi_authenticated', 'true');
+      localStorage.setItem('kpi_user_role', 'rep');
+      localStorage.setItem('kpi_user_rep_id', String(repInfo.repId));
+      localStorage.setItem('kpi_user_rep_name', repInfo.repName);
       setAuthError('');
     } else {
       setAuthError('Senha incorreta. Tente novamente.');
     }
+  };
+
+  const handleLogoff = () => {
+    setIsAuthenticated(false);
+    setUserRole('admin');
+    setUserRepId(null);
+    setUserRepName(null);
+    setPasswordInput('');
+    setAuthError('');
+    localStorage.removeItem('kpi_authenticated');
+    localStorage.removeItem('kpi_user_role');
+    localStorage.removeItem('kpi_user_rep_id');
+    localStorage.removeItem('kpi_user_rep_name');
   };
 
   // Global parsed Sales Records
@@ -1294,8 +1342,10 @@ export default function App() {
         };
       }
       
-      // Representative exact ID filter
-      if (selectedRepIdFilter !== null) {
+      // Representative exact ID filter / Role isolation
+      if (userRole === 'rep' && userRepId !== null) {
+        if (recordToAdd.repId !== userRepId) return;
+      } else if (selectedRepIdFilter !== null) {
         if (recordToAdd.repId !== selectedRepIdFilter) return;
       } else {
         // Search matching (by rep name or ID)
@@ -1326,7 +1376,7 @@ export default function App() {
     });
 
     return result;
-  }, [resolvedRecords, selectedCoordinator, selectedProductGroups, selectedSalesTypes, searchText, selectedRepIdFilter, progressThreshold, selectedState, customRepLocations]);
+  }, [resolvedRecords, selectedCoordinator, selectedProductGroups, selectedSalesTypes, searchText, selectedRepIdFilter, progressThreshold, selectedState, customRepLocations, userRole, userRepId]);
 
   // Dynamic Statistics computed from currently filtered subset
   const totals = useMemo(() => {
@@ -2082,7 +2132,7 @@ export default function App() {
             
             <div className="space-y-1">
               <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">Agente 87 - Ferramentas</h2>
-              <p className="text-[11px] sm:text-xs text-slate-500">Acesso Restrito • Painel de KPI & Prévias</p>
+              <p className="text-[11px] sm:text-xs text-slate-500 font-medium">Acesso Restrito • Digite a senha do Administrador ou do Representante</p>
             </div>
           </div>
 
@@ -2090,7 +2140,7 @@ export default function App() {
           <form onSubmit={handleAuthSubmit} className="space-y-5">
             <div className="space-y-2">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block text-center">
-                Digite a senha de acesso
+                Senha de Acesso
               </label>
               <input
                 type="password"
@@ -2245,22 +2295,35 @@ export default function App() {
         {/* LEFT COMPACT FILTER CONTROLS SIDEBAR */}
         <section className="lg:col-span-1 space-y-3 lg:space-y-5 lg:sticky lg:top-8 lg:self-start lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto lg:pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
           <div className="bg-white border border-slate-200 p-3.5 lg:p-5 rounded-2xl shadow-sm space-y-3.5 lg:space-y-6 text-slate-700">
-            {/* Logo area */}
-            <div className="pb-3 border-b border-slate-150 flex flex-col gap-1.5">
+            {/* Logo area with top right Logoff button */}
+            <div className="pb-3 border-b border-slate-150 flex items-center justify-between gap-2">
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={() => {
+                    setActiveTab('geral');
+                    resetFilters();
+                    handleShowCurrentData();
+                  }}
+                  className="flex items-center justify-start focus:outline-none cursor-pointer group transition-all text-left"
+                  title="Ir para a Home do Painel"
+                >
+                  <TramontinaLogo className="h-5 w-auto text-[#001A9C] group-hover:scale-102 transition-transform" fillColor="#001A9C" />
+                </button>
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-450">
+                  Agente 87 {userRole === 'rep' ? `• Rep. ${userRepName || `#${userRepId}`}` : '• Admin'}
+                </span>
+              </div>
+
+              {/* Logoff Button in Top Right Corner */}
               <button
-                onClick={() => {
-                  setActiveTab('geral');
-                  resetFilters();
-                  handleShowCurrentData();
-                }}
-                className="flex items-center justify-start focus:outline-none cursor-pointer group transition-all text-left"
-                title="Ir para a Home do Painel"
+                type="button"
+                onClick={handleLogoff}
+                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 text-rose-700 border border-rose-200/80 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all shadow-3xs shrink-0"
+                title="Fazer Logoff do sistema"
               >
-                <TramontinaLogo className="h-5 w-auto text-[#001A9C] group-hover:scale-102 transition-transform" fillColor="#001A9C" />
+                <LogOut className="w-3.5 h-3.5 text-rose-600" />
+                <span>Sair</span>
               </button>
-              <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-450">
-                Agente 87 - Ferramentas
-              </span>
             </div>
 
             {/* Compact and discrete last update info without balloon/icons */}
@@ -2565,100 +2628,119 @@ export default function App() {
 
             </div>
 
-            {/* Keyword Search */}
+            {/* Keyword / Representative Search */}
             <div className="space-y-1.5">
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-3.5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar representante..."
-                  value={searchText}
-                  onChange={(e) => {
-                    setSearchText(e.target.value);
-                    setCurrentPage(1);
-                    setShowSuggestions(true);
-                  }}
-                  onFocus={() => setShowSuggestions(true)}
-                  onBlur={() => {
-                    setTimeout(() => setShowSuggestions(false), 200);
-                  }}
-                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-800 text-xs placeholder-slate-400 font-medium transition-all"
-                />
-
-                {showSuggestions && searchText.trim() !== '' && (
-                  <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-30 max-h-60 overflow-y-auto py-1.5 divide-y divide-slate-50 animate-fade-in">
-                    {searchSuggestions.map(rep => (
-                      <button
-                        key={rep.repId}
-                        type="button"
-                        onMouseDown={() => {
-                          setSelectedRepIdFilter(rep.repId);
-                          setSearchText(rep.repName);
-                          setShowSuggestions(false);
-                          setIsMobileFiltersExpanded(false);
-                        }}
-                        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex flex-col cursor-pointer transition-colors"
-                      >
-                        <span className="text-xs font-bold text-slate-800 truncate">{rep.repName}</span>
-                        <span className="text-[10px] text-slate-400 font-semibold font-mono">Código: #{rep.repId}</span>
-                      </button>
-                    ))}
-                    {searchSuggestions.length === 0 && (
-                      <div className="px-3 py-3 text-center text-slate-400 text-xs">
-                        Nenhum representante encontrado
-                      </div>
-                    )}
+              {userRole === 'rep' ? (
+                <div className="bg-blue-50/80 border border-blue-200/80 p-3 rounded-xl flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-[#001A9C] text-white rounded-lg">
+                      <Lock className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-extrabold uppercase tracking-wider text-blue-800/70 block">Representante Ativo</span>
+                      <span className="text-xs font-black text-slate-900 block">#{userRepId} - {userRepName}</span>
+                    </div>
                   </div>
-                )}
-              </div>
+                  <span className="text-[9px] bg-blue-100 text-[#001A9C] font-extrabold px-2 py-0.5 rounded-full border border-blue-200">
+                    Seus Dados
+                  </span>
+                </div>
+              ) : (
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar representante..."
+                    value={searchText}
+                    onChange={(e) => {
+                      setSearchText(e.target.value);
+                      setCurrentPage(1);
+                      setShowSuggestions(true);
+                    }}
+                    onFocus={() => setShowSuggestions(true)}
+                    onBlur={() => {
+                      setTimeout(() => setShowSuggestions(false), 200);
+                    }}
+                    className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-800 text-xs placeholder-slate-400 font-medium transition-all"
+                  />
+
+                  {showSuggestions && searchText.trim() !== '' && (
+                    <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-30 max-h-60 overflow-y-auto py-1.5 divide-y divide-slate-50 animate-fade-in">
+                      {searchSuggestions.map(rep => (
+                        <button
+                          key={rep.repId}
+                          type="button"
+                          onMouseDown={() => {
+                            setSelectedRepIdFilter(rep.repId);
+                            setSearchText(rep.repName);
+                            setShowSuggestions(false);
+                            setIsMobileFiltersExpanded(false);
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-slate-50 flex flex-col cursor-pointer transition-colors"
+                        >
+                          <span className="text-xs font-bold text-slate-800 truncate">{rep.repName}</span>
+                          <span className="text-[10px] text-slate-400 font-semibold font-mono">Código: #{rep.repId}</span>
+                        </button>
+                      ))}
+                      {searchSuggestions.length === 0 && (
+                        <div className="px-3 py-3 text-center text-slate-400 text-xs">
+                          Nenhum representante encontrado
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Coordinator Selector List */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Coordenador</label>
-              <div className="grid grid-cols-2 lg:grid-cols-1 gap-1.5 max-h-56 overflow-y-auto pr-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedCoordinator('All');
-                    setCurrentPage(1);
-                  }}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer truncate ${
-                    selectedCoordinator === 'All'
-                      ? 'bg-[#001A9C] text-white shadow-xs'
-                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                  }`}
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${selectedCoordinator === 'All' ? 'bg-white' : 'bg-slate-300'}`} />
-                  <span className="truncate">Todos</span>
-                </button>
-                {distinctCoordinators.map(c => {
-                  const firstName = c.trim().split(/\s+/)[0];
-                  return (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => {
-                        setSelectedCoordinator(c);
-                        setCurrentPage(1);
-                      }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer truncate ${
-                        selectedCoordinator === c
-                          ? 'bg-[#001A9C] text-white shadow-xs'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                      }`}
-                      title={c}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${selectedCoordinator === c ? 'bg-white' : 'bg-[#001A9C]'}`} />
-                      <span className="truncate">
-                        <span className="lg:hidden">{firstName}</span>
-                        <span className="hidden lg:inline">{c}</span>
-                      </span>
-                    </button>
-                  );
-                })}
+            {userRole === 'admin' && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Coordenador</label>
+                <div className="grid grid-cols-2 lg:grid-cols-1 gap-1.5 max-h-56 overflow-y-auto pr-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCoordinator('All');
+                      setCurrentPage(1);
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer truncate ${
+                      selectedCoordinator === 'All'
+                        ? 'bg-[#001A9C] text-white shadow-xs'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${selectedCoordinator === 'All' ? 'bg-white' : 'bg-slate-300'}`} />
+                    <span className="truncate">Todos</span>
+                  </button>
+                  {distinctCoordinators.map(c => {
+                    const firstName = c.trim().split(/\s+/)[0];
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => {
+                          setSelectedCoordinator(c);
+                          setCurrentPage(1);
+                        }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer truncate ${
+                          selectedCoordinator === c
+                            ? 'bg-[#001A9C] text-white shadow-xs'
+                            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                        title={c}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${selectedCoordinator === c ? 'bg-white' : 'bg-[#001A9C]'}`} />
+                        <span className="truncate">
+                          <span className="lg:hidden">{firstName}</span>
+                          <span className="hidden lg:inline">{c}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Product Group Filter (Grupo de Produtos) Checkboxes */}
             <div className="space-y-2">
@@ -3137,80 +3219,82 @@ export default function App() {
           )}
  
           {/* Navigation controller layout bar */}
-          <div className="bg-white border border-slate-100 p-2 rounded-2xl shadow-xs flex flex-wrap gap-2 items-center">
-            {[
-              { id: 'geral', label: 'Geral', icon: <LayoutDashboard className="w-4 h-4" /> },
-              { id: 'representantes', label: 'Representantes', icon: <User className="w-4 h-4" /> },
-              { id: 'vendas_estado', label: 'Regiões', icon: <MapIcon className="w-4 h-4" /> },
-              { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> }
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id as any);
-                  setIsImportDropdownOpen(false);
-                }}
-                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer relative ${
-                  activeTab === tab.id 
-                    ? 'text-slate-900 bg-slate-950/[0.04] border border-slate-950/[0.02] font-extrabold shadow-2xs' 
-                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent'
-                }`}
-              >
-                {tab.icon}
-                <span>{tab.label}</span>
-              </button>
-            ))}
+          {userRole === 'admin' && (
+            <div className="bg-white border border-slate-100 p-2 rounded-2xl shadow-xs flex flex-wrap gap-2 items-center">
+              {[
+                { id: 'geral', label: 'Geral', icon: <LayoutDashboard className="w-4 h-4" /> },
+                { id: 'representantes', label: 'Representantes', icon: <User className="w-4 h-4" /> },
+                { id: 'vendas_estado', label: 'Regiões', icon: <MapIcon className="w-4 h-4" /> },
+                { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveTab(tab.id as any);
+                    setIsImportDropdownOpen(false);
+                  }}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer relative ${
+                    activeTab === tab.id 
+                      ? 'text-slate-900 bg-slate-950/[0.04] border border-slate-950/[0.02] font-extrabold shadow-2xs' 
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent'
+                  }`}
+                >
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                </button>
+              ))}
 
-            {/* Import Information Dropdown Menu */}
-            <div className="relative">
-              <button
-                onClick={() => setIsImportDropdownOpen(!isImportDropdownOpen)}
-                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border ${
-                  ['previa', 'importar', 'nomes', 'localizacao'].includes(activeTab)
-                    ? 'text-slate-900 bg-slate-950/[0.04] border-slate-950/[0.05] font-extrabold shadow-2xs' 
-                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border-transparent'
-                }`}
-              >
-                <UploadCloud className="w-4 h-4 text-indigo-500" />
-                <span>Importar Informações</span>
-                <ChevronDown className={`w-3 h-3 transition-transform ${isImportDropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
+              {/* Import Information Dropdown Menu (Admin Only) */}
+              <div className="relative">
+                <button
+                  onClick={() => setIsImportDropdownOpen(!isImportDropdownOpen)}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border ${
+                    ['previa', 'importar', 'nomes', 'localizacao'].includes(activeTab)
+                      ? 'text-slate-900 bg-slate-950/[0.04] border-slate-950/[0.05] font-extrabold shadow-2xs' 
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border-transparent'
+                  }`}
+                >
+                  <UploadCloud className="w-4 h-4 text-indigo-500" />
+                  <span>Importar Informações</span>
+                  <ChevronDown className={`w-3 h-3 transition-transform ${isImportDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
 
-              {isImportDropdownOpen && (
-                <>
-                  {/* Overlay background to dismiss the dropdown when clicking outside */}
-                  <div 
-                    className="fixed inset-0 z-10" 
-                    onClick={() => setIsImportDropdownOpen(false)} 
-                  />
-                  <div className="absolute left-0 mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 z-20 origin-top-left">
-                    {[
-                      { id: 'importar', label: 'Importar Dados de Vendas', icon: <FileSpreadsheet className="w-4 h-4 text-indigo-500" /> },
-                      { id: 'previa', label: 'Importar Prévia', icon: <Target className="w-4 h-4 text-indigo-600" /> },
-                      { id: 'nomes', label: 'Importar Nomes', icon: <UserCog className="w-4 h-4 text-emerald-500" /> },
-                      { id: 'localizacao', label: 'Importar Localização', icon: <MapPin className="w-4 h-4 text-rose-500" /> }
-                    ].map(subTab => (
-                      <button
-                        key={subTab.id}
-                        onClick={() => {
-                          setActiveTab(subTab.id as any);
-                          setIsImportDropdownOpen(false);
-                        }}
-                        className={`w-full text-left px-4 py-2.5 text-xs font-bold transition-colors flex items-center gap-2.5 hover:bg-slate-50 ${
-                          activeTab === subTab.id 
-                            ? 'text-slate-900 bg-slate-950/[0.02]' 
-                            : 'text-slate-600 font-medium'
-                        }`}
-                      >
-                        {subTab.icon}
-                        <span>{subTab.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
+                {isImportDropdownOpen && (
+                  <>
+                    {/* Overlay background to dismiss the dropdown when clicking outside */}
+                    <div 
+                      className="fixed inset-0 z-10" 
+                      onClick={() => setIsImportDropdownOpen(false)} 
+                    />
+                    <div className="absolute left-0 mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 z-20 origin-top-left">
+                      {[
+                        { id: 'importar', label: 'Importar Dados de Vendas', icon: <FileSpreadsheet className="w-4 h-4 text-indigo-500" /> },
+                        { id: 'previa', label: 'Importar Prévia', icon: <Target className="w-4 h-4 text-indigo-600" /> },
+                        { id: 'nomes', label: 'Importar Nomes', icon: <UserCog className="w-4 h-4 text-emerald-500" /> },
+                        { id: 'localizacao', label: 'Importar Localização', icon: <MapPin className="w-4 h-4 text-rose-500" /> }
+                      ].map(subTab => (
+                        <button
+                          key={subTab.id}
+                          onClick={() => {
+                            setActiveTab(subTab.id as any);
+                            setIsImportDropdownOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-2.5 text-xs font-bold transition-colors flex items-center gap-2.5 hover:bg-slate-50 ${
+                            activeTab === subTab.id 
+                              ? 'text-slate-900 bg-slate-950/[0.02]' 
+                              : 'text-slate-600 font-medium'
+                          }`}
+                        >
+                          {subTab.icon}
+                          <span>{subTab.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* EMPTY STATE IF NO DATA IN ACTIVE PERIOD */}
           {allRecords.length === 0 && !['previa', 'importar', 'nomes', 'localizacao'].includes(activeTab) && (
@@ -3282,17 +3366,19 @@ export default function App() {
               {/* Primary Charts layout split */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 
-                {/* Visual Coordinator Bar chart inside standard container */}
+                {/* Visual Coordinator / Product Group Bar chart inside standard container */}
                 <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm md:col-span-2 space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-55 pb-2">
                     <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
                       <LineChart className="w-4.5 h-4.5 text-indigo-500" />
-                      Metas por Coordenador (CD + VP)
+                      {userRole === 'rep' ? 'Desempenho por Grupo de Produtos (CD + VP)' : 'Metas por Coordenador (CD + VP)'}
                     </h3>
                   </div>
 
                   <div className="space-y-4 pt-1">
-                    {coordinatorPerformance.map((item, idx) => {
+                    {(userRole === 'rep' ? productGroupPerformance : coordinatorPerformance).map((item, idx) => {
+                      const itemName = 'group' in item ? item.group : item.name;
+                      const subLabel = 'repsCount' in item ? `(${item.repsCount} reps)` : '';
                       const defasagemColor = item.percent >= 100 
                         ? 'text-emerald-600' 
                         : item.percent >= 75 
@@ -3300,12 +3386,20 @@ export default function App() {
                         : 'text-rose-600';
 
                       return (
-                        <div key={item.name} className="space-y-1.5 group cursor-pointer" onClick={() => setSelectedCoordinator(item.name)}>
+                        <div 
+                          key={itemName} 
+                          className={`space-y-1.5 group ${userRole === 'admin' ? 'cursor-pointer' : ''}`}
+                          onClick={() => {
+                            if (userRole === 'admin' && 'name' in item) {
+                              setSelectedCoordinator(item.name);
+                            }
+                          }}
+                        >
                           <div className="flex justify-between items-start sm:items-center text-xs gap-2">
                             <span className="font-semibold text-slate-700 group-hover:text-indigo-600 transition-colors flex items-center gap-1 flex-wrap">
                               <span className="text-slate-300 font-bold">#{idx+1}</span>
-                              {item.name}
-                              <span className="text-[10px] text-slate-400 font-normal">({item.repsCount} reps)</span>
+                              {itemName}
+                              {subLabel && <span className="text-[10px] text-slate-400 font-normal">{subLabel}</span>}
                             </span>
                             <div className="text-right shrink-0">
                               <span className="font-extrabold text-slate-900">{formatPercent(item.percent)}</span>
@@ -3338,8 +3432,10 @@ export default function App() {
                       );
                     })}
 
-                    {coordinatorPerformance.length === 0 && (
-                      <div className="py-8 text-center text-slate-400 text-xs">Nenhum coordenador correspondente aos filtros.</div>
+                    {(userRole === 'rep' ? productGroupPerformance : coordinatorPerformance).length === 0 && (
+                      <div className="py-8 text-center text-slate-400 text-xs">
+                        {userRole === 'rep' ? 'Nenhum grupo de produtos encontrado.' : 'Nenhum coordenador correspondente aos filtros.'}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -3389,38 +3485,82 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Top Rankings list: Stars podium & Deficit review block */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                
-                {/* Rank 1: Star representatives and high-achievers */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                  <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-                    <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
-                      <Award className="w-5 h-5 text-emerald-500" />
-                      Top 5 Representantes
-                    </h3>
-                    <span className="text-[10px] font-extrabold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full uppercase">Heaters</span>
+              {/* Top Rankings list: Stars podium & Deficit review block (Admin Only) */}
+              {userRole === 'admin' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  
+                  {/* Rank 1: Star representatives and high-achievers */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                      <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                        <Award className="w-5 h-5 text-emerald-500" />
+                        Top 5 Representantes
+                      </h3>
+                      <span className="text-[10px] font-extrabold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full uppercase">Heaters</span>
+                    </div>
+
+                    <div className="space-y-3.5">
+                      {topPerformers.map((rep, idx) => {
+                        const medalColor = [
+                          'text-amber-500 bg-amber-50 border-amber-100', // Gold
+                          'text-slate-500 bg-slate-50 border-slate-100', // Silver
+                          'text-amber-700 bg-amber-50/50 border-amber-100/50', // Bronze
+                          'text-slate-400 bg-slate-50/40 border-slate-100/40',
+                          'text-slate-400 bg-slate-50/40 border-slate-100/40'
+                        ][idx] || 'text-slate-400';
+
+                        return (
+                          <div 
+                            key={rep.repId} 
+                            onClick={() => setSelectedRepDetailId(rep.repId)}
+                            className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100/80 transition-all cursor-pointer group"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className={`w-7 h-7 rounded-lg border flex items-center justify-center font-extrabold text-sm ${medalColor}`}>
+                                {idx + 1}
+                              </span>
+                              <div>
+                                <h4 className="font-bold text-xs text-slate-800 group-hover:text-indigo-600 transition-colors truncate max-w-[180px]">
+                                  {rep.repName}
+                                </h4>
+                                <p className="text-[10px] text-slate-400 mt-0.5 font-medium">Coordenador: {rep.coordName}</p>
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <span className="text-xs font-extrabold text-emerald-600 block">{formatPercent(rep.pctTotal)}</span>
+                              <span className="text-[10px] text-slate-400 block mt-0.5">Venda: {formatCurrency(rep.totalFaturado)}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {topPerformers.length === 0 && (
+                        <div className="py-8 text-center text-slate-400 text-xs">Nenhum representante excede a meta sob este filtro.</div>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="space-y-3.5">
-                    {topPerformers.map((rep, idx) => {
-                      const medalColor = [
-                        'text-amber-500 bg-amber-50 border-amber-100', // Gold
-                        'text-slate-500 bg-slate-50 border-slate-100', // Silver
-                        'text-amber-700 bg-amber-50/50 border-amber-100/50', // Bronze
-                        'text-slate-400 bg-slate-50/40 border-slate-100/40',
-                        'text-slate-400 bg-slate-50/40 border-slate-100/40'
-                      ][idx] || 'text-slate-400';
+                  {/* Rank 2: Defasagem warning panel */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                      <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                        <ShieldAlert className="w-5 h-5 text-rose-500" />
+                        Maior Defasagem
+                      </h3>
+                      <span className="text-[10px] font-extrabold bg-rose-50 text-rose-700 px-2 py-0.5 rounded-full uppercase">Déficit</span>
+                    </div>
 
-                      return (
+                    <div className="space-y-3.5">
+                      {interventionNeeded.map((rep, idx) => (
                         <div 
                           key={rep.repId} 
                           onClick={() => setSelectedRepDetailId(rep.repId)}
                           className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100/80 transition-all cursor-pointer group"
                         >
                           <div className="flex items-center gap-3">
-                            <span className={`w-7 h-7 rounded-lg border flex items-center justify-center font-extrabold text-sm ${medalColor}`}>
-                              {idx + 1}
+                            <span className="w-7 h-7 rounded-lg bg-rose-50 border border-rose-100 flex items-center justify-center font-extrabold text-sm text-rose-600">
+                              !
                             </span>
                             <div>
                               <h4 className="font-bold text-xs text-slate-800 group-hover:text-indigo-600 transition-colors truncate max-w-[180px]">
@@ -3431,62 +3571,20 @@ export default function App() {
                           </div>
 
                           <div className="text-right">
-                            <span className="text-xs font-extrabold text-emerald-600 block">{formatPercent(rep.pctTotal)}</span>
-                            <span className="text-[10px] text-slate-400 block mt-0.5">Venda: {formatCurrency(rep.totalFaturado)}</span>
+                            <span className="text-xs font-extrabold text-rose-600 block">{formatCurrency(rep.defasagem)}</span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5">Atingido: {formatPercent(rep.pctTotal)}</span>
                           </div>
                         </div>
-                      );
-                    })}
+                      ))}
 
-                    {topPerformers.length === 0 && (
-                      <div className="py-8 text-center text-slate-400 text-xs">Nenhum representante excede a meta sob este filtro.</div>
-                    )}
+                      {interventionNeeded.length === 0 && (
+                        <div className="py-8 text-center text-slate-500 text-xs text-emerald-600 font-extrabold">🎉 Excelente! Nenhum representante está com saldo deficitário/defasagem sob este filtro.</div>
+                      )}
+                    </div>
                   </div>
+
                 </div>
-
-                {/* Rank 2: Defasagem warning panel */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                  <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-                    <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
-                      <ShieldAlert className="w-5 h-5 text-rose-500" />
-                      Maior Defasagem
-                    </h3>
-                    <span className="text-[10px] font-extrabold bg-rose-50 text-rose-700 px-2 py-0.5 rounded-full uppercase">Déficit</span>
-                  </div>
-
-                  <div className="space-y-3.5">
-                    {interventionNeeded.map((rep, idx) => (
-                      <div 
-                        key={rep.repId} 
-                        onClick={() => setSelectedRepDetailId(rep.repId)}
-                        className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100/80 transition-all cursor-pointer group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className="w-7 h-7 rounded-lg bg-rose-50 border border-rose-100 flex items-center justify-center font-extrabold text-sm text-rose-600">
-                            !
-                          </span>
-                          <div>
-                            <h4 className="font-bold text-xs text-slate-800 group-hover:text-indigo-600 transition-colors truncate max-w-[180px]">
-                              {rep.repName}
-                            </h4>
-                            <p className="text-[10px] text-slate-400 mt-0.5 font-medium">Coordenador: {rep.coordName}</p>
-                          </div>
-                        </div>
-
-                        <div className="text-right">
-                          <span className="text-xs font-extrabold text-rose-600 block">{formatCurrency(rep.defasagem)}</span>
-                          <span className="text-[10px] text-slate-400 block mt-0.5">Atingido: {formatPercent(rep.pctTotal)}</span>
-                        </div>
-                      </div>
-                    ))}
-
-                    {interventionNeeded.length === 0 && (
-                      <div className="py-8 text-center text-slate-500 text-xs text-emerald-600 font-extrabold">🎉 Excelente! Nenhum representante está com saldo deficitário/defasagem sob este filtro.</div>
-                    )}
-                  </div>
-                </div>
-
-              </div>
+              )}
             </motion.div>
           )}
 
