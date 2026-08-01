@@ -706,10 +706,10 @@ export default function App() {
   } as const;
 
   const ALLOWED_PRODUCT_GROUPS = [
-    "Tramontina Cutelaria",
-    "Tramontina Master",
     "Tramontina Pro",
-    "Tramontina Multi"
+    "Tramontina Master",
+    "Tramontina Multi",
+    "Tramontina Cutelaria"
   ] as const;
   
   // Dashboard Core Navigation Tabs
@@ -1534,13 +1534,14 @@ export default function App() {
       totalAll += r.valorVendaTotal;
     });
 
-    return Object.entries(groups)
-      .map(([name, val]) => ({
-        name: name,
+    return ALLOWED_PRODUCT_GROUPS.map(name => {
+      const val = groups[name] || 0;
+      return {
+        name,
         value: val,
         share: totalAll > 0 ? (val / totalAll) * 100 : 0
-      }))
-      .sort((a, b) => b.value - a.value);
+      };
+    });
   }, [filteredRecords]);
 
   // Group by Representative for the ranking lists & grid
@@ -1597,13 +1598,16 @@ export default function App() {
       groups[gName].faturado += r.valorVendaTotal;
     });
 
-    return Object.entries(groups).map(([group, val]) => ({
-      group,
-      quota: val.quota,
-      faturado: val.faturado,
-      defasagem: val.faturado - val.quota,
-      percent: val.quota > 0 ? (val.faturado / val.quota) * 100 : 0
-    })).sort((a, b) => a.defasagem - b.defasagem);
+    return ALLOWED_PRODUCT_GROUPS.map(group => {
+      const val = groups[group] || { quota: 0, faturado: 0 };
+      return {
+        group,
+        quota: val.quota,
+        faturado: val.faturado,
+        defasagem: val.faturado - val.quota,
+        percent: val.quota > 0 ? (val.faturado / val.quota) * 100 : 0
+      };
+    });
   }, [filteredRecords]);
 
   // Find preview for each rep
@@ -2093,7 +2097,9 @@ export default function App() {
       aggregatedByGroup[mappedGroupName].defasagem += r.defasagem;
     });
 
-    const aggregatedRows = Object.values(aggregatedByGroup);
+    const aggregatedRows = ALLOWED_PRODUCT_GROUPS
+      .map(gName => aggregatedByGroup[gName])
+      .filter(Boolean);
 
     return {
       repId: selectedRepDetailId,
