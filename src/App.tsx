@@ -88,7 +88,8 @@ import {
   Map as MapIcon,
   MapPin,
   Clock,
-  Presentation
+  Presentation,
+  History
 } from 'lucide-react';
 
 export const parseBrazilianNumber = (val: string | undefined): number => {
@@ -283,6 +284,54 @@ export default function App() {
       setTempMonth(targetPeriod.month);
       setHasSetInitialPeriod(true);
     }
+  };
+
+  const isUpToFifthDay = useMemo(() => {
+    const bDate = getBrasiliaDate();
+    return bDate.getDate() <= 5;
+  }, []);
+
+  const handleShowPreviousMonthData = () => {
+    setIsAccumulated(false);
+    setTempIsAccumulated(false);
+    const bDate = getBrasiliaDate();
+    const currentYear = bDate.getFullYear();
+    const currentMonth = bDate.getMonth() + 1;
+
+    let prevMonth = currentMonth - 1;
+    let prevYear = currentYear;
+    if (prevMonth < 1) {
+      prevMonth = 12;
+      prevYear = currentYear - 1;
+    }
+
+    const exactPrev = availablePeriods.find(p => p.year === prevYear && p.month === prevMonth);
+    if (exactPrev) {
+      setSelectedYear(exactPrev.year);
+      setSelectedMonth(exactPrev.month);
+      setTempYear(exactPrev.year);
+      setTempMonth(exactPrev.month);
+    } else {
+      const priorPeriods = availablePeriods
+        .filter(p => p.year < currentYear || (p.year === currentYear && p.month < currentMonth))
+        .sort((a, b) => {
+          if (b.year !== a.year) return b.year - a.year;
+          return b.month - a.month;
+        });
+
+      if (priorPeriods.length > 0) {
+        setSelectedYear(priorPeriods[0].year);
+        setSelectedMonth(priorPeriods[0].month);
+        setTempYear(priorPeriods[0].year);
+        setTempMonth(priorPeriods[0].month);
+      } else {
+        setSelectedYear(prevYear);
+        setSelectedMonth(prevMonth);
+        setTempYear(prevYear);
+        setTempMonth(prevMonth);
+      }
+    }
+    setIsMobileFiltersExpanded(false);
   };
 
   const handleShowCurrentData = () => {
@@ -2232,10 +2281,36 @@ export default function App() {
               </div>
             </button>
 
+            {/* Mobile "Mostrar mês anterior" button (visible up to 5th day of month) */}
+            {isUpToFifthDay && (
+              <button
+                type="button"
+                onClick={handleShowPreviousMonthData}
+                className="w-full lg:hidden py-1.5 px-3 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs group"
+                title="Visualizar KPIs de venda do último arquivo enviado do mês anterior"
+              >
+                <History className="w-3.5 h-3.5 text-white group-hover:-translate-x-0.5 transition-transform" />
+                <span>Mostrar mês anterior</span>
+              </button>
+            )}
+
             {/* Wrapped filters block - collapsible on mobile, always visible on large screens */}
             <div className={`space-y-4 lg:space-y-6 lg:block ${isMobileFiltersExpanded ? 'block' : 'hidden'}`}>
               {/* Seleção de Período (Mês / Ano) */}
             <div className="space-y-2.5 lg:space-y-3.5 pb-3 lg:pb-4 border-b border-slate-150">
+              {/* Botão Mostrar mês anterior (Desktop) */}
+              {isUpToFifthDay && (
+                <button
+                  type="button"
+                  onClick={handleShowPreviousMonthData}
+                  className="w-full hidden lg:flex py-1.5 px-3 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white rounded-xl text-xs font-extrabold transition-all items-center justify-center gap-1.5 cursor-pointer shadow-3xs group"
+                  title="Visualizar KPIs de venda do último arquivo enviado do mês anterior"
+                >
+                  <History className="w-3.5 h-3.5 text-white group-hover:-translate-x-0.5 transition-transform" />
+                  <span>Mostrar mês anterior</span>
+                </button>
+              )}
+
               {/* Botão Mostrar Dados Atuais */}
               <button
                 onClick={handleShowCurrentData}
