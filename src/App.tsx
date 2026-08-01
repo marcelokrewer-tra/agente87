@@ -1537,6 +1537,25 @@ export default function App() {
     }).sort((a, b) => b.totalFaturado - a.totalFaturado);
   }, [filteredRecords]);
 
+  // Performance by Product Group
+  const productGroupPerformance = useMemo(() => {
+    const groups: { [key: string]: { quota: number; faturado: number } } = {};
+    filteredRecords.forEach(r => {
+      const gName = getMappedGroupName(r.groupName);
+      if (!groups[gName]) groups[gName] = { quota: 0, faturado: 0 };
+      groups[gName].quota += r.quotaTotal;
+      groups[gName].faturado += r.valorVendaTotal;
+    });
+
+    return Object.entries(groups).map(([group, val]) => ({
+      group,
+      quota: val.quota,
+      faturado: val.faturado,
+      defasagem: val.faturado - val.quota,
+      percent: val.quota > 0 ? (val.faturado / val.quota) * 100 : 0
+    })).sort((a, b) => a.defasagem - b.defasagem);
+  }, [filteredRecords]);
+
   // Find preview for each rep
   const repPreviewsMap = useMemo(() => {
     const map = new Map<string, { previaValue: number; vendaDiaPrevia: number }>();

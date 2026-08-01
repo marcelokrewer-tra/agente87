@@ -24,17 +24,14 @@ export const getLocalPeriodsIndex = (): PeriodInfo[] => {
     console.error("Error reading periods index from localStorage", e);
   }
 
-  // If empty, initialize with default period (June 2026) so they see data on Vercel immediately!
+  // Initialize with default initial active period (June 2026)
   const defaultIndex: PeriodInfo[] = [
-    { id: '2026-06', year: 2026, month: 6, recordsCount: parseTSV(INITIAL_RAW_DATA).length, updatedAt: new Date().toISOString() }
+    { id: '2026-06', year: 2026, month: 6, recordsCount: parseTSV(INITIAL_RAW_DATA).length, updatedAt: new Date().toISOString() },
   ];
   try {
     localStorage.setItem(PERIODS_INDEX_KEY, JSON.stringify(defaultIndex));
-    // Also save default period records
-    const defaultRecords = parseTSV(INITIAL_RAW_DATA);
-    localStorage.setItem(`${PERIOD_DATA_PREFIX}2026_6`, JSON.stringify(defaultRecords));
   } catch (e) {
-    console.error("Error saving default period to localStorage", e);
+    console.error("Error saving default periods index to localStorage", e);
   }
   return defaultIndex;
 };
@@ -80,7 +77,7 @@ export const getLocalPeriodData = (year: number, month: number): SalesRecord[] =
     console.error("Error reading period data from localStorage", e);
   }
 
-  // Fallback for default period if not found
+  // Fallback for default seed period (June 2026)
   if (year === 2026 && month === 6) {
     const defaultRecords = parseTSV(INITIAL_RAW_DATA);
     try {
