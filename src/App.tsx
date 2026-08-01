@@ -43,6 +43,7 @@ import { FirebaseSetupModal } from './components/FirebaseSetupModal';
 import { MetricCard } from './components/MetricCard';
 import { KPIGauge } from './components/KPIGauge';
 import { ImportDataTab } from './components/ImportDataTab';
+import { UserManagementTab, SystemUser, DEFAULT_USERS } from './components/UserManagementTab';
 import { TramontinaLogo } from './components/TramontinaLogo';
 import { generateSalesPresentation } from './presentation';
 import { logAnalyticsEvent, logSessionIfNeeded } from './lib/analytics';
@@ -132,12 +133,37 @@ export const formatPreviewsDate = (isoString: string | null | undefined): string
   }
 };
 
-// Representative Password Credentials Mapping
-const REP_PASSWORDS: Record<string, { repId: number; repName: string }> = {
-  '1234': { repId: 437, repName: 'Lazaro' },
-};
-
 export default function App() {
+  // System Users state loaded from localStorage or DEFAULT_USERS
+  const [systemUsers, setSystemUsers] = useState<SystemUser[]>(() => {
+    try {
+      const saved = localStorage.getItem('kpi_system_users_v2');
+      if (saved) {
+        const parsed: SystemUser[] = JSON.parse(saved);
+        const existingIds = new Set(parsed.map(u => u.id));
+        const missingDefaults = DEFAULT_USERS.filter(u => !existingIds.has(u.id));
+        if (missingDefaults.length > 0) {
+          const merged = [...parsed, ...missingDefaults];
+          localStorage.setItem('kpi_system_users_v2', JSON.stringify(merged));
+          return merged;
+        }
+        return parsed;
+      }
+    } catch (e) {
+      console.error('Error loading saved users:', e);
+    }
+    return DEFAULT_USERS;
+  });
+
+  const handleUpdateSystemUsers = (updated: SystemUser[]) => {
+    setSystemUsers(updated);
+    try {
+      localStorage.setItem('kpi_system_users_v2', JSON.stringify(updated));
+    } catch (e) {
+      console.error('Error saving users to storage:', e);
+    }
+  };
+
   // Authentication & Role states
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('kpi_authenticated') === 'true';
@@ -152,33 +178,63 @@ export default function App() {
   const [userRepName, setUserRepName] = useState<string | null>(() => {
     return localStorage.getItem('kpi_user_rep_name') || null;
   });
+  const [userAdminName, setUserAdminName] = useState<string | null>(() => {
+    return localStorage.getItem('kpi_user_admin_name') || null;
+  });
+  const [userAdminTitle, setUserAdminTitle] = useState<string | null>(() => {
+    return localStorage.getItem('kpi_user_admin_title') || null;
+  });
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
 
   const handleAuthSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPass = passwordInput.trim();
-    if (cleanPass === '8701') {
+
+    const matchedUser = systemUsers.find(u => u.password === cleanPass);
+
+    if (matchedUser) {
+      if (matchedUser.isBlocked) {
+        setAuthError(`Acesso bloqueado para o usuário ${matchedUser.name}. Entre em contato com o administrador.`);
+        return;
+      }
+
+      // Record last login
+      const updatedUsers = systemUsers.map(u => 
+        u.id === matchedUser.id 
+          ? { ...u, lastLogin: new Date().toISOString() } 
+          : u
+      );
+      handleUpdateSystemUsers(updatedUsers);
+
       setIsAuthenticated(true);
-      setUserRole('admin');
-      setUserRepId(null);
-      setUserRepName(null);
-      localStorage.setItem('kpi_authenticated', 'true');
-      localStorage.setItem('kpi_user_role', 'admin');
-      localStorage.removeItem('kpi_user_rep_id');
-      localStorage.removeItem('kpi_user_rep_name');
-      setAuthError('');
-    } else if (REP_PASSWORDS[cleanPass]) {
-      const repInfo = REP_PASSWORDS[cleanPass];
-      setIsAuthenticated(true);
-      setUserRole('rep');
-      setUserRepId(repInfo.repId);
-      setUserRepName(repInfo.repName);
-      setSelectedRepIdFilter(repInfo.repId);
-      localStorage.setItem('kpi_authenticated', 'true');
-      localStorage.setItem('kpi_user_role', 'rep');
-      localStorage.setItem('kpi_user_rep_id', String(repInfo.repId));
-      localStorage.setItem('kpi_user_rep_name', repInfo.repName);
+      setUserRole(matchedUser.role);
+
+      if (matchedUser.role === 'admin') {
+        setUserRepId(null);
+        setUserRepName(null);
+        setUserAdminName(matchedUser.name);
+        setUserAdminTitle(matchedUser.title);
+        localStorage.setItem('kpi_authenticated', 'true');
+        localStorage.setItem('kpi_user_role', 'admin');
+        localStorage.setItem('kpi_user_admin_name', matchedUser.name);
+        localStorage.setItem('kpi_user_admin_title', matchedUser.title);
+        localStorage.removeItem('kpi_user_rep_id');
+        localStorage.removeItem('kpi_user_rep_name');
+      } else {
+        const repId = matchedUser.repId || 437;
+        setUserRepId(repId);
+        setUserRepName(matchedUser.name);
+        setUserAdminName(null);
+        setUserAdminTitle(null);
+        setSelectedRepIdFilter(repId);
+        localStorage.setItem('kpi_authenticated', 'true');
+        localStorage.setItem('kpi_user_role', 'rep');
+        localStorage.setItem('kpi_user_rep_id', String(repId));
+        localStorage.setItem('kpi_user_rep_name', matchedUser.name);
+        localStorage.removeItem('kpi_user_admin_name');
+        localStorage.removeItem('kpi_user_admin_title');
+      }
       setAuthError('');
     } else {
       setAuthError('Senha incorreta. Tente novamente.');
@@ -190,12 +246,16 @@ export default function App() {
     setUserRole('admin');
     setUserRepId(null);
     setUserRepName(null);
+    setUserAdminName(null);
+    setUserAdminTitle(null);
     setPasswordInput('');
     setAuthError('');
     localStorage.removeItem('kpi_authenticated');
     localStorage.removeItem('kpi_user_role');
     localStorage.removeItem('kpi_user_rep_id');
     localStorage.removeItem('kpi_user_rep_name');
+    localStorage.removeItem('kpi_user_admin_name');
+    localStorage.removeItem('kpi_user_admin_title');
   };
 
   // Global parsed Sales Records
@@ -713,7 +773,7 @@ export default function App() {
   ] as const;
   
   // Dashboard Core Navigation Tabs
-  const [activeTab, setActiveTab] = useState<'geral' | 'representantes' | 'detalhado' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao'>('geral');
+  const [activeTab, setActiveTab] = useState<'geral' | 'representantes' | 'detalhado' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao' | 'usuarios'>('geral');
   const [isImportDropdownOpen, setIsImportDropdownOpen] = useState(false);
 
   // Log tab view analytics
@@ -726,7 +786,8 @@ export default function App() {
       importar: 'Importação de Dados',
       nomes: 'Nomes de Representantes',
       vendas_estado: 'Vendas por Estado',
-      localizacao: 'Localizações de Representantes'
+      localizacao: 'Localizações de Representantes',
+      usuarios: 'Gerenciamento de Usuários'
     };
     logAnalyticsEvent('tab_view', tabNames[activeTab] || activeTab);
   }, [activeTab]);
@@ -1275,6 +1336,21 @@ export default function App() {
   const distinctProductGroups = useMemo(() => {
     return Array.from(ALLOWED_PRODUCT_GROUPS);
   }, []);
+
+  // Compute available representatives list for user management modal
+  const availableRepsList = useMemo(() => {
+    const map = new Map<number, { repId: number; repName: string; coordName?: string }>();
+    resolvedRecords.forEach(r => {
+      if (r.repId && !map.has(r.repId)) {
+        map.set(r.repId, {
+          repId: r.repId,
+          repName: r.repName,
+          coordName: r.coordName
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.repId - b.repId);
+  }, [resolvedRecords]);
 
   // Compute filtered records based on interactive panel
   const filteredRecords = useMemo(() => {
@@ -2316,7 +2392,7 @@ export default function App() {
                   <TramontinaLogo className="h-5 w-auto text-[#001A9C] group-hover:scale-102 transition-transform" fillColor="#001A9C" />
                 </button>
                 <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-450">
-                  Agente 87 {userRole === 'rep' ? `• Rep. ${userRepName || `#${userRepId}`}` : '• Admin'}
+                  Agente 87 {userRole === 'rep' ? `• Rep. ${userRepName || `#${userRepId}`}` : `• Admin${userAdminName && userAdminName !== 'Geral' ? ` (${userAdminName})` : ''}`}
                 </span>
               </div>
 
@@ -3299,11 +3375,27 @@ export default function App() {
                   </>
                 )}
               </div>
+
+              {/* User Management Tab (Admin Only) */}
+              <button
+                onClick={() => {
+                  setActiveTab('usuarios');
+                  setIsImportDropdownOpen(false);
+                }}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border ${
+                  activeTab === 'usuarios'
+                    ? 'text-slate-900 bg-slate-950/[0.04] border-slate-950/[0.05] font-extrabold shadow-2xs' 
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border-transparent'
+                }`}
+              >
+                <UserCog className="w-4 h-4 text-[#001A9C]" />
+                <span>Gerenciar Usuários</span>
+              </button>
             </div>
           )}
 
           {/* EMPTY STATE IF NO DATA IN ACTIVE PERIOD */}
-          {allRecords.length === 0 && !['previa', 'importar', 'nomes', 'localizacao'].includes(activeTab) && (
+          {allRecords.length === 0 && !['previa', 'importar', 'nomes', 'localizacao', 'usuarios'].includes(activeTab) && (
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -5070,6 +5162,21 @@ export default function App() {
                 </div>
 
               </div>
+            </motion.div>
+          )}
+
+          {/* TAB 9: USER MANAGEMENT */}
+          {activeTab === 'usuarios' && userRole === 'admin' && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <UserManagementTab
+                users={systemUsers}
+                onUpdateUsers={handleUpdateSystemUsers}
+                availableReps={availableRepsList}
+              />
             </motion.div>
           )}
 
