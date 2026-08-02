@@ -12,7 +12,7 @@ export interface AnalyticsEvent {
   id: string;
   timestamp: string; // ISO string
   date: string; // YYYY-MM-DD
-  type: 'session_start' | 'tab_view' | 'data_import' | 'presentation_export' | 'data_save' | 'custom_name_save' | 'location_save' | 'excel_preview_export';
+  type: 'session_start' | 'tab_view' | 'data_import' | 'presentation_export' | 'data_save' | 'custom_name_save' | 'location_save' | 'excel_preview_export' | 'physical_quota_data_saved' | 'physical_quota_period_deleted';
   details?: string; // name of the tab, UFs, rows count
   ip?: string;
   city?: string;

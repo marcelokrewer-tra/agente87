@@ -120,14 +120,7 @@ export const getLocalPhysicalQuotaPeriodsIndex = (): PeriodInfo[] => {
     console.error("Error reading physical quota index from localStorage", e);
   }
 
-  const defaultIndex: PeriodInfo[] = [
-    { id: '2026-06', year: 2026, month: 6, recordsCount: 30, updatedAt: new Date().toISOString() },
-    { id: '2025-06', year: 2025, month: 6, recordsCount: 30, updatedAt: new Date().toISOString() }
-  ];
-  try {
-    localStorage.setItem(PHYSICAL_PERIODS_INDEX_KEY, JSON.stringify(defaultIndex));
-  } catch (e) {}
-  return defaultIndex;
+  return [];
 };
 
 export const saveLocalPhysicalQuotaPeriod = (year: number, month: number, records: import('../types').PhysicalQuotaRecord[]): void => {
@@ -169,16 +162,7 @@ export const getLocalPhysicalQuotaPeriodData = (year: number, month: number): im
     console.error("Error reading physical quota data from localStorage", e);
   }
 
-  // Generate fallback default physical quotas for tools
-  const defaults = import('../rawData').then ? null : [];
-  try {
-    const { generateDefaultPhysicalQuotas } = require('../rawData');
-    const defaultData = generateDefaultPhysicalQuotas(year, month);
-    localStorage.setItem(periodKey, JSON.stringify(defaultData));
-    return defaultData;
-  } catch (e) {
-    return [];
-  }
+  return [];
 };
 
 export const deleteLocalPhysicalQuotaPeriod = (year: number, month: number): void => {

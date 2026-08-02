@@ -230,63 +230,134 @@ export function parsePhysicalQuotaTSV(tsvText: string): import('./types').Physic
   const lines = tsvText.split('\n');
   const records: import('./types').PhysicalQuotaRecord[] = [];
 
+  const headerIndices = {
+    repId: -1,
+    repName: -1,
+    coordName: -1,
+    groupName: -1,
+    quota: -1,
+    venda: -1,
+  };
+
+  let hasCustomHeader = false;
   let idx = 0;
+
   for (const line of lines) {
     if (!line.trim()) continue;
 
     const lower = line.toLowerCase();
-    // Skip header lines
-    if (lower.includes("cota física") && lower.includes("realizado") && lower.includes("representante")) {
-      continue;
-    }
-    if (lower.includes("nome do representante") || lower.includes("código do representante") || lower.includes("cota fisica")) {
+    
+    // Check if title or column header
+    if (lower.includes("valores físicos") || lower.includes("valores fisicos")) {
       continue;
     }
 
-    const cols = line.split(/\t|;|\|/);
+    // Check header line defining column names
+    if (lower.includes("faturado e pendente") || (lower.includes("quota total") && lower.includes("faturado"))) {
+      const hCols = line.split(/\t|;|\|/).map(c => c.trim().toLowerCase());
+      
+      hCols.forEach((col, cIdx) => {
+        if ((col === "rep" || col === "cód" || col === "cod") && headerIndices.repId === -1) {
+          headerIndices.repId = cIdx;
+        } else if (col.includes("nome representante") || col === "representante") {
+          headerIndices.repName = cIdx;
+        } else if (col.includes("nome coordenador") || col.includes("coordenador")) {
+          headerIndices.coordName = cIdx;
+        } else if (col.includes("nome grupo") || col === "grupo") {
+          headerIndices.groupName = cIdx;
+        } else if (col.includes("quota total") || col.includes("cota física") || col === "quota") {
+          headerIndices.quota = cIdx;
+        } else if (col.includes("faturado e pendente") || col.includes("venda total") || col.includes("venda física")) {
+          headerIndices.venda = cIdx;
+        }
+      });
+
+      if (headerIndices.venda !== -1 || headerIndices.quota !== -1) {
+        hasCustomHeader = true;
+      }
+      continue;
+    }
+
+    const cols = line.split(/\t|;|\|/).map(c => c.trim());
     if (cols.length < 2) continue;
 
     let repId = 0;
     let repName = '';
     let coordName = 'Juan Almeida';
+    let groupName = 'Ferramentas Geral';
     let cotaFisica = 0;
     let vendaFisica = 0;
-    let groupName = 'Tramontina Ferramentas';
 
-    if (cols.length >= 5 && /^\d+$/.test(cols[0].trim())) {
-      repId = parseInt(cols[0].trim());
-      repName = cols[1]?.trim() || '';
-      coordName = cols[2]?.trim() || 'Juan Almeida';
-      cotaFisica = parsePortugueseNumber(cols[3]);
-      vendaFisica = parsePortugueseNumber(cols[4]);
-    } else if (cols.length >= 6 && /^\d+$/.test(cols[1].trim())) {
-      repId = parseInt(cols[1].trim());
-      repName = cols[2]?.trim() || '';
-      coordName = cols[3]?.trim() || 'Juan Almeida';
-      cotaFisica = parsePortugueseNumber(cols[4]);
-      vendaFisica = parsePortugueseNumber(cols[5]);
+    // Use header indices if detected
+    if (hasCustomHeader && headerIndices.venda !== -1 && headerIndices.quota !== -1) {
+      if (headerIndices.repId !== -1 && cols[headerIndices.repId]) {
+        repId = parseInt(cols[headerIndices.repId]);
+      } else if (cols[1] && /^\d+$/.test(cols[1])) {
+        repId = parseInt(cols[1]);
+      }
+
+      if (headerIndices.repName !== -1 && cols[headerIndices.repName]) {
+        repName = cols[headerIndices.repName];
+      }
+      if (headerIndices.coordName !== -1 && cols[headerIndices.coordName]) {
+        coordName = cols[headerIndices.coordName];
+      }
+      if (headerIndices.groupName !== -1 && cols[headerIndices.groupName]) {
+        groupName = cols[headerIndices.groupName];
+      }
+      if (headerIndices.quota !== -1 && cols[headerIndices.quota]) {
+        cotaFisica = parsePortugueseNumber(cols[headerIndices.quota]);
+      }
+      if (headerIndices.venda !== -1 && cols[headerIndices.venda]) {
+        vendaFisica = parsePortugueseNumber(cols[headerIndices.venda]);
+      }
     } else {
-      cols.forEach((col, cIdx) => {
-        const cleanCol = col.trim();
-        if (!cleanCol) return;
-        if (/^\d{3,5}$/.test(cleanCol) && repId === 0) {
-          repId = parseInt(cleanCol);
-        } else if (cIdx === 0 && !isNaN(parseInt(cleanCol)) && repId === 0) {
-          repId = parseInt(cleanCol);
-        } else if ((cIdx === 1 || cIdx === 2) && !repName && !/^\d+$/.test(cleanCol) && cleanCol.length > 2) {
-          repName = cleanCol;
-        } else if (cIdx === 3 && !/^\d+$/.test(cleanCol) && cleanCol.length > 2) {
-          coordName = cleanCol;
-        }
-      });
+      // Heuristics based on column counts:
+      // Pattern 1: 14 to 16 columns (Official Tramontina Physical Quota table)
+      // [0] AGE, [1] REP, [2] NOME REPRESENTANTE, [3] COORD, [4] NOME COORDENADOR,
+      // [5] LINHA, [6] GRUPO, [7] NOME GRUPO, [8] QUOTA TOTAL, [9] FATURADO TOTAL,
+      // [10] % TOTAL, [11] PENDENTE CD, [12] PENDENTE VP, [13] FATURADO E PENDENTE (Venda Total), [14] %, [15] DEFASAGEM
+      if (cols.length >= 14 && /^\d+$/.test(cols[1])) {
+        repId = parseInt(cols[1]);
+        repName = cols[2];
+        coordName = cols[4] || 'Juan Almeida';
+        groupName = cols[7] || cols[5] || 'Ferramentas Geral';
+        cotaFisica = parsePortugueseNumber(cols[8]);
+        vendaFisica = parsePortugueseNumber(cols[13]); // FATURADO E PENDENTE (Venda Total)
+      } else if (cols.length >= 6 && /^\d+$/.test(cols[0])) {
+        repId = parseInt(cols[0]);
+        repName = cols[1];
+        coordName = cols[2];
+        groupName = cols[3] || 'Ferramentas Geral';
+        cotaFisica = parsePortugueseNumber(cols[4]);
+        vendaFisica = parsePortugueseNumber(cols[5]);
+      } else if (cols.length >= 7 && /^\d+$/.test(cols[1])) {
+        repId = parseInt(cols[1]);
+        repName = cols[2];
+        coordName = cols[3];
+        groupName = cols[4] || 'Ferramentas Geral';
+        cotaFisica = parsePortugueseNumber(cols[5]);
+        vendaFisica = parsePortugueseNumber(cols[6]);
+      } else {
+        cols.forEach((col, cIdx) => {
+          if (!col) return;
+          if (/^\d{3,6}$/.test(col) && repId === 0) {
+            repId = parseInt(col);
+          } else if ((cIdx === 1 || cIdx === 2) && !repName && !/^\d+$/.test(col) && col.length > 2) {
+            repName = col;
+          } else if (cIdx === 3 && !/^\d+$/.test(col) && col.length > 2) {
+            coordName = col;
+          }
+        });
 
-      if (cols.length >= 3) {
-        cotaFisica = parsePortugueseNumber(cols[cols.length - 2]);
-        vendaFisica = parsePortugueseNumber(cols[cols.length - 1]);
+        if (cols.length >= 2) {
+          cotaFisica = parsePortugueseNumber(cols[cols.length - 2]);
+          vendaFisica = parsePortugueseNumber(cols[cols.length - 1]);
+        }
       }
     }
 
-    if (repId > 0 && (repName || cotaFisica > 0 || vendaFisica > 0)) {
+    if (repId > 0) {
       if (!repName) {
         repName = 'Representante ' + repId;
       }
@@ -298,7 +369,7 @@ export function parsePhysicalQuotaTSV(tsvText: string): import('./types').Physic
         repId,
         repName,
         coordName,
-        groupName,
+        groupName: groupName || 'Ferramentas Geral',
         cotaFisica,
         vendaFisica,
         defasagemFisica,

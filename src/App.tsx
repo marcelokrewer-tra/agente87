@@ -47,6 +47,7 @@ import { FirebaseSetupModal } from './components/FirebaseSetupModal';
 import { MetricCard } from './components/MetricCard';
 import { KPIGauge } from './components/KPIGauge';
 import { ImportDataTab } from './components/ImportDataTab';
+import { ImportPhysicalQuotaTab } from './components/ImportPhysicalQuotaTab';
 import { UserManagementTab, SystemUser, DEFAULT_USERS } from './components/UserManagementTab';
 import { PhysicalQuotaView } from './components/PhysicalQuotaView';
 import { TramontinaLogo } from './components/TramontinaLogo';
@@ -776,14 +777,10 @@ export default function App() {
       });
 
       const combinedReps = Array.from(repMap.values());
-      if (combinedReps.length === 0) {
-        setPhysicalQuotaRecords(generateDefaultPhysicalQuotas(year, month));
-      } else {
-        setPhysicalQuotaRecords(combinedReps);
-      }
+      setPhysicalQuotaRecords(combinedReps);
     } catch (err) {
       console.error("Error loading physical quota data:", err);
-      setPhysicalQuotaRecords(generateDefaultPhysicalQuotas(year, month));
+      setPhysicalQuotaRecords([]);
     } finally {
       setIsLoadingPeriod(false);
     }
@@ -857,7 +854,7 @@ export default function App() {
   ] as const;
   
   // Dashboard Core Navigation Tabs
-  const [activeTab, setActiveTab] = useState<'geral' | 'representantes' | 'detalhado' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao' | 'usuarios'>('geral');
+  const [activeTab, setActiveTab] = useState<'geral' | 'representantes' | 'detalhado' | 'previa' | 'importar' | 'importar_cotas' | 'nomes' | 'vendas_estado' | 'localizacao' | 'usuarios'>('geral');
   const [isImportDropdownOpen, setIsImportDropdownOpen] = useState(false);
 
   // Log tab view analytics
@@ -867,7 +864,8 @@ export default function App() {
       representantes: 'Análise de Representantes',
       detalhado: 'Explorador de Dados',
       previa: 'Configuração de Prévias',
-      importar: 'Importação de Dados',
+      importar: 'Importação de Dados de Vendas',
+      importar_cotas: 'Importação de Cotas Físicas',
       nomes: 'Nomes de Representantes',
       vendas_estado: 'Vendas por Estado',
       localizacao: 'Localizações de Representantes',
@@ -3114,7 +3112,9 @@ export default function App() {
               progressThreshold={progressThreshold}
               setProgressThreshold={setProgressThreshold}
               distinctCoordinators={distinctCoordinators}
+              customRepNames={customRepNames}
               onExitMode={() => setIsPhysicalQuotaMode(false)}
+              onGoToImport={() => setActiveTab('importar_cotas')}
             />
           ) : (
             <>
@@ -3461,7 +3461,7 @@ export default function App() {
                 <button
                   onClick={() => setIsImportDropdownOpen(!isImportDropdownOpen)}
                   className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border ${
-                    ['previa', 'importar', 'nomes', 'localizacao'].includes(activeTab)
+                    ['previa', 'importar', 'importar_cotas', 'nomes', 'localizacao'].includes(activeTab)
                       ? 'text-slate-900 bg-slate-950/[0.04] border-slate-950/[0.05] font-extrabold shadow-2xs' 
                       : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border-transparent'
                   }`}
@@ -3481,6 +3481,7 @@ export default function App() {
                     <div className="absolute left-0 mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 z-20 origin-top-left">
                       {[
                         { id: 'importar', label: 'Importar Dados de Vendas', icon: <FileSpreadsheet className="w-4 h-4 text-indigo-500" /> },
+                        { id: 'importar_cotas', label: 'Importar Cotas Físicas', icon: <Boxes className="w-4 h-4 text-purple-600" /> },
                         { id: 'previa', label: 'Importar Prévia', icon: <Target className="w-4 h-4 text-indigo-600" /> },
                         { id: 'nomes', label: 'Importar Nomes', icon: <UserCog className="w-4 h-4 text-emerald-500" /> },
                         { id: 'localizacao', label: 'Importar Localização', icon: <MapPin className="w-4 h-4 text-rose-500" /> }
@@ -3525,7 +3526,7 @@ export default function App() {
           )}
 
           {/* EMPTY STATE IF NO DATA IN ACTIVE PERIOD */}
-          {allRecords.length === 0 && !['previa', 'importar', 'nomes', 'localizacao', 'usuarios'].includes(activeTab) && (
+          {allRecords.length === 0 && !['previa', 'importar', 'importar_cotas', 'nomes', 'localizacao', 'usuarios'].includes(activeTab) && (
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -4474,6 +4475,36 @@ export default function App() {
                   setTempIsAccumulated(false);
                   setIsAccumulated(false);
                   setAllRecords(records);
+                  setActiveTab('geral');
+                  resetFilters();
+                  setCurrentPage(1);
+                }}
+              />
+            </motion.div>
+          )}
+
+          {/* TAB 5B: IMPORT PHYSICAL QUOTAS */}
+          {activeTab === 'importar_cotas' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <ImportPhysicalQuotaTab 
+                currentRecordsCount={physicalQuotaRecords.length}
+                initialYear={selectedYear}
+                initialMonth={selectedMonth}
+                availablePhysicalQuotaPeriods={availablePhysicalQuotaPeriods}
+                onRefreshPeriods={fetchAvailablePhysicalQuotaPeriods}
+                onPhysicalQuotaDataSaved={(year, month, records) => {
+                  fetchAvailablePhysicalQuotaPeriods();
+                  setSelectedYear(year);
+                  setSelectedMonth(month);
+                  setTempYear(year);
+                  setTempMonth(month);
+                  setTempIsAccumulated(false);
+                  setIsAccumulated(false);
+                  setPhysicalQuotaRecords(records);
+                  setIsPhysicalQuotaMode(true);
                   setActiveTab('geral');
                   resetFilters();
                   setCurrentPage(1);

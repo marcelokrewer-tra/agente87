@@ -183,26 +183,7 @@ function loadPhysicalQuotasDatabase(): Record<string, PhysicalQuotaMonthData> {
     console.error("Error loading Physical Quotas database:", error);
   }
 
-  // Pre-seed default physical quotas for 2026-06 and 2025-06
-  const default2026 = generateDefaultPhysicalQuotas(2026, 6);
-  const default2025 = generateDefaultPhysicalQuotas(2025, 6);
-
-  const db: Record<string, PhysicalQuotaMonthData> = {
-    "2026-06": {
-      id: "2026-06",
-      year: 2026,
-      month: 6,
-      updatedAt: new Date().toISOString(),
-      records: default2026,
-    },
-    "2025-06": {
-      id: "2025-06",
-      year: 2025,
-      month: 6,
-      updatedAt: new Date().toISOString(),
-      records: default2025,
-    }
-  };
+  const db: Record<string, PhysicalQuotaMonthData> = {};
   savePhysicalQuotasDatabase(db);
   return db;
 }
@@ -240,14 +221,12 @@ app.get("/api/physical-quotas/:year/:month", (req, res) => {
   if (data) {
     res.json(data);
   } else {
-    // Return generated fallback physical quotas if period not explicitly created yet
-    const fallbackRecords = generateDefaultPhysicalQuotas(year, month);
     res.json({
       id,
       year,
       month,
       updatedAt: "",
-      records: fallbackRecords,
+      records: [],
       exists: false,
     });
   }
