@@ -5176,6 +5176,7 @@ export default function App() {
                 users={systemUsers}
                 onUpdateUsers={handleUpdateSystemUsers}
                 availableReps={availableRepsList}
+                customRepNames={customRepNames}
               />
             </motion.div>
           )}
