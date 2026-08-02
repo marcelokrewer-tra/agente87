@@ -307,12 +307,13 @@ export function UserManagementTab({ users, onUpdateUsers, availableReps = [], cu
     if (!matchesUserSearch(u, searchTerm)) return false;
 
     if (filterRole === 'admin') {
-      // Gerentes: main user (admin_8701) and Igor Pedruzzi (admin_3941 / title Gerente)
+      // Gerentes: only admins with gerente title or admin_8701/admin_3941
       return (
-        u.id === 'admin_8701' || 
-        u.id === 'admin_3941' || 
-        u.title.toLowerCase().includes('gerente') || 
-        u.name.toLowerCase().includes('igor')
+        u.role === 'admin' && (
+          u.id === 'admin_8701' || 
+          u.id === 'admin_3941' || 
+          u.title.toLowerCase().includes('gerente')
+        )
       );
     }
 
@@ -364,28 +365,20 @@ export function UserManagementTab({ users, onUpdateUsers, availableReps = [], cu
         )}
       </AnimatePresence>
 
-      {/* Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-[#001A9C] to-slate-900 text-white p-5 sm:p-6 rounded-3xl shadow-lg flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 w-full">
-        <div className="space-y-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <UserCog className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-400 shrink-0" />
-            <h2 className="text-lg sm:text-xl font-extrabold tracking-tight break-words">Gerenciamento de Usuários e Acessos</h2>
-          </div>
-          <p className="text-xs text-slate-300 leading-relaxed">
-            Gerencie perfis de gerentes, coordenadores, atendentes e representantes. Controle senhas, bloqueie ou libere acessos em tempo real.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+      {/* Header - Action Buttons Bar */}
+      <div className="bg-white p-2.5 sm:p-3.5 rounded-2xl border border-slate-200/80 shadow-xs w-full">
+        <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5 w-full">
           <button
             onClick={() => {
               setFormData({ name: '', title: 'Coordenador', role: 'admin', repId: '', password: generateRandomPin() });
               setIsAddModalOpen(true);
             }}
-            className="px-3.5 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+            className="w-full px-1 sm:px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] sm:text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer"
           >
-            <UserPlus className="w-4 h-4" />
-            <span>Novo Usuário</span>
+            <UserPlus className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="whitespace-nowrap">
+              Novo<span className="hidden sm:inline"> Usuário</span>
+            </span>
           </button>
 
           <button
@@ -393,11 +386,13 @@ export function UserManagementTab({ users, onUpdateUsers, availableReps = [], cu
               setBlockModalSearch('');
               setIsBlockModalOpen(true);
             }}
-            className="px-3.5 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border border-amber-400/30"
+            className="w-full px-1 sm:px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-[10px] sm:text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer"
             title="Abrir modal para bloquear ou desbloquear usuários"
           >
-            <UserX className="w-4 h-4 text-amber-400" />
-            <span>Bloquear Usuário</span>
+            <UserX className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600 shrink-0" />
+            <span className="whitespace-nowrap">
+              Bloquear<span className="hidden sm:inline"> Usuário</span>
+            </span>
           </button>
 
           <button
@@ -405,11 +400,13 @@ export function UserManagementTab({ users, onUpdateUsers, availableReps = [], cu
               setDeleteModalSearch('');
               setIsDeleteModalOpen(true);
             }}
-            className="px-3.5 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border border-rose-400/30"
+            className="w-full px-1 sm:px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] sm:text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer"
             title="Abrir modal para excluir usuários"
           >
-            <UserMinus className="w-4 h-4 text-rose-400" />
-            <span>Excluir Usuário</span>
+            <UserMinus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-600 shrink-0" />
+            <span className="whitespace-nowrap">
+              Excluir<span className="hidden sm:inline"> Usuário</span>
+            </span>
           </button>
         </div>
       </div>
@@ -421,7 +418,7 @@ export function UserManagementTab({ users, onUpdateUsers, availableReps = [], cu
             <Users className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block truncate">Total Usuários</span>
+            <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wide block leading-tight">Total Usuários</span>
             <span className="text-base sm:text-lg font-black text-slate-900">{totalUsers}</span>
           </div>
         </div>
@@ -431,7 +428,7 @@ export function UserManagementTab({ users, onUpdateUsers, availableReps = [], cu
             <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block truncate">Administração</span>
+            <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wide block leading-tight">Administração</span>
             <span className="text-base sm:text-lg font-black text-slate-900">{adminCount}</span>
           </div>
         </div>
@@ -441,7 +438,7 @@ export function UserManagementTab({ users, onUpdateUsers, availableReps = [], cu
             <Building className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block truncate">Representantes</span>
+            <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wide block leading-tight">Representantes</span>
             <span className="text-base sm:text-lg font-black text-slate-900">{repCount}</span>
           </div>
         </div>
@@ -451,7 +448,7 @@ export function UserManagementTab({ users, onUpdateUsers, availableReps = [], cu
             <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block truncate">Bloqueados</span>
+            <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wide block leading-tight">Bloqueados</span>
             <span className="text-base sm:text-lg font-black text-slate-900">{blockedCount}</span>
           </div>
         </div>
@@ -464,7 +461,7 @@ export function UserManagementTab({ users, onUpdateUsers, availableReps = [], cu
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Buscar por nome, cargo, senha ou código do representante..."
+            placeholder="Buscar por nome, cargo, código..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C]"
@@ -579,7 +576,7 @@ export function UserManagementTab({ users, onUpdateUsers, availableReps = [], cu
                 <div className="flex items-center gap-2 min-w-0">
                   <Key className="w-4 h-4 text-slate-400 shrink-0" />
                   <div className="min-w-0">
-                    <span className="text-[9px] font-extrabold uppercase tracking-widest text-slate-400 block truncate">Senha de Acesso</span>
+                    <span className="text-[9px] font-extrabold uppercase tracking-wide text-slate-400 block leading-tight">Senha de Acesso</span>
                     <span className="font-mono text-xs font-extrabold text-slate-800 tracking-wider">
                       {isShowPass ? user.password : '••••'}
                     </span>
