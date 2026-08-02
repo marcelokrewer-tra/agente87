@@ -234,6 +234,7 @@ export function parsePhysicalQuotaTSV(tsvText: string): import('./types').Physic
     repId: -1,
     repName: -1,
     coordName: -1,
+    linha: -1,
     groupName: -1,
     quota: -1,
     venda: -1,
@@ -263,6 +264,8 @@ export function parsePhysicalQuotaTSV(tsvText: string): import('./types').Physic
           headerIndices.repName = cIdx;
         } else if (col.includes("nome coordenador") || col.includes("coordenador")) {
           headerIndices.coordName = cIdx;
+        } else if (col === "linha" || col.includes("linha")) {
+          headerIndices.linha = cIdx;
         } else if (col.includes("nome grupo") || col === "grupo") {
           headerIndices.groupName = cIdx;
         } else if (col.includes("quota total") || col.includes("cota física") || col === "quota") {
@@ -284,12 +287,32 @@ export function parsePhysicalQuotaTSV(tsvText: string): import('./types').Physic
     let repId = 0;
     let repName = '';
     let coordName = 'Juan Almeida';
+    let linhaName = '';
     let groupName = 'Ferramentas Geral';
     let cotaFisica = 0;
     let vendaFisica = 0;
 
-    // Use header indices if detected
-    if (hasCustomHeader && headerIndices.venda !== -1 && headerIndices.quota !== -1) {
+    // Check Linha filtering for standard 14+ column Tramontina structure
+    if (cols.length >= 14 && /^\d+$/.test(cols[1])) {
+      linhaName = cols[5] || '';
+      // If a Linha is provided and it is NOT Ferramentas, skip this row
+      if (linhaName && !linhaName.toLowerCase().includes("ferramenta")) {
+        continue;
+      }
+      repId = parseInt(cols[1]);
+      repName = cols[2];
+      coordName = cols[4] || 'Juan Almeida';
+      groupName = cols[7] || cols[5] || 'Ferramentas Geral';
+      cotaFisica = parsePortugueseNumber(cols[8]);
+      vendaFisica = parsePortugueseNumber(cols[13]); // FATURADO E PENDENTE (Venda Total)
+    } else if (hasCustomHeader && headerIndices.venda !== -1 && headerIndices.quota !== -1) {
+      if (headerIndices.linha !== -1 && cols[headerIndices.linha]) {
+        linhaName = cols[headerIndices.linha];
+        if (linhaName && !linhaName.toLowerCase().includes("ferramenta")) {
+          continue;
+        }
+      }
+
       if (headerIndices.repId !== -1 && cols[headerIndices.repId]) {
         repId = parseInt(cols[headerIndices.repId]);
       } else if (cols[1] && /^\d+$/.test(cols[1])) {
@@ -313,18 +336,7 @@ export function parsePhysicalQuotaTSV(tsvText: string): import('./types').Physic
       }
     } else {
       // Heuristics based on column counts:
-      // Pattern 1: 14 to 16 columns (Official Tramontina Physical Quota table)
-      // [0] AGE, [1] REP, [2] NOME REPRESENTANTE, [3] COORD, [4] NOME COORDENADOR,
-      // [5] LINHA, [6] GRUPO, [7] NOME GRUPO, [8] QUOTA TOTAL, [9] FATURADO TOTAL,
-      // [10] % TOTAL, [11] PENDENTE CD, [12] PENDENTE VP, [13] FATURADO E PENDENTE (Venda Total), [14] %, [15] DEFASAGEM
-      if (cols.length >= 14 && /^\d+$/.test(cols[1])) {
-        repId = parseInt(cols[1]);
-        repName = cols[2];
-        coordName = cols[4] || 'Juan Almeida';
-        groupName = cols[7] || cols[5] || 'Ferramentas Geral';
-        cotaFisica = parsePortugueseNumber(cols[8]);
-        vendaFisica = parsePortugueseNumber(cols[13]); // FATURADO E PENDENTE (Venda Total)
-      } else if (cols.length >= 6 && /^\d+$/.test(cols[0])) {
+      if (cols.length >= 6 && /^\d+$/.test(cols[0])) {
         repId = parseInt(cols[0]);
         repName = cols[1];
         coordName = cols[2];
@@ -354,6 +366,22 @@ export function parsePhysicalQuotaTSV(tsvText: string): import('./types').Physic
           cotaFisica = parsePortugueseNumber(cols[cols.length - 2]);
           vendaFisica = parsePortugueseNumber(cols[cols.length - 1]);
         }
+      }
+    }
+
+    // Skip if groupName or linhaName explicitly refers to non-tools like Utilidades, Lar, Elétrica
+    const checkGroup = (groupName + " " + linhaName).toLowerCase();
+    if (
+      checkGroup.includes("utilidades") ||
+      checkGroup.includes("lar") ||
+      checkGroup.includes("elétrica") ||
+      checkGroup.includes("eletrica") ||
+      checkGroup.includes("porcelana") ||
+      checkGroup.includes("móveis") ||
+      checkGroup.includes("moveis")
+    ) {
+      if (!checkGroup.includes("ferramenta")) {
+        continue;
       }
     }
 
