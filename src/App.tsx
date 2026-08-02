@@ -3,10 +3,12 @@ import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   INITIAL_RAW_DATA, 
-  parseTSV 
+  parseTSV,
+  generateDefaultPhysicalQuotas
 } from './rawData';
 import { 
   SalesRecord,
+  PhysicalQuotaRecord,
   getMappedGroupName,
   getBrasiliaDate
  } from './types';
@@ -14,7 +16,9 @@ import {
   getLocalPeriodsIndex,
   saveLocalPeriod,
   getLocalPeriodData,
-  deleteLocalPeriod
+  deleteLocalPeriod,
+  getLocalPhysicalQuotaPeriodsIndex,
+  getLocalPhysicalQuotaPeriodData
 } from './lib/storage';
 import {
   getFirebaseConfig,
@@ -44,11 +48,13 @@ import { MetricCard } from './components/MetricCard';
 import { KPIGauge } from './components/KPIGauge';
 import { ImportDataTab } from './components/ImportDataTab';
 import { UserManagementTab, SystemUser, DEFAULT_USERS } from './components/UserManagementTab';
+import { PhysicalQuotaView } from './components/PhysicalQuotaView';
 import { TramontinaLogo } from './components/TramontinaLogo';
 import { generateSalesPresentation } from './presentation';
 import { logAnalyticsEvent, logSessionIfNeeded } from './lib/analytics';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { 
+  Boxes,
   TrendingUp, 
   Users, 
   Target, 
@@ -260,6 +266,11 @@ export default function App() {
 
   // Global parsed Sales Records
   const [allRecords, setAllRecords] = useState<SalesRecord[]>([]);
+
+  // Physical Quotas Analysis States
+  const [isPhysicalQuotaMode, setIsPhysicalQuotaMode] = useState<boolean>(false);
+  const [physicalQuotaRecords, setPhysicalQuotaRecords] = useState<PhysicalQuotaRecord[]>([]);
+  const [availablePhysicalQuotaPeriods, setAvailablePhysicalQuotaPeriods] = useState<Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }>>([]);
 
   // Custom Representative Names Mapping State
   const [customRepNames, setCustomRepNames] = useState<Record<string, string>>(() => {
@@ -706,6 +717,78 @@ export default function App() {
     }
   };
 
+  const fetchAvailablePhysicalQuotaPeriods = async () => {
+    try {
+      const response = await fetch('/api/physical-quotas');
+      if (response.ok) {
+        const data = await response.json();
+        setAvailablePhysicalQuotaPeriods(data);
+      } else {
+        setAvailablePhysicalQuotaPeriods(getLocalPhysicalQuotaPeriodsIndex());
+      }
+    } catch (err) {
+      setAvailablePhysicalQuotaPeriods(getLocalPhysicalQuotaPeriodsIndex());
+    }
+  };
+
+  const fetchPhysicalQuotaData = async (year: number, month: number) => {
+    setIsLoadingPeriod(true);
+    const monthsToFetch: number[] = [];
+    if (isAccumulated) {
+      const start = Math.min(accumulateStartMonth, accumulateEndMonth);
+      const end = Math.max(accumulateStartMonth, accumulateEndMonth);
+      for (let m = start; m <= end; m++) {
+        monthsToFetch.push(m);
+      }
+    } else {
+      monthsToFetch.push(month);
+    }
+
+    try {
+      const results = await Promise.all(monthsToFetch.map(async (m) => {
+        try {
+          const response = await fetch(`/api/physical-quotas/${year}/${m}`);
+          if (response.ok) {
+            const data = await response.json();
+            return data.records || [];
+          }
+        } catch (err) {
+          console.warn(`Error fetching physical quota data for ${year}/${m}`, err);
+        }
+        return getLocalPhysicalQuotaPeriodData(year, m);
+      }));
+
+      const repMap = new Map<number, PhysicalQuotaRecord>();
+      results.flat().forEach((r: PhysicalQuotaRecord) => {
+        if (!r || !r.repId) return;
+        const customName = customRepNames[r.repId.toString().trim() || r.repId];
+        const recordName = customName || r.repName;
+
+        const existing = repMap.get(r.repId);
+        if (existing) {
+          existing.cotaFisica += r.cotaFisica || 0;
+          existing.vendaFisica += r.vendaFisica || 0;
+          existing.defasagemFisica = existing.vendaFisica - existing.cotaFisica;
+          existing.pctFisica = existing.cotaFisica > 0 ? (existing.vendaFisica / existing.cotaFisica) * 100 : 0;
+        } else {
+          repMap.set(r.repId, { ...r, repName: recordName });
+        }
+      });
+
+      const combinedReps = Array.from(repMap.values());
+      if (combinedReps.length === 0) {
+        setPhysicalQuotaRecords(generateDefaultPhysicalQuotas(year, month));
+      } else {
+        setPhysicalQuotaRecords(combinedReps);
+      }
+    } catch (err) {
+      console.error("Error loading physical quota data:", err);
+      setPhysicalQuotaRecords(generateDefaultPhysicalQuotas(year, month));
+    } finally {
+      setIsLoadingPeriod(false);
+    }
+  };
+
   // Check Firebase on mount and load available periods
   useEffect(() => {
     checkFirebaseStatus();
@@ -752,10 +835,11 @@ export default function App() {
     fetchLocations();
   }, [isFirebaseConnected]);
 
-  // Fetch period data when year, month or cumulative range changes
+  // Fetch period data when year, month, cumulative range, or physical quota mode changes
   useEffect(() => {
     fetchPeriodData(selectedYear, selectedMonth);
-  }, [selectedYear, selectedMonth, isAccumulated, accumulateStartMonth, accumulateEndMonth]);
+    fetchPhysicalQuotaData(selectedYear, selectedMonth);
+  }, [selectedYear, selectedMonth, isAccumulated, accumulateStartMonth, accumulateEndMonth, isPhysicalQuotaMode]);
 
   // Product Group mappings as requested by the user
   const PRODUCT_GROUP_MAPPING = {
@@ -2500,6 +2584,33 @@ export default function App() {
                 <span>Mostrar dados atuais</span>
               </button>
 
+              {/* Botão Analisar Cotas Físicas (Linha Ferramentas) */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPhysicalQuotaMode(!isPhysicalQuotaMode);
+                    setIsMobileFiltersExpanded(false);
+                  }}
+                  className={`w-full py-2.5 px-3 rounded-xl border text-xs font-black transition-all flex items-center justify-between cursor-pointer shadow-3xs ${
+                    isPhysicalQuotaMode
+                      ? 'bg-purple-800 text-white border-purple-900 shadow-purple-800/30'
+                      : 'bg-purple-50/90 hover:bg-purple-100 text-purple-900 border-purple-200'
+                  }`}
+                  title="Alternar para análise de cotas físicas de produto (somente linha Ferramentas)"
+                >
+                  <div className="flex items-center gap-2">
+                    <Boxes className={`w-4 h-4 ${isPhysicalQuotaMode ? 'text-purple-200' : 'text-purple-700'}`} />
+                    <span>{isPhysicalQuotaMode ? 'Analisando Cotas Físicas' : 'Analisar Cotas Físicas'}</span>
+                  </div>
+                  <span className={`text-[9px] px-2 py-0.5 rounded-full font-extrabold uppercase tracking-wider ${
+                    isPhysicalQuotaMode ? 'bg-white/20 text-white' : 'bg-purple-200 text-purple-900'
+                  }`}>
+                    Ferramentas
+                  </span>
+                </button>
+              </div>
+
               <div className="pt-1">
                 <button
                   type="button"
@@ -2987,7 +3098,26 @@ export default function App() {
 
         {/* RIGHT METRICS GRID AND TABBED CONTROLLERS */}
         <section className="lg:col-span-3 space-y-6">
-          
+          {isPhysicalQuotaMode ? (
+            <PhysicalQuotaView
+              records={physicalQuotaRecords}
+              allRecordsCount={physicalQuotaRecords.length}
+              selectedYear={selectedYear}
+              selectedMonth={selectedMonth}
+              isAccumulated={isAccumulated}
+              accumulateStartMonth={accumulateStartMonth}
+              accumulateEndMonth={accumulateEndMonth}
+              selectedCoordinator={selectedCoordinator}
+              setSelectedCoordinator={setSelectedCoordinator}
+              searchText={searchText}
+              setSearchText={setSearchText}
+              progressThreshold={progressThreshold}
+              setProgressThreshold={setProgressThreshold}
+              distinctCoordinators={distinctCoordinators}
+              onExitMode={() => setIsPhysicalQuotaMode(false)}
+            />
+          ) : (
+            <>
           {/* Bento row of Core metrics cards (Filtered live) */}
           {allRecords.length > 0 && (
             <>
@@ -5179,6 +5309,9 @@ export default function App() {
                 customRepNames={customRepNames}
               />
             </motion.div>
+          )}
+
+            </>
           )}
 
         </section>

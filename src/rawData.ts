@@ -224,5 +224,138 @@ export const INITIAL_RAW_DATA = `AGE	REP	NOME REPRESENTANTE	COORD	NOME COORDENAD
 87	784	Fontenele Representa	3	Julio Warken	MUL		0	Sem Grupo	143.500	85.095	59,3	88.000	59.855	68	231.500	144.949	62,6	0	0	144.949	62,6	-86.551	104.109	70.116	174.225	75,3
 87	787	Igor Michel Repres L	3	Julio Warken	MUL		0	Sem Grupo	82.000	97.678	119,1	144.000	2.980	2,1	226.000	100.658	44,5	0	0	100.658	44,5	-125.342	128.399	119.520	247.919	109,7
 87	789	Dlm RepresentaÇÕEs C	3	Julio Warken	MUL		0	Sem Grupo	82.000	111.995	136,6	116.000	53.183	45,9	198.000	165.178	83,4	0	0	165.178	83,4	-32.822	118.099	90.040	208.139	105,1
-87	794	Manoel Rodrigues De	10	Juan Almeida	MUL		0	Sem Grupo	123.000	120.340	97,8	48.000	60.341	125,7	171.000	180.681	105,7	0	20.240	200.921	117,5	29.921	139.560	70.326	209.886	122,7
-87	796	Ventine E LourenÇO L	10	Juan Almeida	MUL		0	Sem Grupo	73.800	87.962	119,2	120.000	76.667	63,9	193.800	164.629	85	0	0	164.629	85	-29.171	88.234	144.711	232.945	120,2`;
+87	794	Manoel Rodrigues De	10	Juan Almeida	MUL		0	Sem Grupo	123.000	120.340	97,8	48.000	60.341	125,7	171.000	180.681	105,7	0	20.240	200.921	117,5	29.921	139.560	70.326	209.886	122,7`;
+
+export function parsePhysicalQuotaTSV(tsvText: string): import('./types').PhysicalQuotaRecord[] {
+  const lines = tsvText.split('\n');
+  const records: import('./types').PhysicalQuotaRecord[] = [];
+
+  let idx = 0;
+  for (const line of lines) {
+    if (!line.trim()) continue;
+
+    const lower = line.toLowerCase();
+    // Skip header lines
+    if (lower.includes("cota física") && lower.includes("realizado") && lower.includes("representante")) {
+      continue;
+    }
+    if (lower.includes("nome do representante") || lower.includes("código do representante") || lower.includes("cota fisica")) {
+      continue;
+    }
+
+    const cols = line.split(/\t|;|\|/);
+    if (cols.length < 2) continue;
+
+    let repId = 0;
+    let repName = '';
+    let coordName = 'Juan Almeida';
+    let cotaFisica = 0;
+    let vendaFisica = 0;
+    let groupName = 'Tramontina Ferramentas';
+
+    if (cols.length >= 5 && /^\d+$/.test(cols[0].trim())) {
+      repId = parseInt(cols[0].trim());
+      repName = cols[1]?.trim() || '';
+      coordName = cols[2]?.trim() || 'Juan Almeida';
+      cotaFisica = parsePortugueseNumber(cols[3]);
+      vendaFisica = parsePortugueseNumber(cols[4]);
+    } else if (cols.length >= 6 && /^\d+$/.test(cols[1].trim())) {
+      repId = parseInt(cols[1].trim());
+      repName = cols[2]?.trim() || '';
+      coordName = cols[3]?.trim() || 'Juan Almeida';
+      cotaFisica = parsePortugueseNumber(cols[4]);
+      vendaFisica = parsePortugueseNumber(cols[5]);
+    } else {
+      cols.forEach((col, cIdx) => {
+        const cleanCol = col.trim();
+        if (!cleanCol) return;
+        if (/^\d{3,5}$/.test(cleanCol) && repId === 0) {
+          repId = parseInt(cleanCol);
+        } else if (cIdx === 0 && !isNaN(parseInt(cleanCol)) && repId === 0) {
+          repId = parseInt(cleanCol);
+        } else if ((cIdx === 1 || cIdx === 2) && !repName && !/^\d+$/.test(cleanCol) && cleanCol.length > 2) {
+          repName = cleanCol;
+        } else if (cIdx === 3 && !/^\d+$/.test(cleanCol) && cleanCol.length > 2) {
+          coordName = cleanCol;
+        }
+      });
+
+      if (cols.length >= 3) {
+        cotaFisica = parsePortugueseNumber(cols[cols.length - 2]);
+        vendaFisica = parsePortugueseNumber(cols[cols.length - 1]);
+      }
+    }
+
+    if (repId > 0 && (repName || cotaFisica > 0 || vendaFisica > 0)) {
+      if (!repName) {
+        repName = 'Representante ' + repId;
+      }
+      const defasagemFisica = vendaFisica - cotaFisica;
+      const pctFisica = cotaFisica > 0 ? (vendaFisica / cotaFisica) * 100 : 0;
+
+      records.push({
+        id: 'pq-' + repId + '-' + (idx++),
+        repId,
+        repName,
+        coordName,
+        groupName,
+        cotaFisica,
+        vendaFisica,
+        defasagemFisica,
+        pctFisica
+      });
+    }
+  }
+
+  return records;
+}
+
+export function generateDefaultPhysicalQuotas(year: number, month: number): import('./types').PhysicalQuotaRecord[] {
+  const salesRecords = parseTSV(INITIAL_RAW_DATA);
+  const repMap = new Map<number, { repId: number; repName: string; coordName: string; groupName: string; quotaCD: number; valorVendaTotal: number }>();
+
+  salesRecords.forEach(r => {
+    const isTool = r.linha.toLowerCase().includes('ferramenta') || r.groupName.toLowerCase().includes('master') || r.groupName.toLowerCase().includes('pro') || r.groupName.toLowerCase().includes('garibaldi');
+    if (isTool || !repMap.has(r.repId)) {
+      if (!repMap.has(r.repId) || isTool) {
+        repMap.set(r.repId, {
+          repId: r.repId,
+          repName: r.repName,
+          coordName: r.coordName || 'Juan Almeida',
+          groupName: r.groupName || 'Tramontina Ferramentas',
+          quotaCD: r.quotaTotal || 10000,
+          valorVendaTotal: r.valorVendaTotal || 8000
+        });
+      }
+    }
+  });
+
+  const yearFactor = year === 2025 ? 0.92 : 1.0;
+  const monthFactor = 0.85 + (month % 5) * 0.08;
+
+  let idx = 0;
+  return Array.from(repMap.values()).map(r => {
+    // Generate deterministic physical quota (e.g. pieces/units) based on sales figures and rep ID
+    const baseQuota = Math.round((r.quotaCD / 50) * yearFactor * monthFactor);
+    const cotaFisica = Math.max(200, Math.round(baseQuota / 10) * 10);
+    const baseVenda = Math.round((r.valorVendaTotal / 52) * yearFactor * monthFactor);
+    const vendaFisica = Math.max(0, Math.round(baseVenda / 10) * 10);
+    const defasagemFisica = vendaFisica - cotaFisica;
+    const pctFisica = cotaFisica > 0 ? (vendaFisica / cotaFisica) * 100 : 0;
+
+    return {
+      id: 'pq-def-' + r.repId + '-' + year + '-' + month + '-' + (idx++),
+      repId: r.repId,
+      repName: r.repName,
+      coordName: r.coordName,
+      groupName: 'Ferramentas',
+      cotaFisica,
+      vendaFisica,
+      defasagemFisica,
+      pctFisica,
+      month,
+      year
+    };
+  });
+}
+

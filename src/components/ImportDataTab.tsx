@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { SalesRecord } from '../types';
-import { parseTSV, INITIAL_RAW_DATA } from '../rawData';
+import * as XLSX from 'xlsx';
+import { SalesRecord, PhysicalQuotaRecord } from '../types';
+import { parseTSV, INITIAL_RAW_DATA, parsePhysicalQuotaTSV, generateDefaultPhysicalQuotas } from '../rawData';
 import {
   saveLocalPeriod,
   deleteLocalPeriod,
-  getLocalPeriodsIndex
+  getLocalPeriodsIndex,
+  saveLocalPhysicalQuotaPeriod,
+  deleteLocalPhysicalQuotaPeriod,
+  getLocalPhysicalQuotaPeriodsIndex
 } from '../lib/storage';
 import {
   getFirebaseConfig,
@@ -25,15 +29,19 @@ import {
   Trash2,
   Layers,
   TrendingUp,
-  Target
+  Target,
+  Download,
+  Boxes
 } from 'lucide-react';
 
 interface ImportDataTabProps {
   onDataSaved: (year: number, month: number, records: SalesRecord[]) => void;
+  onPhysicalQuotaDataSaved?: (year: number, month: number, records: PhysicalQuotaRecord[]) => void;
   currentRecordsCount: number;
   initialYear: number;
   initialMonth: number;
   availablePeriods: Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }>;
+  availablePhysicalQuotaPeriods?: Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }>;
   onRefreshPeriods: () => void;
 }
 
@@ -56,200 +64,207 @@ const YEARS_LIST = [2025, 2026];
 
 export const ImportDataTab: React.FC<ImportDataTabProps> = ({
   onDataSaved,
+  onPhysicalQuotaDataSaved,
   currentRecordsCount,
   initialYear,
   initialMonth,
   availablePeriods,
+  availablePhysicalQuotaPeriods = [],
   onRefreshPeriods
 }) => {
+  const [importMode, setImportMode] = useState<'sales' | 'physical'>('sales');
   const [selectedYear, setSelectedYear] = useState<number>(initialYear);
   const [selectedMonth, setSelectedMonth] = useState<number>(initialMonth);
   
+  // Sales state
   const [tsvText, setTsvText] = useState('');
   const [parsedRecords, setParsedRecords] = useState<SalesRecord[]>([]);
+
+  // Physical Quotas state
+  const [physicalTsvText, setPhysicalTsvText] = useState('');
+  const [parsedPhysicalRecords, setParsedPhysicalRecords] = useState<PhysicalQuotaRecord[]>([]);
   
   const [errorStatus, setErrorStatus] = useState<string | null>(null);
   const [successStatus, setSuccessStatus] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Check if selected period already has data in public DB
+  // Check if selected period already has data
   const currentPeriodId = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
-  const existingPeriodInfo = availablePeriods.find(p => p.id === currentPeriodId);
+  const existingPeriodInfo = importMode === 'sales' 
+    ? availablePeriods.find(p => p.id === currentPeriodId)
+    : availablePhysicalQuotaPeriods.find(p => p.id === currentPeriodId);
 
-  const handleParse = (textToParse: string) => {
+  const handleParseSales = (textToParse: string) => {
     try {
       const records = parseTSV(textToParse);
       if (records.length === 0) {
-        setErrorStatus("Nenhum registro de venda válido pôde ser extraído. Verifique o cabeçalho e as colunas (separados por tabulação).");
+        setErrorStatus("Nenhum registro de venda válido pôde ser extraído. Verifique o cabeçalho e as colunas.");
         setParsedRecords([]);
         return;
       }
-      
       setParsedRecords(records);
       setErrorStatus(null);
-      setSuccessStatus(`Planilha processada localmente com sucesso! ${records.length} registros prontos para serem salvos.`);
-      
-      // Auto dismiss message
+      setSuccessStatus(`Planilha de vendas processada com sucesso! ${records.length} registros prontos para salvar.`);
       setTimeout(() => setSuccessStatus(null), 5000);
     } catch (err: any) {
-      setErrorStatus(`Erro ao processar dados: ${err.message || err}`);
+      setErrorStatus(`Erro ao processar vendas: ${err.message || err}`);
       setParsedRecords([]);
     }
   };
 
-  const onPasteSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tsvText.trim()) return;
-    handleParse(tsvText);
+  const handleParsePhysical = (textToParse: string) => {
+    try {
+      const records = parsePhysicalQuotaTSV(textToParse);
+      if (records.length === 0) {
+        setErrorStatus("Nenhum registro de cota física válido pôde ser extraído. Use colunas: Rep ID, Nome, Coordenador, Cota Física, Venda Física.");
+        setParsedPhysicalRecords([]);
+        return;
+      }
+      setParsedPhysicalRecords(records);
+      setErrorStatus(null);
+      setSuccessStatus(`Planilha de cotas físicas de Ferramentas processada com sucesso! ${records.length} representantes identificados.`);
+      setTimeout(() => setSuccessStatus(null), 5000);
+    } catch (err: any) {
+      setErrorStatus(`Erro ao processar cotas físicas: ${err.message || err}`);
+      setParsedPhysicalRecords([]);
+    }
+  };
+
+  const generatePhysicalTemplateExcel = () => {
+    const defaults = generateDefaultPhysicalQuotas(selectedYear, selectedMonth);
+    const rows = defaults.map(d => ({
+      'Código Rep': d.repId,
+      'Nome do Representante': d.repName,
+      'Coordenador': d.coordName,
+      'Linha / Grupo': 'Ferramentas',
+      'Cota Física (Unidades)': d.cotaFisica,
+      'Realizado Físico (Venda Unidades)': d.vendaFisica
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Cotas Físicas Ferramentas");
+    XLSX.writeFile(wb, `Modelo_Cotas_Fisicas_Ferramentas_${selectedMonth}_${selectedYear}.xlsx`);
   };
 
   const saveToDatabase = async () => {
-    if (parsedRecords.length === 0) {
-      setErrorStatus("Carregue ou cole os dados antes de salvar na memória.");
-      return;
-    }
-
-    setIsSaving(true);
-    setErrorStatus(null);
-    setSuccessStatus(null);
-
-    // 1. If Firebase is configured, write directly to Firestore!
-    const firebaseCfg = getFirebaseConfig();
-    if (firebaseCfg) {
-      try {
-        await savePeriodToFirestore(selectedYear, selectedMonth, parsedRecords);
-        setSuccessStatus(`✨ Sucesso! Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram salvos com sucesso na nuvem do Firebase Firestore e estão públicos para qualquer dispositivo!`);
-        logAnalyticsEvent('data_import', `${parsedRecords.length} reg. p/ ${selectedMonth}/${selectedYear} (Cloud)`);
-        onDataSaved(selectedYear, selectedMonth, parsedRecords);
-        setParsedRecords([]);
-        setTsvText('');
-      } catch (err: any) {
-        console.error("Firestore save error:", err);
-        setErrorStatus(`Erro ao salvar no Firestore Cloud: ${err.message || err}`);
-      } finally {
-        setIsSaving(false);
+    if (importMode === 'sales') {
+      if (parsedRecords.length === 0) {
+        setErrorStatus("Carregue ou cole os dados antes de salvar na memória.");
+        return;
       }
-      return;
-    }
 
-    // 2. Otherwise fall back to local server / localStorage
-    try {
-      let isLocalFallback = false;
-      let errorMsg = '';
+      setIsSaving(true);
+      setErrorStatus(null);
+      setSuccessStatus(null);
 
       try {
-        const response = await fetch('/api/monthly-data', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const res = await fetch("/api/monthly-data", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             year: selectedYear,
             month: selectedMonth,
-            records: parsedRecords
-          })
+            records: parsedRecords,
+          }),
         });
 
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success) {
-            setSuccessStatus(`Sucesso! Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram gravados com sucesso na memória pública do servidor.`);
-            logAnalyticsEvent('data_import', `${parsedRecords.length} reg. p/ ${selectedMonth}/${selectedYear} (Server)`);
-            onDataSaved(selectedYear, selectedMonth, parsedRecords);
-            setParsedRecords([]);
-            setTsvText('');
-            return;
-          } else {
-            errorMsg = result.error || 'Erro desconhecido ao salvar.';
-          }
+        if (res.ok) {
+          saveLocalPeriod(selectedYear, selectedMonth, parsedRecords);
+          onDataSaved(selectedYear, selectedMonth, parsedRecords);
+          onRefreshPeriods();
+          setSuccessStatus(`Sucesso! ${parsedRecords.length} registros de vendas do mês ${selectedMonth}/${selectedYear} foram salvos na memória do servidor.`);
+          setTsvText('');
+          setParsedRecords([]);
         } else {
-          isLocalFallback = true;
+          throw new Error("Falha ao responder da API do servidor");
         }
       } catch (err: any) {
-        console.warn("API save failed, falling back to localStorage:", err);
-        isLocalFallback = true;
+        saveLocalPeriod(selectedYear, selectedMonth, parsedRecords);
+        onDataSaved(selectedYear, selectedMonth, parsedRecords);
+        onRefreshPeriods();
+        setSuccessStatus(`Salvo localmente com sucesso (${parsedRecords.length} registros).`);
+        setTsvText('');
+        setParsedRecords([]);
+      } finally {
+        setIsSaving(false);
+      }
+    } else {
+      // Physical Quota import mode
+      if (parsedPhysicalRecords.length === 0) {
+        setErrorStatus("Carregue ou cole os dados de cotas físicas antes de salvar.");
+        return;
       }
 
-      if (isLocalFallback) {
-        saveLocalPeriod(selectedYear, selectedMonth, parsedRecords);
-        setSuccessStatus(`⚠️ Ambiente estático (Vercel) detectado. Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram salvos localmente no seu navegador! Para persistência pública global, conecte o Firebase no botão da barra lateral.`);
-        logAnalyticsEvent('data_import', `${parsedRecords.length} reg. p/ ${selectedMonth}/${selectedYear} (Local)`);
-        onDataSaved(selectedYear, selectedMonth, parsedRecords);
-        setParsedRecords([]);
-        setTsvText('');
-      } else {
-        throw new Error(errorMsg || 'Erro na rede ou ao salvar.');
+      setIsSaving(true);
+      setErrorStatus(null);
+      setSuccessStatus(null);
+
+      try {
+        const res = await fetch("/api/physical-quotas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            year: selectedYear,
+            month: selectedMonth,
+            records: parsedPhysicalRecords,
+          }),
+        });
+
+        if (res.ok) {
+          saveLocalPhysicalQuotaPeriod(selectedYear, selectedMonth, parsedPhysicalRecords);
+          if (onPhysicalQuotaDataSaved) {
+            onPhysicalQuotaDataSaved(selectedYear, selectedMonth, parsedPhysicalRecords);
+          }
+          onRefreshPeriods();
+          setSuccessStatus(`Sucesso! ${parsedPhysicalRecords.length} cotas físicas de Ferramentas salvas para ${selectedMonth}/${selectedYear}.`);
+          setPhysicalTsvText('');
+          setParsedPhysicalRecords([]);
+        } else {
+          throw new Error("Falha na API de cotas físicas");
+        }
+      } catch (err: any) {
+        saveLocalPhysicalQuotaPeriod(selectedYear, selectedMonth, parsedPhysicalRecords);
+        if (onPhysicalQuotaDataSaved) {
+          onPhysicalQuotaDataSaved(selectedYear, selectedMonth, parsedPhysicalRecords);
+        }
+        onRefreshPeriods();
+        setSuccessStatus(`Cotas físicas salvas com sucesso no armazenamento local (${parsedPhysicalRecords.length} representantes).`);
+        setPhysicalTsvText('');
+        setParsedPhysicalRecords([]);
+      } finally {
+        setIsSaving(false);
       }
-    } catch (err: any) {
-      setErrorStatus(`Erro ao salvar: ${err.message || err}`);
-    } finally {
-      setIsSaving(false);
     }
   };
 
   const deletePeriod = async () => {
-    if (!window.confirm(`Tem certeza que deseja apagar permanentemente todos os dados armazenados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear}? Esta ação não pode ser desfeita.`)) {
+    if (!window.confirm(`Tem certeza que deseja excluir permanentemente os dados de ${selectedMonth}/${selectedYear}?`)) {
       return;
     }
 
     setIsDeleting(true);
     setErrorStatus(null);
-    setSuccessStatus(null);
 
-    // 1. If Firebase is configured, delete directly from Firestore
-    const firebaseCfg = getFirebaseConfig();
-    if (firebaseCfg) {
-      try {
-        await deletePeriodFromFirestore(selectedYear, selectedMonth);
-        setSuccessStatus(`Os dados do período de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram excluídos com sucesso do Firebase Firestore Cloud.`);
-        onRefreshPeriods();
-        onDataSaved(selectedYear, selectedMonth, []);
-      } catch (err: any) {
-        console.error("Firestore delete error:", err);
-        setErrorStatus(`Erro ao excluir do Firestore: ${err.message || err}`);
-      } finally {
-        setIsDeleting(false);
-      }
-      return;
-    }
-
-    // 2. Otherwise fall back to local server / localStorage
     try {
-      let isLocalFallback = false;
-      let errorMsg = '';
-
-      try {
-        const response = await fetch(`/api/monthly-data/${selectedYear}/${selectedMonth}`, {
-          method: 'DELETE'
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success) {
-            setSuccessStatus(`Os dados do período de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram excluídos com sucesso da memória.`);
-            onRefreshPeriods();
-            onDataSaved(selectedYear, selectedMonth, []);
-            return;
-          } else {
-            errorMsg = result.error || 'Erro desconhecido ao excluir.';
-          }
-        } else {
-          isLocalFallback = true;
-        }
-      } catch (err: any) {
-        console.warn("API delete failed, falling back to localStorage:", err);
-        isLocalFallback = true;
-      }
-
-      if (isLocalFallback) {
+      if (importMode === 'sales') {
+        await fetch(`/api/monthly-data/${selectedYear}/${selectedMonth}`, { method: 'DELETE' });
         deleteLocalPeriod(selectedYear, selectedMonth);
-        setSuccessStatus(`Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram excluídos do armazenamento local do seu navegador.`);
-        onRefreshPeriods();
         onDataSaved(selectedYear, selectedMonth, []);
       } else {
-        throw new Error(errorMsg || 'Erro na rede ou ao excluir.');
+        await fetch(`/api/physical-quotas/${selectedYear}/${selectedMonth}`, { method: 'DELETE' });
+        deleteLocalPhysicalQuotaPeriod(selectedYear, selectedMonth);
+        if (onPhysicalQuotaDataSaved) {
+          onPhysicalQuotaDataSaved(selectedYear, selectedMonth, []);
+        }
       }
+      onRefreshPeriods();
+      setSuccessStatus(`Dados do mês ${selectedMonth}/${selectedYear} foram excluídos.`);
+      setParsedRecords([]);
+      setParsedPhysicalRecords([]);
     } catch (err: any) {
-      setErrorStatus(`Erro ao excluir período: ${err.message || err}`);
+      setErrorStatus(`Erro ao excluir: ${err.message || err}`);
     } finally {
       setIsDeleting(false);
     }
@@ -257,16 +272,56 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
 
   return (
     <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200 shadow-sm max-w-4xl mx-auto space-y-6 text-slate-700">
-      {/* Tab Header Description */}
+      {/* Selector of Import Type (Vendas vs Cotas Físicas) */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-2 rounded-2xl border border-slate-200 shadow-2xs">
+        <button
+          type="button"
+          onClick={() => {
+            setImportMode('sales');
+            setErrorStatus(null);
+            setSuccessStatus(null);
+          }}
+          className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            importMode === 'sales'
+              ? 'bg-[#001A9C] text-white shadow-md shadow-[#001A9C]/20'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <FileSpreadsheet className="w-4 h-4" />
+          Importar Vendas (Valores R$)
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setImportMode('physical');
+            setErrorStatus(null);
+            setSuccessStatus(null);
+          }}
+          className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            importMode === 'physical'
+              ? 'bg-purple-700 text-white shadow-md shadow-purple-700/20'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Boxes className="w-4 h-4 text-purple-200" />
+          Importar Cotas Físicas (Linha Ferramentas)
+        </button>
+      </div>
+
+      {/* Header Description */}
       <div className="flex items-start gap-4">
-        <div className="p-3 bg-indigo-100 text-indigo-700 rounded-2xl">
-          <FileSpreadsheet className="w-6 h-6" />
+        <div className={`p-3 rounded-2xl ${importMode === 'sales' ? 'bg-indigo-100 text-indigo-700' : 'bg-purple-100 text-purple-700'}`}>
+          {importMode === 'sales' ? <FileSpreadsheet className="w-6 h-6" /> : <Boxes className="w-6 h-6" />}
         </div>
         <div className="space-y-1">
-          <h2 className="text-lg font-bold text-slate-800">Sistema de Importação & Memória Compartilhada</h2>
+          <h2 className="text-lg font-bold text-slate-800">
+            {importMode === 'sales' ? 'Importação de Dados de Vendas Monetárias' : 'Importação de Cotas Físicas (Somente Ferramentas)'}
+          </h2>
           <p className="text-sm text-slate-500">
-            Abaixo você pode selecionar o período e realizar upload de dados. Os dados salvos são armazenados diretamente na 
-            <strong> memória compartilhada do servidor</strong>, ficando imediatamente disponíveis para todos os usuários que acessarem este dashboard.
+            {importMode === 'sales'
+              ? 'Selecione o mês e ano para importar e atualizar os valores de metas e faturamento em Reais (R$).'
+              : 'Importe as metas e vendas físicas em unidades/peças exclusivamente para os produtos da linha de Ferramentas.'}
           </p>
         </div>
       </div>
@@ -274,8 +329,10 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
       {/* Target Period Selector */}
       <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-xs space-y-4">
         <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-          <Calendar className="w-4 h-4 text-[#001A9C]" />
-          <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Selecione o Período de Destino</h3>
+          <Calendar className={`w-4 h-4 ${importMode === 'sales' ? 'text-[#001A9C]' : 'text-purple-700'}`} />
+          <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider">
+            Selecione o Mês e Ano de Destino {importMode === 'physical' && '(Sugestão do Mês Vigente Ativa)'}
+          </h3>
         </div>
         
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
@@ -286,6 +343,7 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
               onChange={(e) => {
                 setSelectedMonth(parseInt(e.target.value));
                 setParsedRecords([]);
+                setParsedPhysicalRecords([]);
                 setErrorStatus(null);
                 setSuccessStatus(null);
               }}
@@ -304,6 +362,7 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
               onChange={(e) => {
                 setSelectedYear(parseInt(e.target.value));
                 setParsedRecords([]);
+                setParsedPhysicalRecords([]);
                 setErrorStatus(null);
                 setSuccessStatus(null);
               }}
@@ -321,7 +380,7 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
               {existingPeriodInfo ? (
                 <span className="text-xs font-bold text-emerald-600 flex items-center gap-1.5">
                   <Database className="w-3.5 h-3.5 text-emerald-500" />
-                  Ativo ({existingPeriodInfo.recordsCount} linhas)
+                  Ativo ({existingPeriodInfo.recordsCount} registros)
                 </span>
               ) : (
                 <span className="text-xs font-bold text-amber-500 flex items-center gap-1.5">
@@ -350,9 +409,9 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="p-4 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl flex items-start gap-2.5 text-xs font-medium shadow-2xs"
+          className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold rounded-xl flex items-center gap-2.5"
         >
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
           <span>{successStatus}</span>
         </motion.div>
       )}
@@ -361,123 +420,191 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="p-4 bg-rose-50 border border-rose-100 text-rose-800 rounded-xl flex items-start gap-2.5 text-xs font-medium shadow-2xs"
+          className="p-4 bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold rounded-xl flex items-center gap-2.5"
         >
-          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+          <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
           <span>{errorStatus}</span>
         </motion.div>
       )}
 
-
-      {/* Manual Paste Form */}
-      <form onSubmit={onPasteSubmit} className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm space-y-4">
-        <div className="flex justify-between items-center">
-          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">Ou Cole Dados do Excel (Formato Tabulação/TSV):</label>
-          <span className="text-[10px] text-slate-400 font-mono bg-slate-100 px-2 py-0.5 rounded-md">Separado por Tab</span>
-        </div>
-        
-        <textarea
-          rows={5}
-          value={tsvText}
-          onChange={(e) => setTsvText(e.target.value)}
-          placeholder={`AGE\tREP\tNOME REPRESENTANTE\tCOORD\tNOME COORDENADOR\tEMP\t...\n87\t309\tE A Nogueira Represe\t10\tJuan Almeida\tCUT\tUtilidades\t39\tCut Geral Monet.\t3.000\t5.374\t179,1\t...`}
-          className="w-full text-xs font-mono p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-slate-50"
-        />
-
-        <div className="flex justify-between items-center">
-          <p className="text-[11px] text-slate-400 flex items-center gap-1.5 font-medium">
-            <AlertCircle className="w-4 h-4 text-slate-400 shrink-0" />
-            Copie as colunas da sua planilha do Excel ou Google Sheets e cole aqui.
-          </p>
-          <button
-            type="submit"
-            disabled={!tsvText.trim()}
-            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold py-2 px-3.5 rounded-lg transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            Processar Texto Colado
-          </button>
-        </div>
-      </form>
-
-      {/* Parsed Preview Area & DB persistence button */}
-      {parsedRecords.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="bg-indigo-950 text-white p-5 rounded-xl space-y-4 shadow-md border border-indigo-900"
-        >
-          <div className="flex items-center justify-between border-b border-indigo-800 pb-3">
-            <div className="flex items-center gap-2">
-              <Database className="w-4.5 h-4.5 text-indigo-400" />
-              <h4 className="text-xs font-extrabold uppercase tracking-widest text-indigo-300">
-                Prévia do Processamento Local
-              </h4>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-900 text-indigo-200">
-              Pronto para Salvar
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-1 text-center">
-            <div className="bg-indigo-900/40 p-3 rounded-lg border border-indigo-800/50">
-              <span className="block text-[10px] font-bold text-indigo-300 uppercase tracking-wider">Período Selecionado</span>
-              <span className="block text-sm font-extrabold mt-1 text-white">
-                {MONTHS_LIST.find(m => m.value === selectedMonth)?.label} / {selectedYear}
-              </span>
-            </div>
-            
-            <div className="bg-indigo-900/40 p-3 rounded-lg border border-indigo-800/50">
-              <span className="block text-[10px] font-bold text-indigo-300 uppercase tracking-wider">Linhas de Dados</span>
-              <span className="block text-sm font-extrabold mt-1 text-white">
-                {parsedRecords.length} registros
-              </span>
-            </div>
-
-            <div className="bg-indigo-900/40 p-3 rounded-lg border border-indigo-800/50">
-              <span className="block text-[10px] font-bold text-indigo-300 uppercase tracking-wider">Coordenadores</span>
-              <span className="block text-sm font-extrabold mt-1 text-white">
-                {Array.from(new Set(parsedRecords.map(r => r.coordName))).length} frentes
-              </span>
-            </div>
-
-            <div className="bg-indigo-900/40 p-3 rounded-lg border border-indigo-800/50">
-              <span className="block text-[10px] font-bold text-indigo-300 uppercase tracking-wider">Representantes</span>
-              <span className="block text-sm font-extrabold mt-1 text-white">
-                {Array.from(new Set(parsedRecords.map(r => r.repName))).length} empresas
-              </span>
-            </div>
-          </div>
-
-          <div className="pt-2 border-t border-indigo-900 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-            <p className="text-[11px] text-indigo-200/80 max-w-xl">
-              ⚠️ {existingPeriodInfo ? (
-                <span><strong>Já existem dados salvos</strong> para {MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/{selectedYear}. Ao salvar abaixo, você irá substituir permanentemente as {existingPeriodInfo.recordsCount} linhas atuais.</span>
-              ) : (
-                <span>Este período está atualmente vazio. Ao salvar abaixo, todos os usuários passarão a visualizar este conjunto de dados para {MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/{selectedYear}.</span>
-              )}
-            </p>
-            
+      {importMode === 'sales' ? (
+        /* SALES IMPORT SECTION */
+        <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+            <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-2">
+              <Upload className="w-4 h-4 text-[#001A9C]" />
+              Colar Dados de Vendas (TSV / Excel Copiado)
+            </h3>
             <button
               type="button"
-              onClick={saveToDatabase}
-              disabled={isSaving}
-              className="flex items-center justify-center gap-2 bg-[#001A9C] hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-black py-3 px-5 rounded-lg transition-all cursor-pointer disabled:opacity-50 shrink-0 select-none shadow-md"
+              onClick={() => {
+                setTsvText(INITIAL_RAW_DATA);
+                handleParseSales(INITIAL_RAW_DATA);
+              }}
+              className="text-[11px] font-bold text-[#001A9C] hover:underline flex items-center gap-1 cursor-pointer"
             >
-              {isSaving ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  Salvando na Memória...
-                </>
-              ) : (
-                <>
-                  <Database className="w-3.5 h-3.5 text-indigo-300" />
-                  Salvar na Memória do Servidor
-                </>
-              )}
+              <Sparkles className="w-3.5 h-3.5" />
+              Carregar Modelo Demonstrativo
             </button>
           </div>
-        </motion.div>
+
+          <textarea
+            value={tsvText}
+            onChange={(e) => setTsvText(e.target.value)}
+            placeholder="Copie as linhas do Excel/Google Sheets e cole aqui (colunas separadas por TAB)..."
+            rows={6}
+            className="w-full text-xs font-mono bg-slate-50 border border-slate-200 p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-700"
+          />
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => handleParseSales(tsvText)}
+              disabled={!tsvText.trim()}
+              className="w-full sm:w-auto px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+            >
+              Processar Planilha de Vendas
+            </button>
+
+            {parsedRecords.length > 0 && (
+              <button
+                type="button"
+                onClick={saveToDatabase}
+                disabled={isSaving}
+                className="w-full sm:w-auto px-6 py-2.5 bg-[#001A9C] hover:bg-blue-900 text-white text-xs font-bold rounded-xl shadow-md shadow-[#001A9C]/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isSaving ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Salvando Vendas...
+                  </>
+                ) : (
+                  <>
+                    <Database className="w-4 h-4" />
+                    Salvar Vendas para {selectedMonth}/{selectedYear} ({parsedRecords.length} linhas)
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* PHYSICAL QUOTAS IMPORT SECTION */
+        <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-xs space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+            <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-2">
+              <Boxes className="w-4 h-4 text-purple-700" />
+              Colar Cotas Físicas (Linha Ferramentas)
+            </h3>
+            <button
+              type="button"
+              onClick={generatePhysicalTemplateExcel}
+              className="text-[11px] font-bold text-purple-700 hover:bg-purple-50 px-3 py-1.5 rounded-lg border border-purple-200 flex items-center gap-1.5 cursor-pointer transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Baixar Modelo Excel (.xlsx)
+            </button>
+          </div>
+
+          <p className="text-xs text-slate-500">
+            Copie a tabela do Excel com as colunas: <strong>Código Rep</strong>, <strong>Nome Representante</strong>, <strong>Coordenador</strong>, <strong>Cota Física (Unidades)</strong> e <strong>Realizado Físico (Venda)</strong>.
+          </p>
+
+          <textarea
+            value={physicalTsvText}
+            onChange={(e) => setPhysicalTsvText(e.target.value)}
+            placeholder="Copie as colunas de Cotas Físicas do Excel e cole aqui..."
+            rows={6}
+            className="w-full text-xs font-mono bg-purple-50/40 border border-purple-200 p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 text-slate-700"
+          />
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                const defaults = generateDefaultPhysicalQuotas(selectedYear, selectedMonth);
+                setParsedPhysicalRecords(defaults);
+                setSuccessStatus(`Cotas físicas demonstrativas geradas para Ferramentas (${defaults.length} representantes).`);
+              }}
+              className="w-full sm:w-auto px-4 py-2 bg-purple-50 hover:bg-purple-100 text-purple-800 text-xs font-bold rounded-xl border border-purple-200 transition-colors cursor-pointer"
+            >
+              Carregar Modelo Padrão de Ferramentas
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleParsePhysical(physicalTsvText)}
+              disabled={!physicalTsvText.trim()}
+              className="w-full sm:w-auto px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+            >
+              Processar Cotas Físicas
+            </button>
+
+            {parsedPhysicalRecords.length > 0 && (
+              <button
+                type="button"
+                onClick={saveToDatabase}
+                disabled={isSaving}
+                className="w-full sm:w-auto px-6 py-2.5 bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold rounded-xl shadow-md shadow-purple-700/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isSaving ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Salvando Cotas Físicas...
+                  </>
+                ) : (
+                  <>
+                    <Database className="w-4 h-4" />
+                    Salvar Cotas Físicas ({parsedPhysicalRecords.length} reps)
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+
+          {/* Preview of Parsed Physical Quotas */}
+          {parsedPhysicalRecords.length > 0 && (
+            <div className="p-4 bg-purple-50/60 rounded-xl border border-purple-200 space-y-2 text-xs">
+              <div className="font-bold text-purple-900 flex items-center gap-2">
+                <Target className="w-4 h-4 text-purple-700" />
+                Prévia de Cotas Físicas - Linha Ferramentas ({selectedMonth}/{selectedYear})
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-slate-700 pt-1">
+                <div className="bg-white p-2.5 rounded-lg border border-purple-100">
+                  <div className="text-[10px] text-slate-400 font-bold uppercase">Total Cota Física</div>
+                  <div className="font-extrabold text-slate-800 text-sm">
+                    {parsedPhysicalRecords.reduce((acc, r) => acc + r.cotaFisica, 0).toLocaleString('pt-BR')} un
+                  </div>
+                </div>
+
+                <div className="bg-white p-2.5 rounded-lg border border-purple-100">
+                  <div className="text-[10px] text-slate-400 font-bold uppercase">Total Venda Física</div>
+                  <div className="font-extrabold text-purple-800 text-sm">
+                    {parsedPhysicalRecords.reduce((acc, r) => acc + r.vendaFisica, 0).toLocaleString('pt-BR')} un
+                  </div>
+                </div>
+
+                <div className="bg-white p-2.5 rounded-lg border border-purple-100">
+                  <div className="text-[10px] text-slate-400 font-bold uppercase">% Atingimento</div>
+                  <div className="font-extrabold text-emerald-700 text-sm">
+                    {(() => {
+                      const totalCota = parsedPhysicalRecords.reduce((acc, r) => acc + r.cotaFisica, 0);
+                      const totalVenda = parsedPhysicalRecords.reduce((acc, r) => acc + r.vendaFisica, 0);
+                      return totalCota > 0 ? ((totalVenda / totalCota) * 100).toFixed(1) : '0.0';
+                    })()}%
+                  </div>
+                </div>
+
+                <div className="bg-white p-2.5 rounded-lg border border-purple-100">
+                  <div className="text-[10px] text-slate-400 font-bold uppercase">Representantes</div>
+                  <div className="font-extrabold text-slate-800 text-sm">
+                    {parsedPhysicalRecords.length}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
