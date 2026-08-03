@@ -39,6 +39,9 @@ interface PhysicalQuotaViewProps {
   setProgressThreshold: (val: string) => void;
   distinctCoordinators: string[];
   customRepNames?: Record<string, string>;
+  userRole?: 'admin' | 'rep';
+  userRepId?: number | null;
+  userRepName?: string | null;
   onExitMode: () => void;
   onGoToImport?: () => void;
 }
@@ -69,6 +72,9 @@ export const PhysicalQuotaView: React.FC<PhysicalQuotaViewProps> = ({
   setProgressThreshold,
   distinctCoordinators,
   customRepNames = {},
+  userRole = 'admin',
+  userRepId = null,
+  userRepName = null,
   onExitMode,
   onGoToImport
 }) => {
@@ -76,6 +82,7 @@ export const PhysicalQuotaView: React.FC<PhysicalQuotaViewProps> = ({
   const itemsPerPage = 12;
 
   const [selectedProductGroup, setSelectedProductGroup] = useState<string>('All');
+  const [selectedRepFilter, setSelectedRepFilter] = useState<string>('All');
   const [expandedRepId, setExpandedRepId] = useState<number | null>(null);
 
   // Apply priority representative names from "Importar nomes" and filter allowed groups
@@ -108,6 +115,17 @@ export const PhysicalQuotaView: React.FC<PhysicalQuotaViewProps> = ({
       if (r.groupName) set.add(r.groupName);
     });
     return Array.from(set).sort();
+  }, [mappedRecords]);
+
+  // Extract distinct representatives present in records (for Admin filter dropdown)
+  const distinctReps = useMemo(() => {
+    const map = new Map<number, string>();
+    mappedRecords.forEach(r => {
+      map.set(r.repId, r.repName);
+    });
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [mappedRecords]);
 
   // Product Groups Global Breakdown Summary
@@ -143,6 +161,11 @@ export const PhysicalQuotaView: React.FC<PhysicalQuotaViewProps> = ({
   // Aggregate records by Representative for clean display
   const repAggregations = useMemo(() => {
     let filtered = mappedRecords.filter(r => {
+      // Filter by representative dropdown (for Admin)
+      if (selectedRepFilter !== 'All') {
+        if (r.repId.toString() !== selectedRepFilter) return false;
+      }
+
       // Filter by coordinator
       if (selectedCoordinator !== 'All') {
         const matchCoord = (r.coordName || '').toLowerCase().includes(selectedCoordinator.toLowerCase().trim().split(' ')[0]);
@@ -228,7 +251,7 @@ export const PhysicalQuotaView: React.FC<PhysicalQuotaViewProps> = ({
 
     // Sort by % Atingimento descending
     return list.sort((a, b) => b.pct - a.pct);
-  }, [mappedRecords, selectedCoordinator, searchText, selectedProductGroup, progressThreshold]);
+  }, [mappedRecords, selectedCoordinator, selectedRepFilter, searchText, selectedProductGroup, progressThreshold]);
 
   // Overall KPIs
   const kpis = useMemo(() => {
@@ -381,7 +404,11 @@ export const PhysicalQuotaView: React.FC<PhysicalQuotaViewProps> = ({
 
             <h2 className="text-lg sm:text-2xl font-black tracking-tight flex items-center gap-2.5 pt-1">
               <Boxes className="w-6 h-6 text-purple-300" />
-              <span>Análise de Cotas Físicas por Grupo de Produtos</span>
+              <span>
+                {userRole === 'rep'
+                  ? `Análise de Cotas Físicas - Rep. #${userRepId}${userRepName ? ` (${userRepName})` : ''}`
+                  : 'Análise de Cotas Físicas por Grupo de Produtos'}
+              </span>
             </h2>
             <p className="text-xs text-purple-200 font-medium">
               Período Selecionado: <strong className="text-white font-bold">{periodLabel}</strong>
@@ -389,7 +416,7 @@ export const PhysicalQuotaView: React.FC<PhysicalQuotaViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto">
-            {onGoToImport && (
+            {userRole === 'admin' && onGoToImport && (
               <button
                 type="button"
                 onClick={onGoToImport}
@@ -599,6 +626,25 @@ export const PhysicalQuotaView: React.FC<PhysicalQuotaViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+            {/* Filter by Representative (Admin Only) */}
+            {userRole === 'admin' && (
+              <select
+                value={selectedRepFilter}
+                onChange={(e) => {
+                  setSelectedRepFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-purple-600"
+              >
+                <option value="All">Todos os Representantes</option>
+                {distinctReps.map(rep => (
+                  <option key={rep.id} value={rep.id.toString()}>
+                    #{rep.id} - {rep.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
             {/* Filter by Product Group */}
             <select
               value={selectedProductGroup}

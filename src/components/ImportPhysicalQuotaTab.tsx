@@ -48,7 +48,7 @@ const MONTHS_LIST = [
   { value: 12, label: 'Dezembro' }
 ];
 
-const YEARS_LIST = [2025, 2026];
+const YEARS_LIST = [2024, 2025, 2026, 2027];
 
 export const ImportPhysicalQuotaTab: React.FC<ImportPhysicalQuotaTabProps> = ({
   onPhysicalQuotaDataSaved,

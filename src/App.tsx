@@ -273,6 +273,14 @@ export default function App() {
   const [physicalQuotaRecords, setPhysicalQuotaRecords] = useState<PhysicalQuotaRecord[]>([]);
   const [availablePhysicalQuotaPeriods, setAvailablePhysicalQuotaPeriods] = useState<Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }>>([]);
 
+  // Filter physical quota records for representative role isolation
+  const filteredPhysicalQuotaRecords = useMemo(() => {
+    if (userRole === 'rep' && userRepId !== null) {
+      return physicalQuotaRecords.filter(r => r.repId === userRepId);
+    }
+    return physicalQuotaRecords;
+  }, [physicalQuotaRecords, userRole, userRepId]);
+
   // Custom Representative Names Mapping State
   const [customRepNames, setCustomRepNames] = useState<Record<string, string>>(() => {
     return getLocalRepNames();
@@ -307,6 +315,18 @@ export default function App() {
   const [periodFetchError, setPeriodFetchError] = useState<string | null>(null);
   const [usingLocalStorageFallback, setUsingLocalStorageFallback] = useState<boolean>(false);
   const [hasSetInitialPeriod, setHasSetInitialPeriod] = useState<boolean>(false);
+
+  // Dynamically compute available years based on fetched periods and standard range
+  const availableYears = useMemo(() => {
+    const yearsSet = new Set<number>([2024, 2025, 2026, 2027]);
+    availablePeriods.forEach(p => {
+      if (p.year) yearsSet.add(p.year);
+    });
+    availablePhysicalQuotaPeriods.forEach(p => {
+      if (p.year) yearsSet.add(p.year);
+    });
+    return Array.from(yearsSet).sort((a, b) => b - a);
+  }, [availablePeriods, availablePhysicalQuotaPeriods]);
 
   // Helper to determine last update of current period (range-aware)
   const currentPeriodUpdateDate = useMemo(() => {
@@ -559,48 +579,59 @@ export default function App() {
   };
 
   const fetchAvailablePeriods = async () => {
-    let periods: Array<{ id: string; year: number; month: number; recordsCount: number }> = [];
-    // 1. Prioritize Firebase Firestore if configured
+    let periods: Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }> = [];
+    
+    // 1. Fetch from Firestore if configured
     if (getFirebaseConfig()) {
       try {
         setIsLoadingPeriod(true);
         const data = await fetchPeriodsFromFirestore();
-        setAvailablePeriods(data);
-        periods = data;
-        setUsingLocalStorageFallback(false);
+        if (Array.isArray(data)) {
+          periods.push(...data);
+        }
       } catch (err) {
-        console.error("Error fetching periods from Firestore, retrying local:", err);
+        console.error("Error fetching periods from Firestore:", err);
       } finally {
         setIsLoadingPeriod(false);
       }
     }
 
-    if (periods.length === 0) {
-      // 2. Fallback to Express backend or LocalStorage
-      try {
-        const response = await fetch('/api/monthly-data');
-        if (response.ok) {
-          const data = await response.json();
-          setAvailablePeriods(data);
-          periods = data;
-          setUsingLocalStorageFallback(false);
-        } else {
-          setUsingLocalStorageFallback(true);
-          const data = getLocalPeriodsIndex();
-          setAvailablePeriods(data);
-          periods = data;
+    // 2. Fetch from Express backend API
+    try {
+      const response = await fetch('/api/monthly-data');
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          data.forEach((p: any) => {
+            if (!periods.some(existing => existing.id === p.id)) {
+              periods.push(p);
+            }
+          });
         }
-      } catch (err) {
-        console.warn("API unavailable, using localStorage:", err);
-        setUsingLocalStorageFallback(true);
-        const data = getLocalPeriodsIndex();
-        setAvailablePeriods(data);
-        periods = data;
       }
+    } catch (err) {
+      console.warn("API unavailable:", err);
     }
 
-    if (periods.length > 0) {
+    // 3. Fallback & merge with LocalStorage index
+    const localData = getLocalPeriodsIndex();
+    if (Array.isArray(localData)) {
+      localData.forEach(p => {
+        if (!periods.some(existing => existing.id === p.id)) {
+          periods.push(p);
+        }
+      });
+    }
+
+    // Sort chronologically descending
+    periods.sort((a, b) => b.id.localeCompare(a.id));
+
+    setAvailablePeriods(periods);
+    setUsingLocalStorageFallback(false);
+
+    if (periods.length > 0 && !hasSetInitialPeriod) {
       selectLatestPeriod(periods);
+      setHasSetInitialPeriod(true);
     }
   };
 
@@ -615,17 +646,18 @@ export default function App() {
       if (getFirebaseConfig()) {
         try {
           const data = await fetchPreviewsWithMetaFromFirestore(year, m);
-          monthPreviews = data.previews;
-          updatedAtStr = data.updatedAt || null;
+          if (data && data.previews && data.previews.length > 0) {
+            monthPreviews = data.previews;
+            updatedAtStr = data.updatedAt || null;
+          }
         } catch (err) {
-          console.error(`Firestore error loading previews for month ${m}, trying local fallback:`, err);
-          const localData = getLocalPreviewsWithMeta(year, m);
-          monthPreviews = localData.previews;
-          updatedAtStr = localData.updatedAt || null;
+          console.error(`Firestore error loading previews for month ${m}:`, err);
         }
-      } else {
+      }
+
+      if (monthPreviews.length === 0) {
         const localData = getLocalPreviewsWithMeta(year, m);
-        monthPreviews = localData.previews;
+        monthPreviews = localData.previews || [];
         updatedAtStr = localData.updatedAt || null;
       }
 
@@ -673,62 +705,78 @@ export default function App() {
     // Load previews for these months
     fetchPreviewsData(year, monthsToFetch);
 
-    // 1. Prioritize Firebase Firestore if configured
-    if (getFirebaseConfig()) {
-      try {
-        const promises = monthsToFetch.map(m => fetchPeriodDataFromFirestore(year, m));
-        const results = await Promise.all(promises);
-        const combined = results.flat();
-        if (combined && combined.length > 0) {
-          setAllRecords(combined);
-          setUsingLocalStorageFallback(false);
-          setIsLoadingPeriod(false);
-          return;
-        }
-      } catch (err: any) {
-        console.error("Firestore error loading period records, trying Express/LocalStorage fallback:", err);
-      }
-    }
+    const combinedRecords: SalesRecord[] = [];
 
-    // 2. Fallback to Express backend or LocalStorage
-    try {
-      const results = await Promise.all(monthsToFetch.map(async (m) => {
+    for (const m of monthsToFetch) {
+      let monthRecords: SalesRecord[] = [];
+
+      // A. Try Firestore first if configured
+      if (getFirebaseConfig()) {
+        try {
+          const fsData = await fetchPeriodDataFromFirestore(year, m);
+          if (fsData && fsData.length > 0) {
+            monthRecords = fsData;
+          }
+        } catch (err) {
+          console.error(`Firestore error loading sales records for ${year}/${m}:`, err);
+        }
+      }
+
+      // B. Try Express backend API
+      if (monthRecords.length === 0) {
         try {
           const response = await fetch(`/api/monthly-data/${year}/${m}`);
           if (response.ok) {
             const data = await response.json();
-            return data.records || [];
+            if (data && Array.isArray(data.records) && data.records.length > 0) {
+              monthRecords = data.records;
+            }
           }
         } catch (err) {
-          console.warn(`Error fetching monthly data for ${year}/${m}, trying localStorage fallback`, err);
+          console.warn(`Error fetching API monthly data for ${year}/${m}:`, err);
         }
-        return getLocalPeriodData(year, m);
-      }));
-      const combined = results.flat();
-      setAllRecords(combined);
-      setUsingLocalStorageFallback(false);
-    } catch (err: any) {
-      console.warn("Error fetching period data, using localStorage fallback:", err);
-      setUsingLocalStorageFallback(true);
-      const combined = monthsToFetch.flatMap(m => getLocalPeriodData(year, m));
-      setAllRecords(combined);
-    } finally {
-      setIsLoadingPeriod(false);
+      }
+
+      // C. Fallback to LocalStorage (or initial raw data for default period)
+      if (monthRecords.length === 0) {
+        monthRecords = getLocalPeriodData(year, m);
+      }
+
+      if (monthRecords.length > 0) {
+        combinedRecords.push(...monthRecords);
+      }
     }
+
+    setAllRecords(combinedRecords);
+    setIsLoadingPeriod(false);
   };
 
   const fetchAvailablePhysicalQuotaPeriods = async () => {
+    let periods: Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }> = [];
+
     try {
       const response = await fetch('/api/physical-quotas');
       if (response.ok) {
         const data = await response.json();
-        setAvailablePhysicalQuotaPeriods(data);
-      } else {
-        setAvailablePhysicalQuotaPeriods(getLocalPhysicalQuotaPeriodsIndex());
+        if (Array.isArray(data)) {
+          periods.push(...data);
+        }
       }
     } catch (err) {
-      setAvailablePhysicalQuotaPeriods(getLocalPhysicalQuotaPeriodsIndex());
+      console.warn("Error fetching physical quotas periods API:", err);
     }
+
+    const localData = getLocalPhysicalQuotaPeriodsIndex();
+    if (Array.isArray(localData)) {
+      localData.forEach(p => {
+        if (!periods.some(existing => existing.id === p.id)) {
+          periods.push(p);
+        }
+      });
+    }
+
+    periods.sort((a, b) => b.id.localeCompare(a.id));
+    setAvailablePhysicalQuotaPeriods(periods);
   };
 
   const fetchPhysicalQuotaData = async (year: number, month: number) => {
@@ -744,45 +792,51 @@ export default function App() {
       monthsToFetch.push(month);
     }
 
-    try {
-      const results = await Promise.all(monthsToFetch.map(async (m) => {
-        try {
-          const response = await fetch(`/api/physical-quotas/${year}/${m}`);
-          if (response.ok) {
-            const data = await response.json();
-            return data.records || [];
+    const allQuotaRecords: PhysicalQuotaRecord[] = [];
+
+    for (const m of monthsToFetch) {
+      let monthQuotaRecords: PhysicalQuotaRecord[] = [];
+
+      try {
+        const response = await fetch(`/api/physical-quotas/${year}/${m}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data && Array.isArray(data.records) && data.records.length > 0) {
+            monthQuotaRecords = data.records;
           }
-        } catch (err) {
-          console.warn(`Error fetching physical quota data for ${year}/${m}`, err);
         }
-        return getLocalPhysicalQuotaPeriodData(year, m);
-      }));
+      } catch (err) {
+        console.warn(`Error fetching physical quota API for ${year}/${m}:`, err);
+      }
 
-      const repMap = new Map<number, PhysicalQuotaRecord>();
-      results.flat().forEach((r: PhysicalQuotaRecord) => {
-        if (!r || !r.repId) return;
-        const customName = customRepNames[r.repId.toString().trim() || r.repId];
-        const recordName = customName || r.repName;
+      if (monthQuotaRecords.length === 0) {
+        monthQuotaRecords = getLocalPhysicalQuotaPeriodData(year, m);
+      }
 
-        const existing = repMap.get(r.repId);
-        if (existing) {
-          existing.cotaFisica += r.cotaFisica || 0;
-          existing.vendaFisica += r.vendaFisica || 0;
-          existing.defasagemFisica = existing.vendaFisica - existing.cotaFisica;
-          existing.pctFisica = existing.cotaFisica > 0 ? (existing.vendaFisica / existing.cotaFisica) * 100 : 0;
-        } else {
-          repMap.set(r.repId, { ...r, repName: recordName });
-        }
-      });
-
-      const combinedReps = Array.from(repMap.values());
-      setPhysicalQuotaRecords(combinedReps);
-    } catch (err) {
-      console.error("Error loading physical quota data:", err);
-      setPhysicalQuotaRecords([]);
-    } finally {
-      setIsLoadingPeriod(false);
+      if (monthQuotaRecords.length > 0) {
+        allQuotaRecords.push(...monthQuotaRecords);
+      }
     }
+
+    const repMap = new Map<number, PhysicalQuotaRecord>();
+    allQuotaRecords.forEach((r: PhysicalQuotaRecord) => {
+      if (!r || !r.repId) return;
+      const customName = customRepNames[r.repId.toString().trim() || r.repId];
+      const recordName = customName || r.repName;
+
+      const existing = repMap.get(r.repId);
+      if (existing) {
+        existing.cotaFisica += r.cotaFisica || 0;
+        existing.vendaFisica += r.vendaFisica || 0;
+        existing.defasagemFisica = existing.vendaFisica - existing.cotaFisica;
+        existing.pctFisica = existing.cotaFisica > 0 ? (existing.vendaFisica / existing.cotaFisica) * 100 : 0;
+      } else {
+        repMap.set(r.repId, { ...r, repName: recordName });
+      }
+    });
+
+    setPhysicalQuotaRecords(Array.from(repMap.values()));
+    setIsLoadingPeriod(false);
   };
 
   // Check Firebase on mount and load available periods
@@ -2581,33 +2635,6 @@ export default function App() {
                 <span>Mostrar dados atuais</span>
               </button>
 
-              {/* Botão Analisar Cotas Físicas (Linha Ferramentas) */}
-              <div className="pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsPhysicalQuotaMode(!isPhysicalQuotaMode);
-                    setIsMobileFiltersExpanded(false);
-                  }}
-                  className={`w-full py-2.5 px-3 rounded-xl border text-xs font-black transition-all flex items-center justify-between cursor-pointer shadow-3xs ${
-                    isPhysicalQuotaMode
-                      ? 'bg-purple-800 text-white border-purple-900 shadow-purple-800/30'
-                      : 'bg-purple-50/90 hover:bg-purple-100 text-purple-900 border-purple-200'
-                  }`}
-                  title="Alternar para análise de cotas físicas de produto (somente linha Ferramentas)"
-                >
-                  <div className="flex items-center gap-2">
-                    <Boxes className={`w-4 h-4 ${isPhysicalQuotaMode ? 'text-purple-200' : 'text-purple-700'}`} />
-                    <span>{isPhysicalQuotaMode ? 'Analisando Cotas Físicas' : 'Analisar Cotas Físicas'}</span>
-                  </div>
-                  <span className={`text-[9px] px-2 py-0.5 rounded-full font-extrabold uppercase tracking-wider ${
-                    isPhysicalQuotaMode ? 'bg-white/20 text-white' : 'bg-purple-200 text-purple-900'
-                  }`}>
-                    Ferramentas
-                  </span>
-                </button>
-              </div>
-
               <div className="pt-1">
                 <button
                   type="button"
@@ -2692,7 +2719,7 @@ export default function App() {
                           }}
                           className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-800 font-bold cursor-pointer"
                         >
-                          {[2025, 2026].map(y => (
+                          {availableYears.map(y => (
                             <option key={y} value={y}>{y}</option>
                           ))}
                         </select>
@@ -2795,7 +2822,7 @@ export default function App() {
                           }}
                           className="w-full text-xs bg-white border border-slate-200 py-1.5 px-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] text-slate-800 font-bold cursor-pointer"
                         >
-                          {[2025, 2026].map(y => (
+                          {availableYears.map(y => (
                             <option key={y} value={y}>{y}</option>
                           ))}
                         </select>
@@ -3097,8 +3124,8 @@ export default function App() {
         <section className="lg:col-span-3 space-y-6">
           {isPhysicalQuotaMode ? (
             <PhysicalQuotaView
-              records={physicalQuotaRecords}
-              allRecordsCount={physicalQuotaRecords.length}
+              records={filteredPhysicalQuotaRecords}
+              allRecordsCount={filteredPhysicalQuotaRecords.length}
               selectedYear={selectedYear}
               selectedMonth={selectedMonth}
               isAccumulated={isAccumulated}
@@ -3112,8 +3139,14 @@ export default function App() {
               setProgressThreshold={setProgressThreshold}
               distinctCoordinators={distinctCoordinators}
               customRepNames={customRepNames}
+              userRole={userRole}
+              userRepId={userRepId}
+              userRepName={userRepName}
               onExitMode={() => setIsPhysicalQuotaMode(false)}
-              onGoToImport={() => setActiveTab('importar_cotas')}
+              onGoToImport={() => {
+                setIsPhysicalQuotaMode(false);
+                setActiveTab('importar_cotas');
+              }}
             />
           ) : (
             <>
@@ -3430,99 +3463,154 @@ export default function App() {
           )}
  
           {/* Navigation controller layout bar */}
-          {userRole === 'admin' && (
-            <div className="bg-white border border-slate-100 p-2 rounded-2xl shadow-xs flex flex-wrap gap-2 items-center">
-              {[
-                { id: 'geral', label: 'Geral', icon: <LayoutDashboard className="w-4 h-4" /> },
-                { id: 'representantes', label: 'Representantes', icon: <User className="w-4 h-4" /> },
-                { id: 'vendas_estado', label: 'Regiões', icon: <MapIcon className="w-4 h-4" /> },
-                { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> }
-              ].map(tab => (
+          <div className="bg-white border border-slate-100 p-2 rounded-2xl shadow-xs flex flex-wrap gap-2 items-center">
+            {userRole === 'admin' ? (
+              <>
+                {[
+                  { id: 'geral', label: 'Geral', icon: <LayoutDashboard className="w-4 h-4" /> },
+                  { id: 'representantes', label: 'Representantes', icon: <User className="w-4 h-4" /> },
+                  { id: 'vendas_estado', label: 'Regiões', icon: <MapIcon className="w-4 h-4" /> },
+                  { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      setActiveTab(tab.id as any);
+                      setIsPhysicalQuotaMode(false);
+                      setIsImportDropdownOpen(false);
+                    }}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer relative ${
+                      !isPhysicalQuotaMode && activeTab === tab.id 
+                        ? 'text-slate-900 bg-slate-950/[0.04] border border-slate-950/[0.02] font-extrabold shadow-2xs' 
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent'
+                    }`}
+                  >
+                    {tab.icon}
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+
+                {/* Import Information Dropdown Menu (Admin Only) */}
+                <div className="relative">
+                  <button
+                    onClick={() => setIsImportDropdownOpen(!isImportDropdownOpen)}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border ${
+                      !isPhysicalQuotaMode && ['previa', 'importar', 'importar_cotas', 'nomes', 'localizacao'].includes(activeTab)
+                        ? 'text-slate-900 bg-slate-950/[0.04] border-slate-950/[0.05] font-extrabold shadow-2xs' 
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent'
+                    }`}
+                  >
+                    <UploadCloud className="w-4 h-4 text-indigo-500" />
+                    <span>Importar Informações</span>
+                    <ChevronDown className={`w-3 h-3 transition-transform ${isImportDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {isImportDropdownOpen && (
+                    <>
+                      {/* Overlay background to dismiss the dropdown when clicking outside */}
+                      <div 
+                        className="fixed inset-0 z-10" 
+                        onClick={() => setIsImportDropdownOpen(false)} 
+                      />
+                      <div className="absolute left-0 mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 z-20 origin-top-left">
+                        {[
+                          { id: 'importar', label: 'Importar Dados de Vendas', icon: <FileSpreadsheet className="w-4 h-4 text-indigo-500" /> },
+                          { id: 'importar_cotas', label: 'Importar Cotas Físicas', icon: <Boxes className="w-4 h-4 text-purple-600" /> },
+                          { id: 'previa', label: 'Importar Prévia', icon: <Target className="w-4 h-4 text-indigo-600" /> },
+                          { id: 'nomes', label: 'Importar Nomes', icon: <UserCog className="w-4 h-4 text-emerald-500" /> },
+                          { id: 'localizacao', label: 'Importar Localização', icon: <MapPin className="w-4 h-4 text-rose-500" /> }
+                        ].map(subTab => (
+                          <button
+                            key={subTab.id}
+                            onClick={() => {
+                              setActiveTab(subTab.id as any);
+                              setIsPhysicalQuotaMode(false);
+                              setIsImportDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-4 py-2.5 text-xs font-bold transition-colors flex items-center gap-2.5 hover:bg-slate-50 ${
+                              !isPhysicalQuotaMode && activeTab === subTab.id 
+                                ? 'text-slate-900 bg-slate-950/[0.02]' 
+                                : 'text-slate-600 font-medium'
+                            }`}
+                          >
+                            {subTab.icon}
+                            <span>{subTab.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* User Management Tab (Admin Only) */}
                 <button
-                  key={tab.id}
                   onClick={() => {
-                    setActiveTab(tab.id as any);
+                    setActiveTab('usuarios');
+                    setIsPhysicalQuotaMode(false);
                     setIsImportDropdownOpen(false);
                   }}
-                  className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer relative ${
-                    activeTab === tab.id 
-                      ? 'text-slate-900 bg-slate-950/[0.04] border border-slate-950/[0.02] font-extrabold shadow-2xs' 
-                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent'
-                  }`}
-                >
-                  {tab.icon}
-                  <span>{tab.label}</span>
-                </button>
-              ))}
-
-              {/* Import Information Dropdown Menu (Admin Only) */}
-              <div className="relative">
-                <button
-                  onClick={() => setIsImportDropdownOpen(!isImportDropdownOpen)}
                   className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border ${
-                    ['previa', 'importar', 'importar_cotas', 'nomes', 'localizacao'].includes(activeTab)
+                    !isPhysicalQuotaMode && activeTab === 'usuarios'
                       ? 'text-slate-900 bg-slate-950/[0.04] border-slate-950/[0.05] font-extrabold shadow-2xs' 
                       : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border-transparent'
                   }`}
                 >
-                  <UploadCloud className="w-4 h-4 text-indigo-500" />
-                  <span>Importar Informações</span>
-                  <ChevronDown className={`w-3 h-3 transition-transform ${isImportDropdownOpen ? 'rotate-180' : ''}`} />
+                  <UserCog className="w-4 h-4 text-[#001A9C]" />
+                  <span>Gerenciar Usuários</span>
                 </button>
 
-                {isImportDropdownOpen && (
-                  <>
-                    {/* Overlay background to dismiss the dropdown when clicking outside */}
-                    <div 
-                      className="fixed inset-0 z-10" 
-                      onClick={() => setIsImportDropdownOpen(false)} 
-                    />
-                    <div className="absolute left-0 mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 z-20 origin-top-left">
-                      {[
-                        { id: 'importar', label: 'Importar Dados de Vendas', icon: <FileSpreadsheet className="w-4 h-4 text-indigo-500" /> },
-                        { id: 'importar_cotas', label: 'Importar Cotas Físicas', icon: <Boxes className="w-4 h-4 text-purple-600" /> },
-                        { id: 'previa', label: 'Importar Prévia', icon: <Target className="w-4 h-4 text-indigo-600" /> },
-                        { id: 'nomes', label: 'Importar Nomes', icon: <UserCog className="w-4 h-4 text-emerald-500" /> },
-                        { id: 'localizacao', label: 'Importar Localização', icon: <MapPin className="w-4 h-4 text-rose-500" /> }
-                      ].map(subTab => (
-                        <button
-                          key={subTab.id}
-                          onClick={() => {
-                            setActiveTab(subTab.id as any);
-                            setIsImportDropdownOpen(false);
-                          }}
-                          className={`w-full text-left px-4 py-2.5 text-xs font-bold transition-colors flex items-center gap-2.5 hover:bg-slate-50 ${
-                            activeTab === subTab.id 
-                              ? 'text-slate-900 bg-slate-950/[0.02]' 
-                              : 'text-slate-600 font-medium'
-                          }`}
-                        >
-                          {subTab.icon}
-                          <span>{subTab.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
+                {/* Analisar Cotas Físicas Button (Admin - next to Gerenciar Usuários) */}
+                <button
+                  onClick={() => {
+                    setIsPhysicalQuotaMode(!isPhysicalQuotaMode);
+                    setIsImportDropdownOpen(false);
+                  }}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border ${
+                    isPhysicalQuotaMode
+                      ? 'bg-purple-800 text-white border-purple-900 font-black shadow-2xs' 
+                      : 'text-purple-800 bg-purple-50/90 hover:bg-purple-100 border-purple-200'
+                  }`}
+                  title="Analisar cotas físicas por grupo de produtos (somente linha Ferramentas)"
+                >
+                  <Boxes className={`w-4 h-4 ${isPhysicalQuotaMode ? 'text-purple-200' : 'text-purple-700'}`} />
+                  <span>Analisar Cotas Físicas</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => {
+                    setActiveTab('geral');
+                    setIsPhysicalQuotaMode(false);
+                  }}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border ${
+                    !isPhysicalQuotaMode
+                      ? 'text-slate-900 bg-slate-950/[0.04] border-slate-950/[0.05] font-extrabold shadow-2xs' 
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border-transparent'
+                  }`}
+                >
+                  <LayoutDashboard className="w-4 h-4 text-[#001A9C]" />
+                  <span>Dashboard de Vendas</span>
+                </button>
 
-              {/* User Management Tab (Admin Only) */}
-              <button
-                onClick={() => {
-                  setActiveTab('usuarios');
-                  setIsImportDropdownOpen(false);
-                }}
-                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border ${
-                  activeTab === 'usuarios'
-                    ? 'text-slate-900 bg-slate-950/[0.04] border-slate-950/[0.05] font-extrabold shadow-2xs' 
-                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 border-transparent'
-                }`}
-              >
-                <UserCog className="w-4 h-4 text-[#001A9C]" />
-                <span>Gerenciar Usuários</span>
-              </button>
-            </div>
-          )}
+                {/* Analisar Cotas Físicas Button (Representative) */}
+                <button
+                  onClick={() => {
+                    setIsPhysicalQuotaMode(!isPhysicalQuotaMode);
+                  }}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border ${
+                    isPhysicalQuotaMode
+                      ? 'bg-purple-800 text-white border-purple-900 font-black shadow-2xs' 
+                      : 'text-purple-800 bg-purple-50/90 hover:bg-purple-100 border-purple-200'
+                  }`}
+                  title="Analisar suas cotas físicas por grupo de produtos"
+                >
+                  <Boxes className={`w-4 h-4 ${isPhysicalQuotaMode ? 'text-purple-200' : 'text-purple-700'}`} />
+                  <span>Analisar Cotas Físicas</span>
+                </button>
+              </>
+            )}
+          </div>
 
           {/* EMPTY STATE IF NO DATA IN ACTIVE PERIOD */}
           {allRecords.length === 0 && !['previa', 'importar', 'importar_cotas', 'nomes', 'localizacao', 'usuarios'].includes(activeTab) && (
