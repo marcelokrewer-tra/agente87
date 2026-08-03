@@ -98,30 +98,3 @@ export interface ProductLineSummary {
   defasagem: number;
   pctTotal: number;
 }
-
-export interface PhysicalQuotaRecord {
-  id: string;
-  repId: number;
-  repName: string;
-  coordId?: number;
-  coordName: string;
-  groupName?: string; // Ferramentas or sub-line
-  cotaFisica: number;
-  vendaFisica: number;
-  defasagemFisica: number;
-  pctFisica: number;
-  month?: number;
-  year?: number;
-}
-
-export interface PhysicalQuotaSummary {
-  repId: number;
-  repName: string;
-  coordName: string;
-  cotaFisica: number;
-  vendaFisica: number;
-  defasagemFisica: number;
-  pctFisica: number;
-  recordsCount: number;
-}
-

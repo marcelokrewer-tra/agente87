@@ -27,18 +27,17 @@ const STORAGE_KEY_FIREBASE_CONFIG = 'tramontina_firebase_config_v1';
 export const getFirebaseConfig = (): FirebaseConfig | null => {
   // Check standard environment variables first
   const metaEnv = (import.meta as any).env || {};
-  const apiKey = metaEnv.VITE_FIREBASE_API_KEY;
-  const projectId = metaEnv.VITE_FIREBASE_PROJECT_ID;
+  const envConfig: FirebaseConfig = {
+    apiKey: metaEnv.VITE_FIREBASE_API_KEY || 'AIzaSyCd00KYTxhf4Gdw1tD8gR6GfQGl9gJxpyc',
+    authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN || 'agente87-7542b.firebaseapp.com',
+    projectId: metaEnv.VITE_FIREBASE_PROJECT_ID || 'agente87-7542b',
+    storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET || 'agente87-7542b.firebasestorage.app',
+    messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '173046313571',
+    appId: metaEnv.VITE_FIREBASE_APP_ID || '1:173046313571:web:b783d1ce49b27330ea3e56',
+  };
 
-  if (apiKey && projectId) {
-    return {
-      apiKey,
-      authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,
-      projectId,
-      storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`,
-      messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-      appId: metaEnv.VITE_FIREBASE_APP_ID || '',
-    };
+  if (envConfig.apiKey && envConfig.projectId) {
+    return envConfig;
   }
 
   // Check LocalStorage fallback
@@ -136,63 +135,21 @@ export const fetchPeriodDataFromFirestore = async (year: number, month: number):
   const db = getDb();
   const periodId = `${year}-${String(month).padStart(2, '0')}`;
   
-  // A. Check main document 'sales_periods/{periodId}' directly
-  try {
-    const periodDocRef = doc(db, 'sales_periods', periodId);
-    const periodDocSnap = await getDoc(periodDocRef);
-    if (periodDocSnap.exists()) {
-      const data = periodDocSnap.data();
-      if (data) {
-        if (Array.isArray(data.records) && data.records.length > 0) return data.records;
-        if (Array.isArray(data.items) && data.items.length > 0) return data.items;
-        if (Array.isArray(data.chunk) && data.chunk.length > 0) return data.chunk;
-        if (Array.isArray(data.data) && data.data.length > 0) return data.data;
-      }
-    }
-  } catch (err) {
-    console.error(`Error checking period doc ${periodId}:`, err);
-  }
-
+  // We store the sales data in 'sales_periods/{periodId}/records/all' or chunked to stay under size limits.
+  // To avoid size limitations per document (Firestore limit is 1MB), 
+  // we save the records as array chunks or subdocuments if it is extremely large, 
+  // or simple single doc for typical periods.
+  // Let's store chunked documents in a subcollection 'items' inside 'sales_periods/{periodId}/items'
+  const itemsCollection = collection(db, 'sales_periods', periodId, 'items');
+  const querySnapshot = await getDocs(itemsCollection);
+  
   const allRecords: SalesRecord[] = [];
-
-  // B. Check subcollection 'sales_periods/{periodId}/items'
-  try {
-    const itemsCollection = collection(db, 'sales_periods', periodId, 'items');
-    const querySnapshot = await getDocs(itemsCollection);
-    
-    querySnapshot.forEach((docSnapshot) => {
-      const data = docSnapshot.data();
-      if (data) {
-        if (Array.isArray(data.chunk)) allRecords.push(...data.chunk);
-        else if (Array.isArray(data.records)) allRecords.push(...data.records);
-        else if (Array.isArray(data.items)) allRecords.push(...data.items);
-      }
-    });
-
-    if (allRecords.length > 0) {
-      return allRecords;
+  querySnapshot.forEach((docSnapshot) => {
+    const data = docSnapshot.data();
+    if (data && Array.isArray(data.chunk)) {
+      allRecords.push(...data.chunk);
     }
-  } catch (err) {
-    console.error(`Error checking items subcollection for ${periodId}:`, err);
-  }
-
-  // C. Check subcollection 'sales_periods/{periodId}/records'
-  try {
-    const recordsCollection = collection(db, 'sales_periods', periodId, 'records');
-    const querySnapshot = await getDocs(recordsCollection);
-    
-    querySnapshot.forEach((docSnapshot) => {
-      const data = docSnapshot.data();
-      if (data) {
-        if (Array.isArray(data.chunk)) allRecords.push(...data.chunk);
-        else if (Array.isArray(data.records)) allRecords.push(...data.records);
-        else if (Array.isArray(data.items)) allRecords.push(...data.items);
-        else if (Array.isArray(data.all)) allRecords.push(...data.all);
-      }
-    });
-  } catch (err) {
-    console.error(`Error checking records subcollection for ${periodId}:`, err);
-  }
+  });
 
   return allRecords;
 };
@@ -442,136 +399,6 @@ export const saveLocalRepLocations = (locations: Record<string, string>): void =
   } catch (e) {
     console.error("Error saving local representative locations", e);
   }
-};
-
-// ---------------- Physical Quotas Persistence in Firestore ----------------
-
-export const fetchPhysicalQuotaPeriodsFromFirestore = async (): Promise<Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }>> => {
-  const db = getDb();
-  const collectionRef = collection(db, 'physical_quota_periods');
-  const snapshot = await getDocs(collectionRef);
-  
-  const periods: Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }> = [];
-  snapshot.forEach((document) => {
-    const data = document.data();
-    const periodId = document.id;
-    let year = data.year;
-    let month = data.month;
-    if ((!year || !month) && periodId.includes('-')) {
-      const parts = periodId.split('-');
-      year = parseInt(parts[0]);
-      month = parseInt(parts[1]);
-    }
-    if (year && month) {
-      periods.push({
-        id: periodId,
-        year,
-        month,
-        recordsCount: data.recordsCount || 0,
-        updatedAt: data.updatedAt
-      });
-    }
-  });
-
-  return periods.sort((a, b) => b.id.localeCompare(a.id));
-};
-
-export const fetchPhysicalQuotaPeriodDataFromFirestore = async (year: number, month: number): Promise<import('../types').PhysicalQuotaRecord[]> => {
-  const db = getDb();
-  const periodId = `${year}-${String(month).padStart(2, '0')}`;
-
-  // Check main doc
-  try {
-    const docRef = doc(db, 'physical_quota_periods', periodId);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      if (data && Array.isArray(data.records) && data.records.length > 0) {
-        return data.records;
-      }
-    }
-  } catch (e) {}
-
-  // Check items subcollection
-  const allRecords: import('../types').PhysicalQuotaRecord[] = [];
-  try {
-    const itemsCollection = collection(db, 'physical_quota_periods', periodId, 'items');
-    const querySnapshot = await getDocs(itemsCollection);
-    
-    const chunksWithIndex: Array<{ index: number; items: import('../types').PhysicalQuotaRecord[] }> = [];
-    querySnapshot.forEach((docSnapshot) => {
-      const data = docSnapshot.data();
-      if (data) {
-        const idx = typeof data.index === 'number' ? data.index : 0;
-        if (Array.isArray(data.chunk)) chunksWithIndex.push({ index: idx, items: data.chunk });
-        else if (Array.isArray(data.records)) chunksWithIndex.push({ index: idx, items: data.records });
-        else if (Array.isArray(data.items)) chunksWithIndex.push({ index: idx, items: data.items });
-      }
-    });
-    if (chunksWithIndex.length > 0) {
-      chunksWithIndex.sort((a, b) => a.index - b.index);
-      chunksWithIndex.forEach(c => allRecords.push(...c.items));
-      return allRecords;
-    }
-  } catch (err) {
-    console.error(`Error checking physical quota items subcollection for ${periodId}:`, err);
-  }
-
-  return allRecords;
-};
-
-export const savePhysicalQuotaPeriodToFirestore = async (year: number, month: number, records: import('../types').PhysicalQuotaRecord[]): Promise<void> => {
-  const db = getDb();
-  const periodId = `${year}-${String(month).padStart(2, '0')}`;
-  
-  const periodDocRef = doc(db, 'physical_quota_periods', periodId);
-  await setDoc(periodDocRef, {
-    id: periodId,
-    year,
-    month,
-    recordsCount: records.length,
-    updatedAt: new Date().toISOString()
-  });
-
-  const CHUNK_SIZE = 150;
-  const chunks: import('../types').PhysicalQuotaRecord[][] = [];
-  for (let i = 0; i < records.length; i += CHUNK_SIZE) {
-    chunks.push(records.slice(i, i + CHUNK_SIZE));
-  }
-
-  const itemsCollection = collection(db, 'physical_quota_periods', periodId, 'items');
-  const existingDocs = await getDocs(itemsCollection);
-  
-  const deleteBatch = writeBatch(db);
-  existingDocs.forEach((docSnapshot) => {
-    deleteBatch.delete(docSnapshot.ref);
-  });
-  await deleteBatch.commit();
-
-  for (let idx = 0; idx < chunks.length; idx++) {
-    const chunkDocRef = doc(db, 'physical_quota_periods', periodId, 'items', `chunk_${idx}`);
-    await setDoc(chunkDocRef, {
-      chunk: chunks[idx],
-      index: idx
-    });
-  }
-};
-
-export const deletePhysicalQuotaPeriodFromFirestore = async (year: number, month: number): Promise<void> => {
-  const db = getDb();
-  const periodId = `${year}-${String(month).padStart(2, '0')}`;
-  
-  const itemsCollection = collection(db, 'physical_quota_periods', periodId, 'items');
-  const existingDocs = await getDocs(itemsCollection);
-  
-  const deleteBatch = writeBatch(db);
-  existingDocs.forEach((docSnapshot) => {
-    deleteBatch.delete(docSnapshot.ref);
-  });
-  await deleteBatch.commit();
-
-  const periodDocRef = doc(db, 'physical_quota_periods', periodId);
-  await deleteDoc(periodDocRef);
 };
 
 

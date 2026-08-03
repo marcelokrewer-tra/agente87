@@ -3,8 +3,8 @@ import path from "path";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
-import { INITIAL_RAW_DATA, parseTSV, generateDefaultPhysicalQuotas } from "./src/rawData";
-import { SalesRecord, PhysicalQuotaRecord } from "./src/types";
+import { INITIAL_RAW_DATA, parseTSV } from "./src/rawData";
+import { SalesRecord } from "./src/types";
 
 interface MonthData {
   id: string; // e.g. "2026-06"
@@ -13,15 +13,6 @@ interface MonthData {
   updatedAt: string;
   records: SalesRecord[];
 }
-
-interface PhysicalQuotaMonthData {
-  id: string;
-  year: number;
-  month: number;
-  updatedAt: string;
-  records: PhysicalQuotaRecord[];
-}
-
 
 const app = express();
 const PORT = 3000;
@@ -69,10 +60,7 @@ function getMappedGroupName(groupName: string | undefined): string {
 // Helper to save database
 function saveDatabase(db: Record<string, MonthData>): void {
   try {
-    const content = JSON.stringify(db, null, 2);
-    fs.writeFileSync(DB_FILE, content, "utf-8");
-    const publicPath = path.join(process.cwd(), "public", "monthly_sales_db.json");
-    fs.writeFileSync(publicPath, content, "utf-8");
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf-8");
   } catch (error) {
     console.error("Error saving JSON database:", error);
   }
@@ -170,113 +158,6 @@ app.post("/api/monthly-data/reset", (req, res) => {
   saveDatabase(db);
   res.json({ success: true, message: "Banco de dados redefinido para os padrões de fábrica." });
 });
-
-// ==========================================
-// PHYSICAL QUOTAS (COTAS FÍSICAS FERRAMENTAS)
-// ==========================================
-const PHYSICAL_QUOTAS_DB_FILE = path.join(process.cwd(), "physical_quotas_db.json");
-
-function loadPhysicalQuotasDatabase(): Record<string, PhysicalQuotaMonthData> {
-  try {
-    if (fs.existsSync(PHYSICAL_QUOTAS_DB_FILE)) {
-      const content = fs.readFileSync(PHYSICAL_QUOTAS_DB_FILE, "utf-8");
-      return JSON.parse(content);
-    }
-  } catch (error) {
-    console.error("Error loading Physical Quotas database:", error);
-  }
-
-  const db: Record<string, PhysicalQuotaMonthData> = {};
-  savePhysicalQuotasDatabase(db);
-  return db;
-}
-
-function savePhysicalQuotasDatabase(db: Record<string, PhysicalQuotaMonthData>): void {
-  try {
-    const content = JSON.stringify(db, null, 2);
-    fs.writeFileSync(PHYSICAL_QUOTAS_DB_FILE, content, "utf-8");
-    const publicPath = path.join(process.cwd(), "public", "physical_quotas_db.json");
-    fs.writeFileSync(publicPath, content, "utf-8");
-  } catch (error) {
-    console.error("Error saving Physical Quotas database:", error);
-  }
-}
-
-// 1. Get list of available physical quota periods
-app.get("/api/physical-quotas", (req, res) => {
-  const db = loadPhysicalQuotasDatabase();
-  const list = Object.values(db).map(({ id, year, month, updatedAt, records }) => ({
-    id,
-    year,
-    month,
-    updatedAt,
-    recordsCount: records.length,
-  }));
-  res.json(list);
-});
-
-// 2. Get physical quota records for a specific period
-app.get("/api/physical-quotas/:year/:month", (req, res) => {
-  const year = parseInt(req.params.year);
-  const month = parseInt(req.params.month);
-  const id = `${year}-${String(month).padStart(2, "0")}`;
-
-  const db = loadPhysicalQuotasDatabase();
-  const data = db[id];
-
-  if (data) {
-    res.json(data);
-  } else {
-    res.json({
-      id,
-      year,
-      month,
-      updatedAt: "",
-      records: [],
-      exists: false,
-    });
-  }
-});
-
-// 3. Post/update physical quota records for a period
-app.post("/api/physical-quotas", (req, res) => {
-  const { year, month, records } = req.body;
-
-  if (!year || !month || !Array.isArray(records)) {
-    return res.status(400).json({ error: "Parâmetros inválidos. 'year', 'month' e 'records' são obrigatórios." });
-  }
-
-  const id = `${year}-${String(month).padStart(2, "0")}`;
-  const db = loadPhysicalQuotasDatabase();
-
-  db[id] = {
-    id,
-    year: parseInt(year),
-    month: parseInt(month),
-    updatedAt: new Date().toISOString(),
-    records,
-  };
-
-  savePhysicalQuotasDatabase(db);
-  res.json({ success: true, id, recordsCount: records.length });
-});
-
-// 4. Delete physical quota period data
-app.delete("/api/physical-quotas/:year/:month", (req, res) => {
-  const year = parseInt(req.params.year);
-  const month = parseInt(req.params.month);
-  const id = `${year}-${String(month).padStart(2, "0")}`;
-
-  const db = loadPhysicalQuotasDatabase();
-  if (db[id]) {
-    delete db[id];
-    savePhysicalQuotasDatabase(db);
-    res.json({ success: true, message: `Cotas físicas de ${month}/${year} removidas.` });
-  } else {
-    res.status(404).json({ error: "Período de cotas físicas não encontrado." });
-  }
-});
-
 
 // 6. AI Insights Generator powered by Gemini (with Full System Sales DB Access & Local Analytical Fallback)
 function getSystemWideDatabaseAnalysis() {
