@@ -7,7 +7,11 @@ import {
   saveLocalPhysicalQuotaPeriod,
   deleteLocalPhysicalQuotaPeriod
 } from '../lib/storage';
-import { getFirebaseConfig } from '../lib/firebase';
+import { 
+  getFirebaseConfig,
+  savePhysicalQuotaPeriodToFirestore,
+  deletePhysicalQuotaPeriodFromFirestore
+} from '../lib/firebase';
 import { logAnalyticsEvent } from '../lib/analytics';
 import { 
   FileSpreadsheet, 
@@ -125,6 +129,15 @@ export const ImportPhysicalQuotaTab: React.FC<ImportPhysicalQuotaTabProps> = ({
     try {
       saveLocalPhysicalQuotaPeriod(selectedYear, selectedMonth, parsedPhysicalRecords);
 
+      // Save to Firestore if configured
+      if (getFirebaseConfig()) {
+        try {
+          await savePhysicalQuotaPeriodToFirestore(selectedYear, selectedMonth, parsedPhysicalRecords);
+        } catch (fsErr) {
+          console.error("Erro ao salvar cotas físicas no Firestore:", fsErr);
+        }
+      }
+
       // Save to Express server
       try {
         await fetch('/api/physical-quotas', {
@@ -166,6 +179,14 @@ export const ImportPhysicalQuotaTab: React.FC<ImportPhysicalQuotaTabProps> = ({
     setIsDeleting(true);
     try {
       deleteLocalPhysicalQuotaPeriod(selectedYear, selectedMonth);
+
+      if (getFirebaseConfig()) {
+        try {
+          await deletePhysicalQuotaPeriodFromFirestore(selectedYear, selectedMonth);
+        } catch (fsErr) {
+          console.error("Erro ao excluir cotas físicas do Firestore:", fsErr);
+        }
+      }
 
       try {
         await fetch(`/api/physical-quotas/${selectedYear}/${selectedMonth}`, {

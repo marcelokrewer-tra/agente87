@@ -39,7 +39,9 @@ import {
   saveLocalRepLocations,
   fetchPreviewsWithMetaFromFirestore,
   getLocalPreviewsWithMeta,
-  PreviewsWithMeta
+  PreviewsWithMeta,
+  fetchPhysicalQuotaPeriodsFromFirestore,
+  fetchPhysicalQuotaPeriodDataFromFirestore
 } from './lib/firebase';
 import { CustomMapBrazil } from './components/CustomMapBrazil';
 import { BRAZIL_STATES } from './components/BrazilPaths';
@@ -613,6 +615,31 @@ export default function App() {
       console.warn("API unavailable:", err);
     }
 
+    // 2b. Static JSON fallback for GitHub Pages / static deployment
+    try {
+      const baseUrl = (import.meta as any).env?.BASE_URL || './';
+      const jsonPath = baseUrl.endsWith('/') ? `${baseUrl}monthly_sales_db.json` : `${baseUrl}/monthly_sales_db.json`;
+      const response = await fetch(jsonPath);
+      if (response.ok) {
+        const db = await response.json();
+        if (db && typeof db === 'object') {
+          Object.values(db).forEach((p: any) => {
+            if (p && p.id && p.year && p.month && !periods.some(existing => existing.id === p.id)) {
+              periods.push({
+                id: p.id,
+                year: p.year,
+                month: p.month,
+                recordsCount: Array.isArray(p.records) ? p.records.length : 0,
+                updatedAt: p.updatedAt
+              });
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("Static JSON period list fallback unavailable:", err);
+    }
+
     // 3. Fallback & merge with LocalStorage index
     const localData = getLocalPeriodsIndex();
     if (Array.isArray(localData)) {
@@ -737,7 +764,25 @@ export default function App() {
         }
       }
 
-      // C. Fallback to LocalStorage (or initial raw data for default period)
+      // B2. Static JSON fallback for GitHub Pages / static hosting
+      if (monthRecords.length === 0) {
+        try {
+          const baseUrl = (import.meta as any).env?.BASE_URL || './';
+          const jsonPath = baseUrl.endsWith('/') ? `${baseUrl}monthly_sales_db.json` : `${baseUrl}/monthly_sales_db.json`;
+          const response = await fetch(jsonPath);
+          if (response.ok) {
+            const db = await response.json();
+            const periodKey = `${year}-${String(m).padStart(2, '0')}`;
+            if (db && db[periodKey] && Array.isArray(db[periodKey].records) && db[periodKey].records.length > 0) {
+              monthRecords = db[periodKey].records;
+            }
+          }
+        } catch (err) {
+          console.warn("Static sales JSON fallback failed:", err);
+        }
+      }
+
+      // C. Fallback to LocalStorage
       if (monthRecords.length === 0) {
         monthRecords = getLocalPeriodData(year, m);
       }
@@ -754,18 +799,59 @@ export default function App() {
   const fetchAvailablePhysicalQuotaPeriods = async () => {
     let periods: Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }> = [];
 
+    // A. Firestore if configured
+    if (getFirebaseConfig()) {
+      try {
+        const fsPeriods = await fetchPhysicalQuotaPeriodsFromFirestore();
+        if (Array.isArray(fsPeriods)) {
+          periods.push(...fsPeriods);
+        }
+      } catch (err) {
+        console.warn("Error fetching physical quota periods from Firestore:", err);
+      }
+    }
+
+    // B. Express backend API
     try {
       const response = await fetch('/api/physical-quotas');
       if (response.ok) {
         const data = await response.json();
         if (Array.isArray(data)) {
-          periods.push(...data);
+          data.forEach((p: any) => {
+            if (!periods.some(existing => existing.id === p.id)) {
+              periods.push(p);
+            }
+          });
         }
       }
     } catch (err) {
       console.warn("Error fetching physical quotas periods API:", err);
     }
 
+    // B2. Static JSON fallback for GitHub Pages / static hosting
+    try {
+      const baseUrl = (import.meta as any).env?.BASE_URL || './';
+      const jsonPath = baseUrl.endsWith('/') ? `${baseUrl}physical_quotas_db.json` : `${baseUrl}/physical_quotas_db.json`;
+      const response = await fetch(jsonPath);
+      if (response.ok) {
+        const db = await response.json();
+        if (db && typeof db === 'object') {
+          Object.values(db).forEach((p: any) => {
+            if (p && p.id && p.year && p.month && !periods.some(existing => existing.id === p.id)) {
+              periods.push({
+                id: p.id,
+                year: p.year,
+                month: p.month,
+                recordsCount: Array.isArray(p.records) ? p.records.length : 0,
+                updatedAt: p.updatedAt
+              });
+            }
+          });
+        }
+      }
+    } catch (err) {}
+
+    // C. LocalStorage fallback
     const localData = getLocalPhysicalQuotaPeriodsIndex();
     if (Array.isArray(localData)) {
       localData.forEach(p => {
@@ -797,18 +883,52 @@ export default function App() {
     for (const m of monthsToFetch) {
       let monthQuotaRecords: PhysicalQuotaRecord[] = [];
 
-      try {
-        const response = await fetch(`/api/physical-quotas/${year}/${m}`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data && Array.isArray(data.records) && data.records.length > 0) {
-            monthQuotaRecords = data.records;
+      // A. Try Firestore first if configured
+      if (getFirebaseConfig()) {
+        try {
+          const fsData = await fetchPhysicalQuotaPeriodDataFromFirestore(year, m);
+          if (fsData && fsData.length > 0) {
+            monthQuotaRecords = fsData;
           }
+        } catch (err) {
+          console.error(`Firestore error loading physical quota records for ${year}/${m}:`, err);
         }
-      } catch (err) {
-        console.warn(`Error fetching physical quota API for ${year}/${m}:`, err);
       }
 
+      // B. Try Express backend API
+      if (monthQuotaRecords.length === 0) {
+        try {
+          const response = await fetch(`/api/physical-quotas/${year}/${m}`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data && Array.isArray(data.records) && data.records.length > 0) {
+              monthQuotaRecords = data.records;
+            }
+          }
+        } catch (err) {
+          console.warn(`Error fetching physical quota API for ${year}/${m}:`, err);
+        }
+      }
+
+      // B2. Static JSON fallback for GitHub Pages / static hosting
+      if (monthQuotaRecords.length === 0) {
+        try {
+          const baseUrl = (import.meta as any).env?.BASE_URL || './';
+          const jsonPath = baseUrl.endsWith('/') ? `${baseUrl}physical_quotas_db.json` : `${baseUrl}/physical_quotas_db.json`;
+          const response = await fetch(jsonPath);
+          if (response.ok) {
+            const db = await response.json();
+            const periodKey = `${year}-${String(m).padStart(2, '0')}`;
+            if (db && db[periodKey] && Array.isArray(db[periodKey].records) && db[periodKey].records.length > 0) {
+              monthQuotaRecords = db[periodKey].records;
+            }
+          }
+        } catch (err) {
+          console.warn("Static physical quota JSON fallback failed:", err);
+        }
+      }
+
+      // C. Fallback to LocalStorage
       if (monthQuotaRecords.length === 0) {
         monthQuotaRecords = getLocalPhysicalQuotaPeriodData(year, m);
       }

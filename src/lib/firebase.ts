@@ -444,4 +444,134 @@ export const saveLocalRepLocations = (locations: Record<string, string>): void =
   }
 };
 
+// ---------------- Physical Quotas Persistence in Firestore ----------------
+
+export const fetchPhysicalQuotaPeriodsFromFirestore = async (): Promise<Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }>> => {
+  const db = getDb();
+  const collectionRef = collection(db, 'physical_quota_periods');
+  const snapshot = await getDocs(collectionRef);
+  
+  const periods: Array<{ id: string; year: number; month: number; recordsCount: number; updatedAt?: string }> = [];
+  snapshot.forEach((document) => {
+    const data = document.data();
+    const periodId = document.id;
+    let year = data.year;
+    let month = data.month;
+    if ((!year || !month) && periodId.includes('-')) {
+      const parts = periodId.split('-');
+      year = parseInt(parts[0]);
+      month = parseInt(parts[1]);
+    }
+    if (year && month) {
+      periods.push({
+        id: periodId,
+        year,
+        month,
+        recordsCount: data.recordsCount || 0,
+        updatedAt: data.updatedAt
+      });
+    }
+  });
+
+  return periods.sort((a, b) => b.id.localeCompare(a.id));
+};
+
+export const fetchPhysicalQuotaPeriodDataFromFirestore = async (year: number, month: number): Promise<import('../types').PhysicalQuotaRecord[]> => {
+  const db = getDb();
+  const periodId = `${year}-${String(month).padStart(2, '0')}`;
+
+  // Check main doc
+  try {
+    const docRef = doc(db, 'physical_quota_periods', periodId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      if (data && Array.isArray(data.records) && data.records.length > 0) {
+        return data.records;
+      }
+    }
+  } catch (e) {}
+
+  // Check items subcollection
+  const allRecords: import('../types').PhysicalQuotaRecord[] = [];
+  try {
+    const itemsCollection = collection(db, 'physical_quota_periods', periodId, 'items');
+    const querySnapshot = await getDocs(itemsCollection);
+    
+    const chunksWithIndex: Array<{ index: number; items: import('../types').PhysicalQuotaRecord[] }> = [];
+    querySnapshot.forEach((docSnapshot) => {
+      const data = docSnapshot.data();
+      if (data) {
+        const idx = typeof data.index === 'number' ? data.index : 0;
+        if (Array.isArray(data.chunk)) chunksWithIndex.push({ index: idx, items: data.chunk });
+        else if (Array.isArray(data.records)) chunksWithIndex.push({ index: idx, items: data.records });
+        else if (Array.isArray(data.items)) chunksWithIndex.push({ index: idx, items: data.items });
+      }
+    });
+    if (chunksWithIndex.length > 0) {
+      chunksWithIndex.sort((a, b) => a.index - b.index);
+      chunksWithIndex.forEach(c => allRecords.push(...c.items));
+      return allRecords;
+    }
+  } catch (err) {
+    console.error(`Error checking physical quota items subcollection for ${periodId}:`, err);
+  }
+
+  return allRecords;
+};
+
+export const savePhysicalQuotaPeriodToFirestore = async (year: number, month: number, records: import('../types').PhysicalQuotaRecord[]): Promise<void> => {
+  const db = getDb();
+  const periodId = `${year}-${String(month).padStart(2, '0')}`;
+  
+  const periodDocRef = doc(db, 'physical_quota_periods', periodId);
+  await setDoc(periodDocRef, {
+    id: periodId,
+    year,
+    month,
+    recordsCount: records.length,
+    updatedAt: new Date().toISOString()
+  });
+
+  const CHUNK_SIZE = 150;
+  const chunks: import('../types').PhysicalQuotaRecord[][] = [];
+  for (let i = 0; i < records.length; i += CHUNK_SIZE) {
+    chunks.push(records.slice(i, i + CHUNK_SIZE));
+  }
+
+  const itemsCollection = collection(db, 'physical_quota_periods', periodId, 'items');
+  const existingDocs = await getDocs(itemsCollection);
+  
+  const deleteBatch = writeBatch(db);
+  existingDocs.forEach((docSnapshot) => {
+    deleteBatch.delete(docSnapshot.ref);
+  });
+  await deleteBatch.commit();
+
+  for (let idx = 0; idx < chunks.length; idx++) {
+    const chunkDocRef = doc(db, 'physical_quota_periods', periodId, 'items', `chunk_${idx}`);
+    await setDoc(chunkDocRef, {
+      chunk: chunks[idx],
+      index: idx
+    });
+  }
+};
+
+export const deletePhysicalQuotaPeriodFromFirestore = async (year: number, month: number): Promise<void> => {
+  const db = getDb();
+  const periodId = `${year}-${String(month).padStart(2, '0')}`;
+  
+  const itemsCollection = collection(db, 'physical_quota_periods', periodId, 'items');
+  const existingDocs = await getDocs(itemsCollection);
+  
+  const deleteBatch = writeBatch(db);
+  existingDocs.forEach((docSnapshot) => {
+    deleteBatch.delete(docSnapshot.ref);
+  });
+  await deleteBatch.commit();
+
+  const periodDocRef = doc(db, 'physical_quota_periods', periodId);
+  await deleteDoc(periodDocRef);
+};
+
 

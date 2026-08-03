@@ -69,7 +69,10 @@ function getMappedGroupName(groupName: string | undefined): string {
 // Helper to save database
 function saveDatabase(db: Record<string, MonthData>): void {
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf-8");
+    const content = JSON.stringify(db, null, 2);
+    fs.writeFileSync(DB_FILE, content, "utf-8");
+    const publicPath = path.join(process.cwd(), "public", "monthly_sales_db.json");
+    fs.writeFileSync(publicPath, content, "utf-8");
   } catch (error) {
     console.error("Error saving JSON database:", error);
   }
@@ -190,7 +193,10 @@ function loadPhysicalQuotasDatabase(): Record<string, PhysicalQuotaMonthData> {
 
 function savePhysicalQuotasDatabase(db: Record<string, PhysicalQuotaMonthData>): void {
   try {
-    fs.writeFileSync(PHYSICAL_QUOTAS_DB_FILE, JSON.stringify(db, null, 2), "utf-8");
+    const content = JSON.stringify(db, null, 2);
+    fs.writeFileSync(PHYSICAL_QUOTAS_DB_FILE, content, "utf-8");
+    const publicPath = path.join(process.cwd(), "public", "physical_quotas_db.json");
+    fs.writeFileSync(publicPath, content, "utf-8");
   } catch (error) {
     console.error("Error saving Physical Quotas database:", error);
   }
