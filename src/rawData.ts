@@ -226,6 +226,68 @@ export const INITIAL_RAW_DATA = `AGE	REP	NOME REPRESENTANTE	COORD	NOME COORDENAD
 87	789	Dlm RepresentaÇÕEs C	3	Julio Warken	MUL		0	Sem Grupo	82.000	111.995	136,6	116.000	53.183	45,9	198.000	165.178	83,4	0	0	165.178	83,4	-32.822	118.099	90.040	208.139	105,1
 87	794	Manoel Rodrigues De	10	Juan Almeida	MUL		0	Sem Grupo	123.000	120.340	97,8	48.000	60.341	125,7	171.000	180.681	105,7	0	20.240	200.921	117,5	29.921	139.560	70.326	209.886	122,7`;
 
+export function isAllowedPhysicalQuotaGroup(groupName: string | undefined): boolean {
+  if (!groupName) return false;
+  const lower = groupName.trim().toLowerCase();
+
+  // Exclude non-tools and explicitly excluded items (panelas, tramontina teec, cutelaria, etc.)
+  if (
+    lower.includes("panela") ||
+    lower.includes("tramontina teec") ||
+    lower.includes("teec") ||
+    lower.includes("starflon") ||
+    lower.includes("porcelana") ||
+    lower.includes("frigideira") ||
+    lower.includes("inox") ||
+    lower.includes("plastico") ||
+    lower.includes("plástico") ||
+    lower.includes("utilidade") ||
+    lower.includes("talher") ||
+    lower.includes("móveis") ||
+    lower.includes("moveis") ||
+    lower.includes("lixeira") ||
+    lower.includes("pia") ||
+    lower.includes("cuba") ||
+    lower.includes("disjuntor") ||
+    lower.includes("interruptor") ||
+    lower.includes("cutelaria") ||
+    lower.includes("churrasco")
+  ) {
+    return false;
+  }
+
+  // Allowed list of 10 categories:
+  // 1. Facões
+  if (lower.includes("facoe") || lower.includes("facõe") || lower.includes("facao") || lower.includes("facão")) return true;
+  // 2. Articulados
+  if (lower.includes("articulado")) return true;
+  // 3. Martelos
+  if (lower.includes("martelo")) return true;
+  // 4. Chaves de Aperto
+  if (lower.includes("chaves de aperto") || lower.includes("chave de aperto")) return true;
+  // 5. Chaves de Fenda
+  if (lower.includes("chaves de fenda") || lower.includes("chave de fenda")) return true;
+  // 6. Ferramentas elétricas
+  if (
+    lower.includes("ferram. eletrica") || lower.includes("ferram. elétrica") ||
+    lower.includes("ferramentas eletrica") || lower.includes("ferramentas elétrica") ||
+    lower.includes("ferram. eletricas") || lower.includes("ferram. elétricas") ||
+    lower.includes("ferramentas eletricas") || lower.includes("ferramentas elétricas") ||
+    lower.includes("ferramenta eletrica") || lower.includes("ferramenta elétrica") ||
+    (lower.includes("eletrica") && !lower.includes("residen")) || (lower.includes("elétrica") && !lower.includes("residen"))
+  ) return true;
+  // 7. Brocas
+  if (lower.includes("broca")) return true;
+  // 8. Carrinhos de Mão
+  if (lower.includes("carrinhos de mao") || lower.includes("carrinhos de mão") || lower.includes("carrinho de mao") || lower.includes("carrinho de mão") || lower.includes("carrinho")) return true;
+  // 9. Pás
+  if (lower === "pas" || lower === "pás" || lower.startsWith("pas ") || lower.startsWith("pás ") || lower.endsWith(" pas") || lower.endsWith(" pás") || lower === "pa" || lower === "pà" || lower.includes(" pá") || lower.includes(" pa ")) return true;
+  // 10. Mangueira
+  if (lower.includes("mangueira")) return true;
+
+  return false;
+}
+
 export function parsePhysicalQuotaTSV(tsvText: string): import('./types').PhysicalQuotaRecord[] {
   const lines = tsvText.split('\n');
   const records: import('./types').PhysicalQuotaRecord[] = [];
@@ -369,20 +431,9 @@ export function parsePhysicalQuotaTSV(tsvText: string): import('./types').Physic
       }
     }
 
-    // Skip if groupName or linhaName explicitly refers to non-tools like Utilidades, Lar, Elétrica
-    const checkGroup = (groupName + " " + linhaName).toLowerCase();
-    if (
-      checkGroup.includes("utilidades") ||
-      checkGroup.includes("lar") ||
-      checkGroup.includes("elétrica") ||
-      checkGroup.includes("eletrica") ||
-      checkGroup.includes("porcelana") ||
-      checkGroup.includes("móveis") ||
-      checkGroup.includes("moveis")
-    ) {
-      if (!checkGroup.includes("ferramenta")) {
-        continue;
-      }
+    const finalGroup = groupName || 'Ferramentas Geral';
+    if (!isAllowedPhysicalQuotaGroup(finalGroup) && !isAllowedPhysicalQuotaGroup(linhaName)) {
+      continue;
     }
 
     if (repId > 0) {
@@ -397,7 +448,7 @@ export function parsePhysicalQuotaTSV(tsvText: string): import('./types').Physic
         repId,
         repName,
         coordName,
-        groupName: groupName || 'Ferramentas Geral',
+        groupName: finalGroup,
         cotaFisica,
         vendaFisica,
         defasagemFisica,

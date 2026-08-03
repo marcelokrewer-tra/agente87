@@ -27,17 +27,18 @@ const STORAGE_KEY_FIREBASE_CONFIG = 'tramontina_firebase_config_v1';
 export const getFirebaseConfig = (): FirebaseConfig | null => {
   // Check standard environment variables first
   const metaEnv = (import.meta as any).env || {};
-  const envConfig: FirebaseConfig = {
-    apiKey: metaEnv.VITE_FIREBASE_API_KEY || 'AIzaSyCd00KYTxhf4Gdw1tD8gR6GfQGl9gJxpyc',
-    authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN || 'agente87-7542b.firebaseapp.com',
-    projectId: metaEnv.VITE_FIREBASE_PROJECT_ID || 'agente87-7542b',
-    storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET || 'agente87-7542b.firebasestorage.app',
-    messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '173046313571',
-    appId: metaEnv.VITE_FIREBASE_APP_ID || '1:173046313571:web:b783d1ce49b27330ea3e56',
-  };
+  const apiKey = metaEnv.VITE_FIREBASE_API_KEY;
+  const projectId = metaEnv.VITE_FIREBASE_PROJECT_ID;
 
-  if (envConfig.apiKey && envConfig.projectId) {
-    return envConfig;
+  if (apiKey && projectId) {
+    return {
+      apiKey,
+      authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,
+      projectId,
+      storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`,
+      messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+      appId: metaEnv.VITE_FIREBASE_APP_ID || '',
+    };
   }
 
   // Check LocalStorage fallback

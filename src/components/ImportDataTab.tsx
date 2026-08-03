@@ -6,6 +6,7 @@ import {
   saveLocalPeriod,
   deleteLocalPeriod
 } from '../lib/storage';
+import { getFirebaseConfig, savePeriodToFirestore, deletePeriodFromFirestore } from '../lib/firebase';
 import { 
   FileSpreadsheet, 
   Upload, 
@@ -97,6 +98,14 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
     setSuccessStatus(null);
 
     try {
+      if (getFirebaseConfig()) {
+        try {
+          await savePeriodToFirestore(selectedYear, selectedMonth, parsedRecords);
+        } catch (fsErr) {
+          console.error("Erro ao salvar no Firestore:", fsErr);
+        }
+      }
+
       const res = await fetch("/api/monthly-data", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -138,6 +147,14 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
     setErrorStatus(null);
 
     try {
+      if (getFirebaseConfig()) {
+        try {
+          await deletePeriodFromFirestore(selectedYear, selectedMonth);
+        } catch (fsErr) {
+          console.error("Erro ao deletar no Firestore:", fsErr);
+        }
+      }
+
       await fetch(`/api/monthly-data/${selectedYear}/${selectedMonth}`, { method: 'DELETE' });
       deleteLocalPeriod(selectedYear, selectedMonth);
       onDataSaved(selectedYear, selectedMonth, []);

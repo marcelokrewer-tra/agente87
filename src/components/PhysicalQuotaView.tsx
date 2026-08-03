@@ -21,6 +21,7 @@ import {
   Layers
 } from 'lucide-react';
 import { PhysicalQuotaRecord } from '../types';
+import { isAllowedPhysicalQuotaGroup } from '../rawData';
 
 interface PhysicalQuotaViewProps {
   records: PhysicalQuotaRecord[];
@@ -77,15 +78,17 @@ export const PhysicalQuotaView: React.FC<PhysicalQuotaViewProps> = ({
   const [selectedProductGroup, setSelectedProductGroup] = useState<string>('All');
   const [expandedRepId, setExpandedRepId] = useState<number | null>(null);
 
-  // Apply priority representative names from "Importar nomes"
+  // Apply priority representative names from "Importar nomes" and filter allowed groups
   const mappedRecords = useMemo(() => {
-    return records.map(r => {
-      const customName = customRepNames[r.repId.toString().trim()] || customRepNames[r.repId];
-      return {
-        ...r,
-        repName: customName || r.repName
-      };
-    });
+    return records
+      .filter(r => isAllowedPhysicalQuotaGroup(r.groupName))
+      .map(r => {
+        const customName = customRepNames[r.repId.toString().trim()] || customRepNames[r.repId];
+        return {
+          ...r,
+          repName: customName || r.repName
+        };
+      });
   }, [records, customRepNames]);
 
   // Compute Period Label

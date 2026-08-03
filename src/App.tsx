@@ -679,16 +679,15 @@ export default function App() {
         const promises = monthsToFetch.map(m => fetchPeriodDataFromFirestore(year, m));
         const results = await Promise.all(promises);
         const combined = results.flat();
-        setAllRecords(combined);
-        setUsingLocalStorageFallback(false);
+        if (combined && combined.length > 0) {
+          setAllRecords(combined);
+          setUsingLocalStorageFallback(false);
+          setIsLoadingPeriod(false);
+          return;
+        }
       } catch (err: any) {
-        console.error("Firestore error loading period records:", err);
-        setPeriodFetchError(`Erro Firestore: ${err.message || 'Verifique as regras do banco de dados.'}`);
-        setAllRecords([]);
-      } finally {
-        setIsLoadingPeriod(false);
+        console.error("Firestore error loading period records, trying Express/LocalStorage fallback:", err);
       }
-      return;
     }
 
     // 2. Fallback to Express backend or LocalStorage
