@@ -1253,10 +1253,10 @@ export default function App() {
   const [showPreviewMetrics, setShowPreviewMetrics] = useState<boolean>(true);
 
   useEffect(() => {
-    if (activeTab === 'previa' && (!isDisplayingCurrentData || !selectedProductGroups.includes('All'))) {
+    if (activeTab === 'previa' && (!isDisplayingCurrentData || isAccumulated || !selectedProductGroups.includes('All'))) {
       setActiveTab('geral');
     }
-  }, [selectedYear, selectedMonth, isDisplayingCurrentData, selectedProductGroups, activeTab]);
+  }, [selectedYear, selectedMonth, isDisplayingCurrentData, isAccumulated, selectedProductGroups, activeTab]);
   
   // Detailed Modal for Representative Product Group breakdown
   const [selectedRepDetailId, setSelectedRepDetailId] = useState<number | null>(null);
@@ -1744,21 +1744,23 @@ export default function App() {
     let totalVendaDiaPrevia = 0;
     let totalPedidosNovos = 0;
 
-    previews.forEach(p => {
-      const isMatch = !hasAnyFilter || activeRepIds.has(p.repId.toString().trim());
-      if (isMatch) {
-        totalExpectativa += p.previaValue;
-        totalVendaDiaPrevia += p.vendaDiaPrevia;
+    if (!isAccumulated) {
+      previews.forEach(p => {
+        const isMatch = !hasAnyFilter || activeRepIds.has(p.repId.toString().trim());
+        if (isMatch) {
+          totalExpectativa += p.previaValue;
+          totalVendaDiaPrevia += p.vendaDiaPrevia;
 
-        const rep = repsAggregated.find(r => r.repId.toString().trim() === p.repId.toString().trim());
-        const currentSales = rep ? rep.totalVendido : 0;
-        totalPedidosNovos += (currentSales - p.vendaDiaPrevia);
-      }
-    });
+          const rep = repsAggregated.find(r => r.repId.toString().trim() === p.repId.toString().trim());
+          const currentSales = rep ? rep.totalVendido : 0;
+          totalPedidosNovos += (currentSales - p.vendaDiaPrevia);
+        }
+      });
+    }
 
     const totalVendaAtual = totals.valorVendaTotal;
     const defasagemPrevia = totalVendaAtual - totalVendaDiaPrevia - totalExpectativa;
-    const hasAnyPreview = previews.length > 0;
+    const hasAnyPreview = !isAccumulated && previews.length > 0;
 
     return {
       totalExpectativa,
@@ -1768,7 +1770,7 @@ export default function App() {
       totalPedidosNovos,
       hasAnyPreview
     };
-  }, [previews, activeRepIds, hasAnyFilter, totals.valorVendaTotal, repsAggregated]);
+  }, [previews, activeRepIds, hasAnyFilter, totals.valorVendaTotal, repsAggregated, isAccumulated]);
 
   // Top 5 Stars of the team
   const topPerformers = useMemo(() => {
@@ -1832,9 +1834,9 @@ export default function App() {
       const defasagemVal = valorVendaTotal - quotaTotal;
 
       const matchingPreview = previews.find(p => p.repId.toString().trim() === first.repId.toString().trim());
-      const pValue = matchingPreview ? matchingPreview.previaValue : 0;
-      const vDiaPrevia = matchingPreview ? matchingPreview.vendaDiaPrevia : 0;
-      const pNovos = valorVendaTotal - vDiaPrevia;
+      const pValue = (!isAccumulated && matchingPreview) ? matchingPreview.previaValue : 0;
+      const vDiaPrevia = (!isAccumulated && matchingPreview) ? matchingPreview.vendaDiaPrevia : 0;
+      const pNovos = !isAccumulated ? valorVendaTotal - vDiaPrevia : 0;
 
       const agg: SalesRecord = {
         id: first.repId.toString(),
@@ -1870,7 +1872,7 @@ export default function App() {
       };
       return agg;
     }).filter(r => r.quotaTotal > 0);
-  }, [filteredRecords, previews]);
+  }, [filteredRecords, previews, isAccumulated]);
 
   // Sorting logic for details table
   const sortedDetails = useMemo(() => {
@@ -1912,20 +1914,25 @@ export default function App() {
 
   // Export current filtered rows to a downloadable CSV
   const exportToCSV = () => {
-    const headers = [
-      'Representante ID', 'Nome Representante', 'Coordenador', 'Grupo', 
-      'Cota Total', 'Vendas Total', '% Venda', 'Defasagem', 'Prévia', 'Pedidos Novos'
-    ];
+    const headers = isAccumulated
+      ? [
+          'Representante ID', 'Nome Representante', 'Coordenador', 'Grupo', 
+          'Cota Total', 'Vendas Total', '% Venda', 'Defasagem'
+        ]
+      : [
+          'Representante ID', 'Nome Representante', 'Coordenador', 'Grupo', 
+          'Cota Total', 'Vendas Total', '% Venda', 'Defasagem', 'Prévia', 'Pedidos Novos'
+        ];
     
     const csvRows = [
       headers.join(';'), // semicolon for Excel friendly portuguese locale parser
       ...sortedDetails.map(r => {
         const matchingPreview = previews.find(p => p.repId.toString().trim() === r.repId.toString().trim());
-        const previaVal = matchingPreview ? matchingPreview.previaValue : 0;
-        const vendaDiaPrevia = matchingPreview ? matchingPreview.vendaDiaPrevia : 0;
-        const pedNovos = r.valorVendaTotal - vendaDiaPrevia;
+        const previaVal = (!isAccumulated && matchingPreview) ? matchingPreview.previaValue : 0;
+        const vendaDiaPrevia = (!isAccumulated && matchingPreview) ? matchingPreview.vendaDiaPrevia : 0;
+        const pedNovos = !isAccumulated ? r.valorVendaTotal - vendaDiaPrevia : 0;
         
-        return [
+        const rowCols = [
           r.repId,
           `"${r.repName.replace(/"/g, '""')}"`,
           `"${r.coordName.replace(/"/g, '""')}"`,
@@ -1933,10 +1940,15 @@ export default function App() {
           r.quotaTotal.toString().replace('.', ','),
           r.valorVendaTotal.toString().replace('.', ','),
           (r.quotaTotal > 0 ? ((r.valorVendaTotal / r.quotaTotal) * 100).toFixed(1) : '0').replace('.', ','),
-          r.defasagem.toString().replace('.', ','),
-          previaVal.toString().replace('.', ','),
-          pedNovos.toString().replace('.', ',')
-        ].join(';');
+          r.defasagem.toString().replace('.', ',')
+        ];
+
+        if (!isAccumulated) {
+          rowCols.push(previaVal.toString().replace('.', ','));
+          rowCols.push(pedNovos.toString().replace('.', ','));
+        }
+
+        return rowCols.join(';');
       })
     ];
 
@@ -3214,7 +3226,7 @@ export default function App() {
               )}
 
               {/* PREVIEW METRICS SECTION */}
-              {isDisplayingCurrentData && selectedProductGroups.includes('All') && previewTotals.hasAnyPreview && (
+              {isDisplayingCurrentData && !isAccumulated && selectedProductGroups.includes('All') && previewTotals.hasAnyPreview && (
                 <div className="bg-gradient-to-r from-indigo-50/70 via-slate-50/60 to-blue-50/50 border border-indigo-200/70 rounded-2xl p-3.5 sm:p-5 space-y-3.5 shadow-2xs transition-all">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100 pb-3">
                     <div className="flex items-center gap-2.5">
@@ -3351,7 +3363,7 @@ export default function App() {
                     <div className="absolute left-0 mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 z-20 origin-top-left">
                       {[
                         { id: 'importar', label: 'Importar Dados de Vendas', icon: <FileSpreadsheet className="w-4 h-4 text-indigo-500" /> },
-                        { id: 'previa', label: 'Importar Prévia', icon: <Target className="w-4 h-4 text-indigo-600" /> },
+                        ...(!isAccumulated ? [{ id: 'previa', label: 'Importar Prévia', icon: <Target className="w-4 h-4 text-indigo-600" /> }] : []),
                         { id: 'nomes', label: 'Importar Nomes', icon: <UserCog className="w-4 h-4 text-emerald-500" /> },
                         { id: 'localizacao', label: 'Importar Localização', icon: <MapPin className="w-4 h-4 text-rose-500" /> }
                       ].map(subTab => (
@@ -3849,12 +3861,16 @@ export default function App() {
                         <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('defasagem')}>
                           <span className="flex items-center gap-1 justify-end">Defasagem <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
                         </th>
-                        <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('previaValue')}>
-                          <span className="flex items-center gap-1 justify-end">Prévia <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
-                        </th>
-                        <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('pedidosNovos')}>
-                          <span className="flex items-center gap-1 justify-end">Pedidos Novos <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
-                        </th>
+                        {!isAccumulated && (
+                          <>
+                            <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('previaValue')}>
+                              <span className="flex items-center gap-1 justify-end">Prévia <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
+                            </th>
+                            <th className="py-3 px-3 cursor-pointer hover:bg-slate-50 transition-colors text-right" onClick={() => toggleSort('pedidosNovos')}>
+                              <span className="flex items-center gap-1 justify-end">Pedidos Novos <ArrowUpDown className="w-3 h-3 text-slate-400" /></span>
+                            </th>
+                          </>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -3884,19 +3900,23 @@ export default function App() {
                             <td className={`py-3 px-3 text-right font-mono font-bold ${row.defasagem >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
                               {formatCurrency(row.defasagem)}
                             </td>
-                            <td className="py-3 px-3 text-right font-mono text-slate-600">
-                              {formatCurrency(row.previaValue || 0)}
-                            </td>
-                            <td className={`py-3 px-3 text-right font-mono font-bold ${(row.pedidosNovos ?? 0) >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
-                              {formatCurrency(row.pedidosNovos || 0)}
-                            </td>
+                            {!isAccumulated && (
+                              <>
+                                <td className="py-3 px-3 text-right font-mono text-slate-600">
+                                  {formatCurrency(row.previaValue || 0)}
+                                </td>
+                                <td className={`py-3 px-3 text-right font-mono font-bold ${(row.pedidosNovos ?? 0) >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                                  {formatCurrency(row.pedidosNovos || 0)}
+                                </td>
+                              </>
+                            )}
                           </tr>
                         );
                       })}
 
                       {currentDetailsPageData.length === 0 && (
                         <tr>
-                          <td colSpan={9} className="py-8 text-center text-slate-400">Nenhum registro corresponde aos filtros atuais.</td>
+                          <td colSpan={isAccumulated ? 7 : 9} className="py-8 text-center text-slate-400">Nenhum registro corresponde aos filtros atuais.</td>
                         </tr>
                       )}
                     </tbody>
