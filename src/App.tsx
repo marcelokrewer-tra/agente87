@@ -1253,10 +1253,10 @@ export default function App() {
   const [showPreviewMetrics, setShowPreviewMetrics] = useState<boolean>(true);
 
   useEffect(() => {
-    if (activeTab === 'previa' && (!isDisplayingCurrentData || isAccumulated || !selectedProductGroups.includes('All'))) {
+    if (activeTab === 'previa' && (isAccumulated || !selectedProductGroups.includes('All'))) {
       setActiveTab('geral');
     }
-  }, [selectedYear, selectedMonth, isDisplayingCurrentData, isAccumulated, selectedProductGroups, activeTab]);
+  }, [selectedYear, selectedMonth, isAccumulated, selectedProductGroups, activeTab]);
   
   // Detailed Modal for Representative Product Group breakdown
   const [selectedRepDetailId, setSelectedRepDetailId] = useState<number | null>(null);
@@ -1743,11 +1743,13 @@ export default function App() {
     let totalExpectativa = 0;
     let totalVendaDiaPrevia = 0;
     let totalPedidosNovos = 0;
+    let matchedPreviewsCount = 0;
 
     if (!isAccumulated) {
       previews.forEach(p => {
         const isMatch = !hasAnyFilter || activeRepIds.has(p.repId.toString().trim());
         if (isMatch) {
+          matchedPreviewsCount++;
           totalExpectativa += p.previaValue;
           totalVendaDiaPrevia += p.vendaDiaPrevia;
 
@@ -1760,7 +1762,7 @@ export default function App() {
 
     const totalVendaAtual = totals.valorVendaTotal;
     const defasagemPrevia = totalVendaAtual - totalVendaDiaPrevia - totalExpectativa;
-    const hasAnyPreview = !isAccumulated && previews.length > 0;
+    const hasAnyPreview = !isAccumulated && (hasAnyFilter ? matchedPreviewsCount > 0 : previews.length > 0);
 
     return {
       totalExpectativa,
@@ -3226,7 +3228,7 @@ export default function App() {
               )}
 
               {/* PREVIEW METRICS SECTION */}
-              {isDisplayingCurrentData && !isAccumulated && selectedProductGroups.includes('All') && previewTotals.hasAnyPreview && (
+              {!isAccumulated && selectedProductGroups.includes('All') && previewTotals.hasAnyPreview && (
                 <div className="bg-gradient-to-r from-indigo-50/70 via-slate-50/60 to-blue-50/50 border border-indigo-200/70 rounded-2xl p-3.5 sm:p-5 space-y-3.5 shadow-2xs transition-all">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100 pb-3">
                     <div className="flex items-center gap-2.5">
