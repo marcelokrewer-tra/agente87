@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   INITIAL_RAW_DATA, 
@@ -1977,6 +1979,217 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  // Export detailed table rows to a structured, printable PDF document
+  const exportToPDF = () => {
+    const doc = new jsPDF({
+      orientation: 'landscape',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const monthNames = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+
+    const periodTypeLabel = isAccumulated ? 'Acumulativo' : 'Mês Único';
+    const periodStr = isAccumulated
+      ? `${monthNames[accumulateStartMonth - 1]} a ${monthNames[accumulateEndMonth - 1]} / ${selectedYear}`
+      : `${monthNames[selectedMonth - 1]} / ${selectedYear}`;
+
+    // Filters summary string
+    const filtersList: string[] = [];
+    if (selectedCoordinator !== 'All') filtersList.push(`Coordenador: ${selectedCoordinator}`);
+    if (!selectedProductGroups.includes('All')) filtersList.push(`Grupos: ${selectedProductGroups.join(', ')}`);
+    if (selectedState) filtersList.push(`Estado: ${selectedState}`);
+    if (userRole === 'rep' && (userRepName || userRepId)) {
+      filtersList.push(`Rep. Logado: ${userRepName || `#${userRepId}`}`);
+    } else if (selectedRepIdFilter) {
+      filtersList.push(`Rep. ID: #${selectedRepIdFilter}`);
+    } else if (searchText.trim()) {
+      filtersList.push(`Filtro Busca: "${searchText}"`);
+    }
+    const filterSummaryStr = filtersList.length > 0 ? filtersList.join(' | ') : 'Nenhum filtro específico (Geral)';
+
+    const nowStr = new Date().toLocaleString('pt-BR');
+
+    // Split items into chunks of max 20 representatives per page
+    const CHUNK_SIZE = 20;
+    const itemsChunks: SalesRecord[][] = [];
+    for (let i = 0; i < sortedDetails.length; i += CHUNK_SIZE) {
+      itemsChunks.push(sortedDetails.slice(i, i + CHUNK_SIZE));
+    }
+    if (itemsChunks.length === 0) {
+      itemsChunks.push([]);
+    }
+
+    const totalPages = itemsChunks.length;
+
+    // Headers
+    const headers = isAccumulated
+      ? ['REP ID', 'Representante', 'Coordenador', 'Grupo', 'Cota Planejada', 'Vendas Total', '% Venda', 'Defasagem']
+      : ['REP ID', 'Representante', 'Coordenador', 'Grupo', 'Cota Planejada', 'Vendas Total', '% Venda', 'Defasagem', 'Prévia', 'Pedidos Novos'];
+
+    const defasagemColIndex = 7;
+
+    itemsChunks.forEach((chunk, chunkIdx) => {
+      if (chunkIdx > 0) {
+        doc.addPage();
+      }
+
+      // 1. Top Header Banner (Tramontina Navy)
+      doc.setFillColor(0, 26, 156); // #001A9C
+      doc.rect(0, 0, 297, 10, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(255, 255, 255);
+      doc.text('TRAMONTINA - AGENTE 87', 12, 7);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.text('Relatório Detalhado de Vendas', 285, 7, { align: 'right' });
+
+      // 2. Metadata Box
+      doc.setFillColor(248, 250, 252); // slate-50
+      doc.rect(12, 12, 273, 10, 'F');
+      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.rect(12, 12, 273, 10, 'S');
+
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42); // slate-900
+      doc.text(`Tipo de Período: `, 15, 16);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${periodTypeLabel} (${periodStr})`, 38, 16);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Data de Emissão: `, 195, 16);
+      doc.setFont('helvetica', 'normal');
+      doc.text(nowStr, 220, 16);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Filtros Aplicados: `, 15, 20);
+      doc.setFont('helvetica', 'normal');
+      doc.text(filterSummaryStr.length > 90 ? filterSummaryStr.slice(0, 90) + '...' : filterSummaryStr, 38, 20);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Página: `, 195, 20);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${chunkIdx + 1} de ${totalPages} (${chunk.length} reps)`, 208, 20);
+
+      // 3. Prepare Table Rows for Chunk
+      const tableData = chunk.map(r => {
+        const matchingPreview = previews.find(p => p.repId.toString().trim() === r.repId.toString().trim());
+        const previaVal = (!isAccumulated && matchingPreview) ? matchingPreview.previaValue : 0;
+        const vendaDiaPrevia = (!isAccumulated && matchingPreview) ? matchingPreview.vendaDiaPrevia : 0;
+        const pedNovos = !isAccumulated ? r.valorVendaTotal - vendaDiaPrevia : 0;
+        const pct = r.quotaTotal > 0 ? (r.valorVendaTotal / r.quotaTotal) * 100 : 0;
+
+        const row = [
+          r.repId.toString(),
+          r.repName,
+          r.coordName,
+          r.groupName,
+          formatCurrency(r.quotaTotal),
+          formatCurrency(r.valorVendaTotal),
+          `${pct.toFixed(1).replace('.', ',')}%`,
+          formatDefasagem(r.defasagem)
+        ];
+
+        if (!isAccumulated) {
+          row.push(formatCurrency(previaVal));
+          row.push(formatCurrency(pedNovos));
+        }
+
+        return row;
+      });
+
+      // 4. Calculate adaptive padding to fill page nicely based on row count
+      const dynamicPadding = chunk.length <= 10 ? 3.5 : (chunk.length <= 15 ? 2.8 : 2.2);
+
+      // Generate autoTable for this page
+      autoTable(doc, {
+        head: [headers],
+        body: tableData,
+        startY: 24,
+        pageBreak: 'avoid',
+        rowPageBreak: 'avoid',
+        theme: 'striped',
+        styles: {
+          fontSize: 8.5,
+          cellPadding: dynamicPadding,
+          font: 'helvetica',
+          textColor: [51, 65, 85],
+          overflow: 'ellipsize'
+        },
+        headStyles: {
+          fillColor: [15, 23, 42], // slate-900
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 9,
+          cellPadding: Math.max(dynamicPadding, 2.4)
+        },
+        columnStyles: isAccumulated ? {
+          0: { cellWidth: 18, fontStyle: 'bold' }, // REP ID
+          1: { cellWidth: 60 }, // Representante
+          2: { cellWidth: 48 }, // Coordenador
+          3: { cellWidth: 40 }, // Grupo
+          4: { halign: 'right', cellWidth: 30 }, // Cota Planejada
+          5: { halign: 'right', cellWidth: 30 }, // Vendas Total
+          6: { halign: 'right', cellWidth: 20, fontStyle: 'bold' }, // % Venda
+          7: { halign: 'right', cellWidth: 27, fontStyle: 'bold' } // Defasagem
+        } : {
+          0: { cellWidth: 16, fontStyle: 'bold' }, // REP ID
+          1: { cellWidth: 44 }, // Representante
+          2: { cellWidth: 38 }, // Coordenador
+          3: { cellWidth: 34 }, // Grupo
+          4: { halign: 'right', cellWidth: 26 }, // Cota Planejada
+          5: { halign: 'right', cellWidth: 26 }, // Vendas Total
+          6: { halign: 'right', cellWidth: 18, fontStyle: 'bold' }, // % Venda
+          7: { halign: 'right', cellWidth: 25, fontStyle: 'bold' }, // Defasagem
+          8: { halign: 'right', cellWidth: 23 }, // Prévia
+          9: { halign: 'right', cellWidth: 23, fontStyle: 'bold' } // Pedidos Novos
+        },
+        didParseCell: (data) => {
+          if (data.section === 'body') {
+            const rowItem = chunk[data.row.index];
+            if (rowItem) {
+              if (data.column.index === defasagemColIndex) {
+                if (rowItem.defasagem < 0) {
+                  data.cell.styles.textColor = [220, 38, 38]; // Red
+                  data.cell.styles.fontStyle = 'bold';
+                } else {
+                  data.cell.styles.textColor = [22, 163, 74]; // Green
+                  data.cell.styles.fontStyle = 'bold';
+                }
+              }
+              if (!isAccumulated && data.column.index === 9) {
+                const matchingPreview = previews.find(p => p.repId.toString().trim() === rowItem.repId.toString().trim());
+                const vendaDiaPrevia = matchingPreview ? matchingPreview.vendaDiaPrevia : 0;
+                const pedNovos = rowItem.valorVendaTotal - vendaDiaPrevia;
+                if (pedNovos < 0) {
+                  data.cell.styles.textColor = [220, 38, 38];
+                } else if (pedNovos > 0) {
+                  data.cell.styles.textColor = [22, 163, 74];
+                }
+              }
+            }
+          }
+        },
+        margin: { left: 12, right: 12, top: 24, bottom: 5 }
+      });
+
+      // 5. Footer
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184); // slate-400
+      doc.text(`Agente 87 - Tramontina | Relatório para Exportação e Impressão | Página ${chunkIdx + 1} de ${totalPages}`, 12, 203);
+    });
+
+    const periodFileSuffix = isAccumulated ? `Acumulado_${selectedYear}` : `${selectedMonth}_${selectedYear}`;
+    doc.save(`Relatorio_Vendas_Tramontina_${periodFileSuffix}.pdf`);
+  };
+
   // Export representative sales percentage to a high-quality JPEG image
   const exportPctVendasToJPG = () => {
     const periodText = isAccumulated
@@ -3841,13 +4054,34 @@ export default function App() {
                     <p className="text-xs text-slate-400 mt-0.5">Mostrando {sortedDetails.length} linhas de representantes ativos. Clique nos cabeçalhos para ordenar.</p>
                   </div>
                   
-                  <button
-                    onClick={exportPctVendasToJPG}
-                    className="flex items-center gap-1.5 self-start md:self-center bg-[#001A9C] hover:bg-[#00147a] text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    Exportar % Vendas
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2 self-start md:self-center">
+                    <button
+                      onClick={exportToPDF}
+                      className="flex items-center gap-1.5 bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                      title="Exportar tabela formatada em PDF para impressão (máx. 20 representantes por página)"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      Exportar PDF
+                    </button>
+
+                    <button
+                      onClick={exportToCSV}
+                      className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                      title="Exportar dados em formato CSV para Excel"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5" />
+                      Exportar CSV
+                    </button>
+
+                    <button
+                      onClick={exportPctVendasToJPG}
+                      className="flex items-center gap-1.5 bg-[#001A9C] hover:bg-[#00147a] text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                      title="Exportar imagem de % de Vendas"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Exportar % Vendas
+                    </button>
+                  </div>
                 </div>
 
                 {/* Table block */}
