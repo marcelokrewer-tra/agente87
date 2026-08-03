@@ -1747,22 +1747,35 @@ export default function App() {
 
     if (!isAccumulated) {
       previews.forEach(p => {
-        const isMatch = !hasAnyFilter || activeRepIds.has(p.repId.toString().trim());
-        if (isMatch) {
-          matchedPreviewsCount++;
-          totalExpectativa += p.previaValue;
-          totalVendaDiaPrevia += p.vendaDiaPrevia;
-
-          const rep = repsAggregated.find(r => r.repId.toString().trim() === p.repId.toString().trim());
-          const currentSales = rep ? rep.totalVendido : 0;
-          totalPedidosNovos += (currentSales - p.vendaDiaPrevia);
+        const pRepIdStr = p.repId.toString().trim();
+        
+        // When logged in as representative, strictly isolate to their own rep ID
+        if (userRole === 'rep' && userRepId !== null) {
+          if (pRepIdStr !== userRepId.toString().trim()) {
+            return;
+          }
+        } else if (hasAnyFilter && !activeRepIds.has(pRepIdStr)) {
+          // Admin with active filters: skip previews for non-matching reps
+          return;
         }
+
+        matchedPreviewsCount++;
+        totalExpectativa += p.previaValue;
+        totalVendaDiaPrevia += p.vendaDiaPrevia;
+
+        const rep = repsAggregated.find(r => r.repId.toString().trim() === pRepIdStr);
+        const currentSales = rep ? rep.totalVendido : 0;
+        totalPedidosNovos += (currentSales - p.vendaDiaPrevia);
       });
     }
 
     const totalVendaAtual = totals.valorVendaTotal;
     const defasagemPrevia = totalVendaAtual - totalVendaDiaPrevia - totalExpectativa;
-    const hasAnyPreview = !isAccumulated && (hasAnyFilter ? matchedPreviewsCount > 0 : previews.length > 0);
+    const hasAnyPreview = !isAccumulated && (
+      (userRole === 'rep' && userRepId !== null)
+        ? matchedPreviewsCount > 0
+        : (hasAnyFilter ? matchedPreviewsCount > 0 : previews.length > 0)
+    );
 
     return {
       totalExpectativa,
@@ -1772,7 +1785,7 @@ export default function App() {
       totalPedidosNovos,
       hasAnyPreview
     };
-  }, [previews, activeRepIds, hasAnyFilter, totals.valorVendaTotal, repsAggregated, isAccumulated]);
+  }, [previews, activeRepIds, hasAnyFilter, totals.valorVendaTotal, repsAggregated, isAccumulated, userRole, userRepId]);
 
   // Top 5 Stars of the team
   const topPerformers = useMemo(() => {
