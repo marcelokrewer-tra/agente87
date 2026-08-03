@@ -86,15 +86,18 @@ export const getLocalPeriodData = (year: number, month: number): SalesRecord[] =
   try {
     const stored = localStorage.getItem(periodKey);
     if (stored) {
-      return JSON.parse(stored);
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
     }
   } catch (e) {
     console.error("Error reading period data from localStorage", e);
   }
 
-  // Fallback seed generator for period
-  const defaultRecords = generateDefaultSalesForPeriod(year, month);
-  if (defaultRecords && defaultRecords.length > 0) {
+  // Fallback seed ONLY for initial period June 2026 (2026-06)
+  if (year === 2026 && month === 6) {
+    const defaultRecords = parseTSV(INITIAL_RAW_DATA);
     try {
       localStorage.setItem(periodKey, JSON.stringify(defaultRecords));
     } catch (e) {}

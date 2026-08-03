@@ -136,21 +136,63 @@ export const fetchPeriodDataFromFirestore = async (year: number, month: number):
   const db = getDb();
   const periodId = `${year}-${String(month).padStart(2, '0')}`;
   
-  // We store the sales data in 'sales_periods/{periodId}/records/all' or chunked to stay under size limits.
-  // To avoid size limitations per document (Firestore limit is 1MB), 
-  // we save the records as array chunks or subdocuments if it is extremely large, 
-  // or simple single doc for typical periods.
-  // Let's store chunked documents in a subcollection 'items' inside 'sales_periods/{periodId}/items'
-  const itemsCollection = collection(db, 'sales_periods', periodId, 'items');
-  const querySnapshot = await getDocs(itemsCollection);
-  
-  const allRecords: SalesRecord[] = [];
-  querySnapshot.forEach((docSnapshot) => {
-    const data = docSnapshot.data();
-    if (data && Array.isArray(data.chunk)) {
-      allRecords.push(...data.chunk);
+  // A. Check main document 'sales_periods/{periodId}' directly
+  try {
+    const periodDocRef = doc(db, 'sales_periods', periodId);
+    const periodDocSnap = await getDoc(periodDocRef);
+    if (periodDocSnap.exists()) {
+      const data = periodDocSnap.data();
+      if (data) {
+        if (Array.isArray(data.records) && data.records.length > 0) return data.records;
+        if (Array.isArray(data.items) && data.items.length > 0) return data.items;
+        if (Array.isArray(data.chunk) && data.chunk.length > 0) return data.chunk;
+        if (Array.isArray(data.data) && data.data.length > 0) return data.data;
+      }
     }
-  });
+  } catch (err) {
+    console.error(`Error checking period doc ${periodId}:`, err);
+  }
+
+  const allRecords: SalesRecord[] = [];
+
+  // B. Check subcollection 'sales_periods/{periodId}/items'
+  try {
+    const itemsCollection = collection(db, 'sales_periods', periodId, 'items');
+    const querySnapshot = await getDocs(itemsCollection);
+    
+    querySnapshot.forEach((docSnapshot) => {
+      const data = docSnapshot.data();
+      if (data) {
+        if (Array.isArray(data.chunk)) allRecords.push(...data.chunk);
+        else if (Array.isArray(data.records)) allRecords.push(...data.records);
+        else if (Array.isArray(data.items)) allRecords.push(...data.items);
+      }
+    });
+
+    if (allRecords.length > 0) {
+      return allRecords;
+    }
+  } catch (err) {
+    console.error(`Error checking items subcollection for ${periodId}:`, err);
+  }
+
+  // C. Check subcollection 'sales_periods/{periodId}/records'
+  try {
+    const recordsCollection = collection(db, 'sales_periods', periodId, 'records');
+    const querySnapshot = await getDocs(recordsCollection);
+    
+    querySnapshot.forEach((docSnapshot) => {
+      const data = docSnapshot.data();
+      if (data) {
+        if (Array.isArray(data.chunk)) allRecords.push(...data.chunk);
+        else if (Array.isArray(data.records)) allRecords.push(...data.records);
+        else if (Array.isArray(data.items)) allRecords.push(...data.items);
+        else if (Array.isArray(data.all)) allRecords.push(...data.all);
+      }
+    });
+  } catch (err) {
+    console.error(`Error checking records subcollection for ${periodId}:`, err);
+  }
 
   return allRecords;
 };

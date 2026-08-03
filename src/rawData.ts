@@ -461,57 +461,7 @@ export function parsePhysicalQuotaTSV(tsvText: string): import('./types').Physic
 }
 
 export function generateDefaultSalesForPeriod(year: number, month: number): SalesRecord[] {
-  const baseRecords = parseTSV(INITIAL_RAW_DATA);
-  if (year === 2026 && month === 6) {
-    return baseRecords;
-  }
-
-  const yearFactor = year === 2025 ? 0.91 : (year === 2024 ? 0.85 : 1.0);
-  const monthFactor = 0.82 + (month % 6) * 0.07;
-
-  return baseRecords.map((r, idx) => {
-    const quotaCD = Math.round((r.quotaCD || 0) * yearFactor * monthFactor);
-    const quotaVP = Math.round((r.quotaVP || 0) * yearFactor * monthFactor);
-    const quotaTotal = quotaCD + quotaVP;
-
-    const valorVendaCD = Math.round((r.valorVendaCD || 0) * yearFactor * (monthFactor + 0.03));
-    const valorVendaVP = Math.round((r.valorVendaVP || 0) * yearFactor * (monthFactor - 0.02));
-    const valorVendaTotal = valorVendaCD + valorVendaVP;
-
-    const faturadoCD = Math.round((r.faturadoCD || 0) * yearFactor * monthFactor);
-    const faturadoVP = Math.round((r.faturadoVP || 0) * yearFactor * monthFactor);
-    const faturadoTotal = faturadoCD + faturadoVP;
-
-    const pendenteCD = Math.round((r.pendenteCD || 0) * yearFactor);
-    const pendenteVP = Math.round((r.pendenteVP || 0) * yearFactor);
-
-    const pctCD = quotaCD > 0 ? (valorVendaCD / quotaCD) * 100 : 0;
-    const pctVP = quotaVP > 0 ? (valorVendaVP / quotaVP) * 100 : 0;
-    const pctTotal = quotaTotal > 0 ? (valorVendaTotal / quotaTotal) * 100 : 0;
-    const defasagem = valorVendaTotal - quotaTotal;
-
-    return {
-      ...r,
-      id: `${r.repId}-${r.groupId}-${year}-${month}-${idx}`,
-      quotaCD,
-      quotaVP,
-      quotaTotal,
-      valorVendaCD,
-      valorVendaVP,
-      valorVendaTotal,
-      faturadoCD,
-      faturadoVP,
-      faturadoTotal,
-      pendenteCD,
-      pendenteVP,
-      faturadoEPendente: faturadoTotal + pendenteCD + pendenteVP,
-      pctCD,
-      pctVP,
-      pctTotal,
-      pctVenda: pctTotal,
-      defasagem
-    };
-  });
+  return parseTSV(INITIAL_RAW_DATA);
 }
 
 export function generateDefaultPhysicalQuotas(year: number, month: number): import('./types').PhysicalQuotaRecord[] {
