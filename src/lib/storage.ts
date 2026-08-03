@@ -1,5 +1,5 @@
 import { SalesRecord } from '../types';
-import { parseTSV, INITIAL_RAW_DATA } from '../rawData';
+import { parseTSV, INITIAL_RAW_DATA, generateDefaultSalesForPeriod, generateDefaultPhysicalQuotas } from '../rawData';
 
 export interface PeriodInfo {
   id: string;
@@ -13,6 +13,23 @@ export interface PeriodInfo {
 const PERIODS_INDEX_KEY = 'tramontina_periods_index';
 const PERIOD_DATA_PREFIX = 'tramontina_period_';
 
+// Generate default list of available sales periods (2025-01..12, 2026-01..06)
+const getDefaultPeriodsList = (): PeriodInfo[] => {
+  const list: PeriodInfo[] = [];
+  const baseCount = parseTSV(INITIAL_RAW_DATA).length;
+  // 2026: months 1..6
+  for (let m = 6; m >= 1; m--) {
+    const id = `2026-${String(m).padStart(2, '0')}`;
+    list.push({ id, year: 2026, month: m, recordsCount: baseCount, updatedAt: new Date().toISOString() });
+  }
+  // 2025: months 1..12
+  for (let m = 12; m >= 1; m--) {
+    const id = `2025-${String(m).padStart(2, '0')}`;
+    list.push({ id, year: 2025, month: m, recordsCount: baseCount, updatedAt: new Date().toISOString() });
+  }
+  return list;
+};
+
 export const getLocalPeriodsIndex = (): PeriodInfo[] => {
   if (typeof window === 'undefined') return [];
   try {
@@ -24,10 +41,8 @@ export const getLocalPeriodsIndex = (): PeriodInfo[] => {
     console.error("Error reading periods index from localStorage", e);
   }
 
-  // Initialize with default initial active period (June 2026)
-  const defaultIndex: PeriodInfo[] = [
-    { id: '2026-06', year: 2026, month: 6, recordsCount: parseTSV(INITIAL_RAW_DATA).length, updatedAt: new Date().toISOString() },
-  ];
+  // Initialize with default historical periods (2025 and 2026)
+  const defaultIndex = getDefaultPeriodsList();
   try {
     localStorage.setItem(PERIODS_INDEX_KEY, JSON.stringify(defaultIndex));
   } catch (e) {
@@ -77,9 +92,9 @@ export const getLocalPeriodData = (year: number, month: number): SalesRecord[] =
     console.error("Error reading period data from localStorage", e);
   }
 
-  // Fallback for default seed period (June 2026)
-  if (year === 2026 && month === 6) {
-    const defaultRecords = parseTSV(INITIAL_RAW_DATA);
+  // Fallback seed generator for period
+  const defaultRecords = generateDefaultSalesForPeriod(year, month);
+  if (defaultRecords && defaultRecords.length > 0) {
     try {
       localStorage.setItem(periodKey, JSON.stringify(defaultRecords));
     } catch (e) {}
@@ -109,6 +124,18 @@ export const deleteLocalPeriod = (year: number, month: number): void => {
 const PHYSICAL_PERIODS_INDEX_KEY = 'tramontina_physical_periods_index';
 const PHYSICAL_PERIOD_DATA_PREFIX = 'tramontina_physical_period_';
 
+const getDefaultPhysicalQuotaPeriodsList = (): PeriodInfo[] => {
+  const list: PeriodInfo[] = [];
+  const repCount = 28;
+  for (let m = 6; m >= 1; m--) {
+    list.push({ id: `2026-${String(m).padStart(2, '0')}`, year: 2026, month: m, recordsCount: repCount, updatedAt: new Date().toISOString() });
+  }
+  for (let m = 12; m >= 1; m--) {
+    list.push({ id: `2025-${String(m).padStart(2, '0')}`, year: 2025, month: m, recordsCount: repCount, updatedAt: new Date().toISOString() });
+  }
+  return list;
+};
+
 export const getLocalPhysicalQuotaPeriodsIndex = (): PeriodInfo[] => {
   if (typeof window === 'undefined') return [];
   try {
@@ -120,7 +147,11 @@ export const getLocalPhysicalQuotaPeriodsIndex = (): PeriodInfo[] => {
     console.error("Error reading physical quota index from localStorage", e);
   }
 
-  return [];
+  const defaultList = getDefaultPhysicalQuotaPeriodsList();
+  try {
+    localStorage.setItem(PHYSICAL_PERIODS_INDEX_KEY, JSON.stringify(defaultList));
+  } catch (e) {}
+  return defaultList;
 };
 
 export const saveLocalPhysicalQuotaPeriod = (year: number, month: number, records: import('../types').PhysicalQuotaRecord[]): void => {
@@ -160,6 +191,14 @@ export const getLocalPhysicalQuotaPeriodData = (year: number, month: number): im
     }
   } catch (e) {
     console.error("Error reading physical quota data from localStorage", e);
+  }
+
+  const defaultQuotas = generateDefaultPhysicalQuotas(year, month);
+  if (defaultQuotas && defaultQuotas.length > 0) {
+    try {
+      localStorage.setItem(periodKey, JSON.stringify(defaultQuotas));
+    } catch (e) {}
+    return defaultQuotas;
   }
 
   return [];
