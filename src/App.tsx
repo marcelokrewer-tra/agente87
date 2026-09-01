@@ -52,6 +52,7 @@ import { logAnalyticsEvent, logSessionIfNeeded } from './lib/analytics';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { 
   TrendingUp, 
+  TrendingDown,
   Users, 
   Target, 
   DollarSign, 
@@ -59,6 +60,7 @@ import {
   Award, 
   ShieldAlert, 
   ArrowUpRight, 
+  ArrowDownRight,
   BarChart3, 
   FileText, 
   X, 
@@ -88,6 +90,8 @@ import {
   Plus,
   UploadCloud,
   Check,
+  Percent,
+  Scale,
   Map as MapIcon,
   MapPin,
   Clock,
@@ -708,6 +712,61 @@ export default function App() {
     }
   };
 
+  const [prevYearRecords, setPrevYearRecords] = useState<SalesRecord[]>([]);
+  const [isLoadingPrevYear, setIsLoadingPrevYear] = useState<boolean>(false);
+
+  const fetchPrevYearPeriodData = async (currentYear: number, month: number) => {
+    const prevYear = currentYear - 1;
+    setIsLoadingPrevYear(true);
+
+    const monthsToFetch: number[] = [];
+    if (isAccumulated) {
+      const start = Math.min(accumulateStartMonth, accumulateEndMonth);
+      const end = Math.max(accumulateStartMonth, accumulateEndMonth);
+      for (let m = start; m <= end; m++) {
+        monthsToFetch.push(m);
+      }
+    } else {
+      monthsToFetch.push(month);
+    }
+
+    if (getFirebaseConfig()) {
+      try {
+        const promises = monthsToFetch.map(m => fetchPeriodDataFromFirestore(prevYear, m));
+        const results = await Promise.all(promises);
+        setPrevYearRecords(results.flat());
+      } catch (err: any) {
+        console.error("Firestore error loading prev year period records:", err);
+        setPrevYearRecords([]);
+      } finally {
+        setIsLoadingPrevYear(false);
+      }
+      return;
+    }
+
+    try {
+      const results = await Promise.all(monthsToFetch.map(async (m) => {
+        try {
+          const response = await fetch(`/api/monthly-data/${prevYear}/${m}`);
+          if (response.ok) {
+            const data = await response.json();
+            return data.records || [];
+          }
+        } catch (err) {
+          // fallback silently
+        }
+        return getLocalPeriodData(prevYear, m);
+      }));
+      setPrevYearRecords(results.flat());
+    } catch (err) {
+      console.warn("Error fetching prev year period data, using localStorage fallback:", err);
+      const combined = monthsToFetch.flatMap(m => getLocalPeriodData(prevYear, m));
+      setPrevYearRecords(combined);
+    } finally {
+      setIsLoadingPrevYear(false);
+    }
+  };
+
   // Check Firebase on mount and load available periods
   useEffect(() => {
     checkFirebaseStatus();
@@ -719,6 +778,7 @@ export default function App() {
   useEffect(() => {
     fetchAvailablePeriods();
     fetchPeriodData(selectedYear, selectedMonth);
+    fetchPrevYearPeriodData(selectedYear, selectedMonth);
     
     // Fetch custom representative names from Firestore
     const fetchNames = async () => {
@@ -757,6 +817,7 @@ export default function App() {
   // Fetch period data when year, month or cumulative range changes
   useEffect(() => {
     fetchPeriodData(selectedYear, selectedMonth);
+    fetchPrevYearPeriodData(selectedYear, selectedMonth);
   }, [selectedYear, selectedMonth, isAccumulated, accumulateStartMonth, accumulateEndMonth]);
 
   // Product Group mappings as requested by the user
@@ -775,14 +836,20 @@ export default function App() {
   ] as const;
   
   // Dashboard Core Navigation Tabs
-  const [activeTab, setActiveTab] = useState<'geral' | 'representantes' | 'detalhado' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao' | 'usuarios'>('geral');
+  const [activeTab, setActiveTab] = useState<'geral' | 'representantes' | 'comparativo' | 'detalhado' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao' | 'usuarios'>('geral');
   const [isImportDropdownOpen, setIsImportDropdownOpen] = useState(false);
+
+  // States for growth comparison filtering and sorting
+  const [growthSortField, setGrowthSortField] = useState<'taxaCrescimento' | 'diferencaVenda' | 'vendaAtual' | 'vendaAnterior' | 'repName'>('taxaCrescimento');
+  const [growthSortDirection, setGrowthSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [growthFilter, setGrowthFilter] = useState<'all' | 'positive' | 'negative' | 'top10'>('all');
 
   // Log tab view analytics
   useEffect(() => {
     const tabNames: Record<string, string> = {
       geral: 'Panorama Geral',
       representantes: 'Análise de Representantes',
+      comparativo: 'Comparativo YoY',
       detalhado: 'Explorador de Dados',
       previa: 'Configuração de Prévias',
       importar: 'Importação de Dados',
@@ -1666,6 +1733,268 @@ export default function App() {
     }).sort((a, b) => b.totalFaturado - a.totalFaturado);
   }, [filteredRecords]);
 
+  // ----------------------------------------------------
+  // PREVIOUS YEAR (YoY) DATA & GROWTH COMPARISON METRICS
+  // ----------------------------------------------------
+  const prevYearResolvedRecords = useMemo(() => {
+    const repToOrigCoord: Record<string, string> = {};
+    prevYearRecords.forEach(r => {
+      const isPro = (r.groupName || '').toLowerCase().includes('pro');
+      const isMarcelo = (r.coordName || '').toLowerCase().includes('marcelo') || (r.coordName || '').toLowerCase().includes('krewer');
+      if (!isPro && !isMarcelo && r.coordName) {
+        repToOrigCoord[r.repId.toString().trim()] = r.coordName;
+      }
+    });
+
+    prevYearRecords.forEach(r => {
+      const key = r.repId.toString().trim();
+      if (!repToOrigCoord[key] && r.coordName) {
+        repToOrigCoord[key] = r.coordName;
+      }
+    });
+
+    return prevYearRecords.map(r => {
+      let coordName = r.coordName;
+      const originalCoordName = repToOrigCoord[r.repId.toString().trim()] || r.coordName || '';
+      const isPro = (r.groupName || '').toLowerCase().includes('pro');
+      if (isPro) {
+        coordName = "Marcelo Krewer";
+      }
+
+      const customName = customRepNames[r.repId.toString().trim() || r.repId];
+      return {
+        ...r,
+        originalCoordName,
+        coordName,
+        repName: customName || r.repName
+      };
+    });
+  }, [prevYearRecords, customRepNames]);
+
+  const prevYearFilteredRecords = useMemo(() => {
+    const isOnlyCD = selectedSalesTypes.includes('CD') && !selectedSalesTypes.includes('VP');
+    const isOnlyVP = selectedSalesTypes.includes('VP') && !selectedSalesTypes.includes('CD');
+
+    const result: SalesRecord[] = [];
+
+    prevYearResolvedRecords.forEach(r => {
+      if (selectedCoordinator !== 'All') {
+        const matchOriginal = r.originalCoordName.toLowerCase().trim() === selectedCoordinator.toLowerCase().trim() ||
+                              r.originalCoordName.toLowerCase().trim().includes(selectedCoordinator.toLowerCase().trim().split(' ')[0]);
+        if (!matchOriginal) return;
+      }
+      
+      if (!selectedProductGroups.includes('All')) {
+        if (selectedProductGroups.length === 0) return;
+        const mappedGroupName = getMappedGroupName(r.groupName);
+        if (!selectedProductGroups.includes(mappedGroupName)) return;
+      }
+
+      let recordToAdd: SalesRecord = r;
+      if (isOnlyCD) {
+        if (r.quotaCD === 0 && r.valorVendaCD === 0 && r.faturadoCD === 0 && r.pendenteCD === 0) return;
+        recordToAdd = {
+          ...r,
+          quotaTotal: r.quotaCD,
+          faturadoTotal: r.faturadoCD,
+          valorVendaTotal: r.valorVendaCD,
+        };
+      } else if (isOnlyVP) {
+        if (r.quotaVP === 0 && r.valorVendaVP === 0 && r.faturadoVP === 0 && r.pendenteVP === 0) return;
+        recordToAdd = {
+          ...r,
+          quotaTotal: r.quotaVP,
+          faturadoTotal: r.faturadoVP,
+          valorVendaTotal: r.valorVendaVP,
+        };
+      }
+      
+      if (userRole === 'rep' && userRepId !== null) {
+        if (recordToAdd.repId !== userRepId) return;
+      } else if (selectedRepIdFilter !== null) {
+        if (recordToAdd.repId !== selectedRepIdFilter) return;
+      } else {
+        if (searchText.trim() !== '') {
+          const query = searchText.toLowerCase();
+          const matchName = recordToAdd.repName.toLowerCase().includes(query);
+          const matchId = recordToAdd.repId.toString().includes(query);
+          const matchGroup = recordToAdd.groupName.toLowerCase().includes(query);
+          if (!matchName && !matchId && !matchGroup) return;
+        }
+      }
+
+      if (selectedState) {
+        const repState = customRepLocations[recordToAdd.repId.toString().trim() || recordToAdd.repId];
+        if (repState !== selectedState) return;
+      }
+
+      result.push(recordToAdd);
+    });
+
+    return result;
+  }, [prevYearResolvedRecords, selectedCoordinator, selectedProductGroups, selectedSalesTypes, searchText, selectedRepIdFilter, selectedState, customRepLocations, userRole, userRepId]);
+
+  const repsGrowthComparison = useMemo(() => {
+    const prevMap = new Map<number, { repId: number; repName: string; coordName: string; totalVenda: number; totalQuota: number }>();
+    prevYearFilteredRecords.forEach(r => {
+      const existing = prevMap.get(r.repId);
+      if (existing) {
+        existing.totalVenda += r.valorVendaTotal;
+        existing.totalQuota += r.quotaTotal;
+      } else {
+        prevMap.set(r.repId, {
+          repId: r.repId,
+          repName: r.repName,
+          coordName: r.originalCoordName || r.coordName,
+          totalVenda: r.valorVendaTotal,
+          totalQuota: r.quotaTotal
+        });
+      }
+    });
+
+    const allRepIds = new Set<number>();
+    // Only include representatives who have a name registered through "Importar nomes"
+    repsAggregated.forEach(r => {
+      const repKey = r.repId.toString().trim();
+      if (customRepNames[repKey] && customRepNames[repKey].trim() !== '') {
+        allRepIds.add(r.repId);
+      }
+    });
+    prevMap.forEach((_, repId) => {
+      const repKey = repId.toString().trim();
+      if (customRepNames[repKey] && customRepNames[repKey].trim() !== '') {
+        allRepIds.add(repId);
+      }
+    });
+
+    const list: {
+      repId: number;
+      repName: string;
+      coordName: string;
+      vendaAtual: number;
+      quotaAtual: number;
+      vendaAnterior: number;
+      quotaAnterior: number;
+      diferencaVenda: number;
+      taxaCrescimento: number;
+      statusGrowth: 'high_growth' | 'growth' | 'stable' | 'decline' | 'new';
+    }[] = [];
+
+    allRepIds.forEach(repId => {
+      const repKey = repId.toString().trim();
+      const registeredName = customRepNames[repKey] || customRepNames[repId];
+      if (!registeredName || !registeredName.trim()) return;
+
+      const currentRep = repsAggregated.find(r => r.repId === repId);
+      const prevRep = prevMap.get(repId);
+
+      const repName = registeredName;
+      const coordName = currentRep?.coordName || prevRep?.coordName || '-';
+
+      const vendaAtual = currentRep?.totalFaturado || 0;
+      const quotaAtual = currentRep?.totalQuota || 0;
+
+      const vendaAnterior = prevRep?.totalVenda || 0;
+      const quotaAnterior = prevRep?.totalQuota || 0;
+
+      const diferencaVenda = vendaAtual - vendaAnterior;
+
+      let taxaCrescimento = 0;
+      let statusGrowth: 'high_growth' | 'growth' | 'stable' | 'decline' | 'new' = 'stable';
+
+      if (vendaAnterior === 0) {
+        if (vendaAtual > 0) {
+          taxaCrescimento = 100;
+          statusGrowth = 'new';
+        } else {
+          taxaCrescimento = 0;
+          statusGrowth = 'stable';
+        }
+      } else {
+        taxaCrescimento = ((vendaAtual - vendaAnterior) / Math.abs(vendaAnterior)) * 100;
+        if (taxaCrescimento >= 10) statusGrowth = 'high_growth';
+        else if (taxaCrescimento > 0) statusGrowth = 'growth';
+        else if (taxaCrescimento === 0) statusGrowth = 'stable';
+        else statusGrowth = 'decline';
+      }
+
+      list.push({
+        repId,
+        repName,
+        coordName,
+        vendaAtual,
+        quotaAtual,
+        vendaAnterior,
+        quotaAnterior,
+        diferencaVenda,
+        taxaCrescimento,
+        statusGrowth
+      });
+    });
+
+    return list;
+  }, [repsAggregated, prevYearFilteredRecords, customRepNames]);
+
+  const growthTotals = useMemo(() => {
+    let totalVendaAtual = 0;
+    let totalVendaAnterior = 0;
+    let repsCrescendo = 0;
+    let repsQueda = 0;
+    let repsNovos = 0;
+
+    repsGrowthComparison.forEach(r => {
+      totalVendaAtual += r.vendaAtual;
+      totalVendaAnterior += r.vendaAnterior;
+      if (r.statusGrowth === 'new') repsNovos++;
+      else if (r.diferencaVenda > 0) repsCrescendo++;
+      else if (r.diferencaVenda < 0) repsQueda++;
+    });
+
+    const diferencaGeral = totalVendaAtual - totalVendaAnterior;
+    let taxaCrescimentoGeral = 0;
+    if (totalVendaAnterior > 0) {
+      taxaCrescimentoGeral = ((totalVendaAtual - totalVendaAnterior) / totalVendaAnterior) * 100;
+    } else if (totalVendaAtual > 0) {
+      taxaCrescimentoGeral = 100;
+    }
+
+    return {
+      totalVendaAtual,
+      totalVendaAnterior,
+      diferencaGeral,
+      taxaCrescimentoGeral,
+      repsCrescendo,
+      repsQueda,
+      repsNovos,
+      totalRepsCount: repsGrowthComparison.length
+    };
+  }, [repsGrowthComparison]);
+
+  const sortedGrowthComparison = useMemo(() => {
+    let filtered = [...repsGrowthComparison];
+
+    if (growthFilter === 'positive') {
+      filtered = filtered.filter(r => r.diferencaVenda > 0);
+    } else if (growthFilter === 'negative') {
+      filtered = filtered.filter(r => r.diferencaVenda < 0);
+    } else if (growthFilter === 'top10') {
+      filtered = filtered.sort((a, b) => b.diferencaVenda - a.diferencaVenda).slice(0, 10);
+      return filtered;
+    }
+
+    return filtered.sort((a, b) => {
+      let valA: any = a[growthSortField];
+      let valB: any = b[growthSortField];
+
+      if (typeof valA === 'string') {
+        const cmp = valA.localeCompare(valB);
+        return growthSortDirection === 'asc' ? cmp : -cmp;
+      }
+
+      return growthSortDirection === 'asc' ? valA - valB : valB - valA;
+    });
+  }, [repsGrowthComparison, growthFilter, growthSortField, growthSortDirection]);
+
   // Performance by Product Group
   const productGroupPerformance = useMemo(() => {
     const groups: { [key: string]: { quota: number; faturado: number } } = {};
@@ -2190,6 +2519,187 @@ export default function App() {
     doc.save(`Relatorio_Vendas_Tramontina_${periodFileSuffix}.pdf`);
   };
 
+  // Export growth comparison table to PDF
+  const exportGrowthToPDF = () => {
+    const doc = new jsPDF({
+      orientation: 'landscape',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const monthNames = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+
+    const periodStr = isAccumulated
+      ? `Acumulado: ${monthNames[accumulateStartMonth - 1]} a ${monthNames[accumulateEndMonth - 1]} (${selectedYear} vs ${selectedYear - 1})`
+      : `Mês Único: ${monthNames[selectedMonth - 1]} (${selectedYear} vs ${selectedYear - 1})`;
+
+    const nowStr = new Date().toLocaleString('pt-BR');
+
+    // Split items into chunks of max 20 representatives per page
+    const CHUNK_SIZE = 20;
+    const itemsChunks: typeof sortedGrowthComparison[] = [];
+    for (let i = 0; i < sortedGrowthComparison.length; i += CHUNK_SIZE) {
+      itemsChunks.push(sortedGrowthComparison.slice(i, i + CHUNK_SIZE));
+    }
+    if (itemsChunks.length === 0) {
+      itemsChunks.push([]);
+    }
+
+    const totalPages = itemsChunks.length;
+
+    const headers = [
+      'REP ID',
+      'Representante',
+      'Coordenador',
+      `Vendas (${selectedYear - 1})`,
+      `Vendas (${selectedYear})`,
+      'Variação (R$)',
+      'Taxa Crescimento (%)'
+    ];
+
+    itemsChunks.forEach((chunk, chunkIdx) => {
+      if (chunkIdx > 0) {
+        doc.addPage();
+      }
+
+      // 1. Top Header Banner
+      doc.setFillColor(0, 26, 156); // Tramontina Navy
+      doc.rect(0, 0, 297, 10, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(255, 255, 255);
+      doc.text('TRAMONTINA - RELATÓRIO DE CRESCIMENTO YoY', 12, 7);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.text(periodStr, 285, 7, { align: 'right' });
+
+      // 2. Metadata Box
+      doc.setFillColor(248, 250, 252);
+      doc.rect(12, 12, 273, 10, 'F');
+      doc.setDrawColor(226, 232, 240);
+      doc.rect(12, 12, 273, 10, 'S');
+
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(30, 41, 59);
+      doc.text(`Vendas Total ${selectedYear - 1}: ${formatCurrency(growthTotals.totalVendaAnterior)}`, 16, 18.5);
+      doc.text(`Vendas Total ${selectedYear}: ${formatCurrency(growthTotals.totalVendaAtual)}`, 85, 18.5);
+      
+      const varColor = growthTotals.diferencaGeral >= 0 ? [22, 163, 74] : [220, 38, 38];
+      doc.setTextColor(varColor[0], varColor[1], varColor[2]);
+      doc.text(`Variação Líquida: ${growthTotals.diferencaGeral >= 0 ? '+' : ''}${formatCurrency(growthTotals.diferencaGeral)}`, 160, 18.5);
+      doc.text(`Taxa Geral: ${growthTotals.taxaCrescimentoGeral >= 0 ? '+' : ''}${growthTotals.taxaCrescimentoGeral.toFixed(1)}%`, 235, 18.5);
+
+      const tableData = chunk.map(r => {
+        const taxStr = r.statusGrowth === 'new'
+          ? '+100.0% (Novo)'
+          : `${r.taxaCrescimento >= 0 ? '+' : ''}${r.taxaCrescimento.toFixed(1)}%`;
+
+        return [
+          `#${r.repId}`,
+          r.repName,
+          r.coordName,
+          formatCurrency(r.vendaAnterior),
+          formatCurrency(r.vendaAtual),
+          `${r.diferencaVenda >= 0 ? '+' : ''}${formatCurrency(r.diferencaVenda)}`,
+          taxStr
+        ];
+      });
+
+      const dynamicPadding = chunk.length <= 10 ? 3.5 : (chunk.length <= 15 ? 2.8 : 2.2);
+
+      autoTable(doc, {
+        head: [headers],
+        body: tableData,
+        startY: 24,
+        pageBreak: 'avoid',
+        rowPageBreak: 'avoid',
+        theme: 'striped',
+        styles: {
+          fontSize: 8.5,
+          cellPadding: dynamicPadding,
+          font: 'helvetica',
+          textColor: [51, 65, 85],
+          overflow: 'ellipsize'
+        },
+        headStyles: {
+          fillColor: [0, 26, 156],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'center'
+        },
+        columnStyles: {
+          0: { halign: 'center', cellWidth: 20, fontStyle: 'bold' },
+          1: { halign: 'left', cellWidth: 60 },
+          2: { halign: 'left', cellWidth: 50 },
+          3: { halign: 'right', cellWidth: 38 },
+          4: { halign: 'right', cellWidth: 38 },
+          5: { halign: 'right', cellWidth: 37, fontStyle: 'bold' },
+          6: { halign: 'center', cellWidth: 30, fontStyle: 'bold' }
+        },
+        didParseCell: (data) => {
+          if (data.section === 'body') {
+            const rowItem = chunk[data.row.index];
+            if (rowItem) {
+              // Color variation column (R$)
+              if (data.column.index === 5) {
+                if (rowItem.diferencaVenda < 0) {
+                  data.cell.styles.textColor = [220, 38, 38]; // Red
+                } else if (rowItem.diferencaVenda > 0) {
+                  data.cell.styles.textColor = [22, 163, 74]; // Green
+                }
+              }
+              // Color growth rate column (%)
+              if (data.column.index === 6) {
+                if (rowItem.statusGrowth === 'new' || rowItem.taxaCrescimento > 0) {
+                  data.cell.styles.textColor = [22, 163, 74];
+                } else if (rowItem.taxaCrescimento < 0) {
+                  data.cell.styles.textColor = [220, 38, 38];
+                }
+              }
+            }
+          }
+        },
+        margin: { left: 12, right: 12, top: 24, bottom: 5 }
+      });
+
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Agente 87 - Tramontina | Relatório de Crescimento YoY | Gerado em ${nowStr} | Página ${chunkIdx + 1} de ${totalPages}`, 12, 203);
+    });
+
+    doc.save(`comparativo_crescimento_${selectedYear}_vs_${selectedYear - 1}.pdf`);
+  };
+
+  // Export growth comparison data to CSV
+  const exportGrowthToCSV = () => {
+    const headers = ['REP ID', 'Representante', 'Coordenador', `Vendas ${selectedYear - 1}`, `Vendas ${selectedYear}`, 'Variação R$', 'Taxa Crescimento %'];
+    const rows = sortedGrowthComparison.map(r => [
+      r.repId,
+      `"${r.repName.replace(/"/g, '""')}"`,
+      `"${r.coordName.replace(/"/g, '""')}"`,
+      r.vendaAnterior.toFixed(2).replace('.', ','),
+      r.vendaAtual.toFixed(2).replace('.', ','),
+      r.diferencaVenda.toFixed(2).replace('.', ','),
+      (r.statusGrowth === 'new' ? '100,0' : r.taxaCrescimento.toFixed(2).replace('.', ','))
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map(e => e.join(';'))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `comparativo_crescimento_${selectedYear}_vs_${selectedYear - 1}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Export representative sales percentage to a high-quality JPEG image
   const exportPctVendasToJPG = () => {
     const periodText = isAccumulated
@@ -2557,6 +3067,51 @@ export default function App() {
                   </span>
                 </div>
               </div>
+
+              {/* Drawer YoY growth comparison banner */}
+              {(() => {
+                const repGrowth = repsGrowthComparison.find(g => g.repId === repDetailData.repId);
+                if (!repGrowth) return null;
+
+                return (
+                  <div className="mx-6 mt-4 p-4 bg-gradient-to-br from-slate-900 to-indigo-950 text-white rounded-2xl shadow-xs border border-slate-800 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold uppercase tracking-widest text-indigo-300 flex items-center gap-1.5">
+                        <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                        Crescimento YoY ({selectedYear} vs {selectedYear - 1})
+                      </span>
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border ${
+                        repGrowth.statusGrowth === 'new' || repGrowth.taxaCrescimento > 0
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                          : repGrowth.taxaCrescimento < 0
+                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          : 'bg-slate-700 text-slate-300 border-slate-600'
+                      }`}>
+                        {repGrowth.statusGrowth === 'new'
+                          ? '+100% (Novo Representante)'
+                          : `${repGrowth.taxaCrescimento >= 0 ? '+' : ''}${repGrowth.taxaCrescimento.toFixed(1)}%`}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800/80 text-xs">
+                      <div>
+                        <span className="block text-[10px] text-slate-400 font-medium">Vendas {selectedYear - 1}</span>
+                        <span className="block font-bold text-slate-200 mt-0.5">{formatCurrency(repGrowth.vendaAnterior)}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-slate-400 font-medium">Vendas {selectedYear}</span>
+                        <span className="block font-bold text-white mt-0.5">{formatCurrency(repGrowth.vendaAtual)}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-slate-400 font-medium">Variação R$</span>
+                        <span className={`block font-bold mt-0.5 ${repGrowth.diferencaVenda >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {repGrowth.diferencaVenda >= 0 ? '+' : ''}{formatCurrency(repGrowth.diferencaVenda)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Drawer detailed list of groups */}
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -3546,6 +4101,7 @@ export default function App() {
               {[
                 { id: 'geral', label: 'Geral', icon: <LayoutDashboard className="w-4 h-4" /> },
                 { id: 'representantes', label: 'Representantes', icon: <User className="w-4 h-4" /> },
+                { id: 'comparativo', label: 'Comparativo YoY', icon: <TrendingUp className="w-4 h-4 text-emerald-600" /> },
                 { id: 'vendas_estado', label: 'Regiões', icon: <MapIcon className="w-4 h-4" /> },
                 { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> }
               ].map(tab => (
@@ -3995,6 +4551,31 @@ export default function App() {
                         </div>
                       </div>
 
+                      {/* YoY Growth indicator badge */}
+                      {(() => {
+                        const repGrowth = repsGrowthComparison.find(g => g.repId === rep.repId);
+                        if (!repGrowth) return null;
+                        return (
+                          <div className="flex items-center justify-between px-3 py-1.5 bg-slate-50/80 rounded-xl border border-slate-150/70 text-[11px]">
+                            <span className="text-slate-500 font-medium flex items-center gap-1">
+                              <TrendingUp className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                              <span>Crescimento vs. {selectedYear - 1}:</span>
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full font-extrabold text-[10px] ${
+                              repGrowth.statusGrowth === 'new' || repGrowth.taxaCrescimento > 0
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : repGrowth.taxaCrescimento < 0
+                                ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                : 'bg-slate-100 text-slate-600 border border-slate-200'
+                            }`}>
+                              {repGrowth.statusGrowth === 'new' 
+                                ? '+100% (Novo)' 
+                                : `${repGrowth.taxaCrescimento >= 0 ? '+' : ''}${repGrowth.taxaCrescimento.toFixed(1)}% (${formatCurrency(repGrowth.diferencaVenda)})`}
+                            </span>
+                          </div>
+                        );
+                      })()}
+
                       <div className="flex items-center justify-between pt-2">
                         <div className="flex items-center gap-3 flex-1 max-w-[200px]">
                           <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
@@ -4027,6 +4608,220 @@ export default function App() {
                     Nenhum representante encontrado sob as qualificações de filtro ativas.
                   </div>
                 )}
+              </div>
+            </motion.div>
+          )}
+
+          {/* TAB 3: GROWTH COMPARISON DASHBOARD (YoY) */}
+          {activeTab === 'comparativo' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              {/* Warning banner if no prev year records are loaded */}
+              {prevYearRecords.length === 0 && !isLoadingPrevYear && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between gap-3 text-amber-800 text-xs font-medium">
+                  <div className="flex items-center gap-2.5">
+                    <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" />
+                    <span>
+                      <strong>Atenção:</strong> Não foram encontrados registros salvos para o ano anterior ({selectedYear - 1}) no período selecionado. Para calcular o crescimento real, certifique-se de importar ou selecionar dados de {selectedYear - 1}.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Overview Metric Cards Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+                <MetricCard
+                  title={`Vendas Total (${selectedYear - 1})`}
+                  value={formatCurrency(growthTotals.totalVendaAnterior)}
+                  icon={<History className="w-4 h-4 sm:w-5 sm:h-5 text-slate-500" />}
+                  accentColor="slate"
+                />
+                <MetricCard
+                  title={`Vendas Total (${selectedYear})`}
+                  value={formatCurrency(growthTotals.totalVendaAtual)}
+                  icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
+                  accentColor="blue"
+                />
+                <MetricCard
+                  title="Variação em Valor (R$)"
+                  value={`${growthTotals.diferencaGeral >= 0 ? '+' : ''}${formatCurrency(growthTotals.diferencaGeral)}`}
+                  icon={growthTotals.diferencaGeral >= 0 ? <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <TrendingDown className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                  accentColor={growthTotals.diferencaGeral >= 0 ? "emerald" : "rose"}
+                  valueClassName={growthTotals.diferencaGeral >= 0 ? "text-emerald-600" : "text-rose-600"}
+                />
+                <MetricCard
+                  title="Taxa de Crescimento Geral"
+                  value={`${growthTotals.taxaCrescimentoGeral >= 0 ? '+' : ''}${growthTotals.taxaCrescimentoGeral.toFixed(1)}%`}
+                  icon={<Percent className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600" />}
+                  accentColor="indigo"
+                  valueClassName={growthTotals.taxaCrescimentoGeral >= 0 ? "text-emerald-600" : "text-rose-600"}
+                />
+              </div>
+
+              {/* Filter and Quick Action bar for comparison */}
+              <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
+                {/* Quick filter buttons */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400 mr-1 flex items-center gap-1">
+                    <Filter className="w-3.5 h-3.5" />
+                    Filtros:
+                  </span>
+                  {[
+                    { id: 'all', label: `Cadastrados (${growthTotals.totalRepsCount})` },
+                    { id: 'positive', label: `Em Crescimento (${growthTotals.repsCrescendo})` },
+                    { id: 'negative', label: `Em Queda (${growthTotals.repsQueda})` },
+                    { id: 'top10', label: 'Top 10 Maior Crescimento R$' }
+                  ].map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => setGrowthFilter(f.id as any)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        growthFilter === f.id
+                          ? 'bg-slate-900 text-white shadow-3xs'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/60'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Sorting controls and Export actions */}
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400 font-bold">Ordenar por:</span>
+                    <select
+                      value={growthSortField}
+                      onChange={(e) => setGrowthSortField(e.target.value as any)}
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    >
+                      <option value="taxaCrescimento">Taxa de Crescimento (%)</option>
+                      <option value="diferencaVenda">Variação Absoluta (R$)</option>
+                      <option value="vendaAtual">Vendas {selectedYear}</option>
+                      <option value="vendaAnterior">Vendas {selectedYear - 1}</option>
+                      <option value="repName">Nome do Representante</option>
+                    </select>
+                    <button
+                      onClick={() => setGrowthSortDirection(growthSortDirection === 'asc' ? 'desc' : 'asc')}
+                      className="p-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-600 transition-colors cursor-pointer"
+                      title="Inverter direção de ordenação"
+                    >
+                      <ArrowUpDown className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="h-4 w-px bg-slate-200 mx-1 hidden sm:block" />
+
+                  <button
+                    onClick={exportGrowthToPDF}
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>PDF</span>
+                  </button>
+                  <button
+                    onClick={exportGrowthToCSV}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>CSV</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Main Growth Comparison Table */}
+              <div className="bg-white border border-slate-100 rounded-2xl shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                        <th className="py-3.5 px-4 w-20 text-center">REP ID</th>
+                        <th className="py-3.5 px-4">Representante Comercial</th>
+                        <th className="py-3.5 px-4">Coordenador</th>
+                        <th className="py-3.5 px-4 text-right">Vendas {selectedYear - 1}</th>
+                        <th className="py-3.5 px-4 text-right">Vendas {selectedYear}</th>
+                        <th className="py-3.5 px-4 text-right">Variação Líquida (R$)</th>
+                        <th className="py-3.5 px-4 text-center">Taxa de Crescimento %</th>
+                        <th className="py-3.5 px-4 text-center">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {sortedGrowthComparison.map((rep) => {
+                        const isPositive = rep.diferencaVenda > 0;
+                        const isNegative = rep.diferencaVenda < 0;
+
+                        return (
+                          <tr 
+                            key={rep.repId}
+                            className="hover:bg-slate-50/80 transition-colors group"
+                          >
+                            <td className="py-3.5 px-4 font-mono font-bold text-center text-slate-500">
+                              #{rep.repId}
+                            </td>
+                            <td className="py-3.5 px-4 font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                              {rep.repName}
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-500 font-medium">
+                              {rep.coordName}
+                            </td>
+                            <td className="py-3.5 px-4 text-right font-mono text-slate-600">
+                              {formatCurrency(rep.vendaAnterior)}
+                            </td>
+                            <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900">
+                              {formatCurrency(rep.vendaAtual)}
+                            </td>
+                            <td className={`py-3.5 px-4 text-right font-mono font-bold ${
+                              isPositive ? 'text-emerald-600' : isNegative ? 'text-rose-600' : 'text-slate-500'
+                            }`}>
+                              {isPositive ? '+' : ''}{formatCurrency(rep.diferencaVenda)}
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black border ${
+                                rep.statusGrowth === 'new'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : isPositive
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : isNegative
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                  : 'bg-slate-100 text-slate-600 border-slate-200'
+                              }`}>
+                                {isPositive ? (
+                                  <ArrowUpRight className="w-3.5 h-3.5 text-emerald-600" />
+                                ) : isNegative ? (
+                                  <ArrowDownRight className="w-3.5 h-3.5 text-rose-600" />
+                                ) : null}
+                                {rep.statusGrowth === 'new' 
+                                  ? '+100% (Novo)' 
+                                  : `${rep.taxaCrescimento >= 0 ? '+' : ''}${rep.taxaCrescimento.toFixed(1)}%`}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              <button
+                                onClick={() => setSelectedRepDetailId(rep.repId)}
+                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
+                              >
+                                Ver Detalhes
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {sortedGrowthComparison.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="py-12 text-center text-slate-400">
+                            {Object.keys(customRepNames).length === 0
+                              ? "Nenhum representante cadastrado via 'Importar nomes'. Acesse a aba 'Importar nomes' para cadastrar os representantes e visualizar o comparativo YoY."
+                              : "Nenhum representante cadastrado encontrado sob os filtros selecionados."}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </motion.div>
           )}
