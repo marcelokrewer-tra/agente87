@@ -46,6 +46,7 @@ import { MetricCard } from './components/MetricCard';
 import { KPIGauge } from './components/KPIGauge';
 import { ImportDataTab } from './components/ImportDataTab';
 import { DailySalesTab } from './components/DailySalesTab';
+import { SellOutTab } from './components/SellOutTab';
 import { UserManagementTab, SystemUser, DEFAULT_USERS } from './components/UserManagementTab';
 import { TramontinaLogo } from './components/TramontinaLogo';
 import { generateSalesPresentation } from './presentation';
@@ -94,6 +95,7 @@ import {
   Check,
   Percent,
   Scale,
+  ShoppingBag,
   Map as MapIcon,
   MapPin,
   Clock,
@@ -838,7 +840,7 @@ export default function App() {
   ] as const;
   
   // Dashboard Core Navigation Tabs
-  const [activeTab, setActiveTab] = useState<'geral' | 'representantes' | 'comparativo' | 'vendas_dia' | 'detalhado' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao' | 'usuarios'>('geral');
+  const [activeTab, setActiveTab] = useState<'geral' | 'representantes' | 'comparativo' | 'vendas_dia' | 'sell_out' | 'detalhado' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao' | 'usuarios'>('geral');
   const [isImportDropdownOpen, setIsImportDropdownOpen] = useState(false);
   const [dailyPeriodTotals, setDailyPeriodTotals] = useState<any>(null);
 
@@ -854,6 +856,7 @@ export default function App() {
       representantes: 'Análise de Representantes',
       comparativo: 'Comparativo YoY',
       vendas_dia: 'Vendas por Dia',
+      sell_out: 'Análise Sell Out',
       detalhado: 'Explorador de Dados',
       previa: 'Configuração de Prévias',
       importar: 'Importação de Dados',
@@ -3796,7 +3799,7 @@ export default function App() {
         <section className="lg:col-span-3 space-y-6">
           
           {/* Bento row of Core metrics cards (Filtered live) */}
-          {allRecords.length > 0 && (
+          {allRecords.length > 0 && activeTab !== 'sell_out' && (
             <>
               {selectedRepIdFilter !== null && (
                 <div className="bg-emerald-50/70 border border-emerald-150 p-3.5 rounded-2xl flex items-center justify-between shadow-3xs animate-fade-in">
@@ -4114,6 +4117,7 @@ export default function App() {
                 { id: 'geral', label: 'Geral', icon: <LayoutDashboard className="w-4 h-4" /> },
                 { id: 'representantes', label: 'Representantes', icon: <User className="w-4 h-4" /> },
                 { id: 'comparativo', label: 'Comparativo YoY', icon: <TrendingUp className="w-4 h-4 text-emerald-600" /> },
+                { id: 'sell_out', label: 'Análise Sell Out', icon: <ShoppingBag className="w-4 h-4 text-amber-600" /> },
                 { id: 'vendas_dia', label: 'Vendas por Dia', icon: <CalendarDays className="w-4 h-4 text-sky-600" /> },
                 { id: 'vendas_estado', label: 'Regiões', icon: <MapIcon className="w-4 h-4" /> },
                 { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> }
@@ -4204,7 +4208,7 @@ export default function App() {
           )}
 
           {/* EMPTY STATE IF NO DATA IN ACTIVE PERIOD */}
-          {allRecords.length === 0 && !['previa', 'importar', 'nomes', 'localizacao', 'usuarios', 'vendas_dia'].includes(activeTab) && (
+          {allRecords.length === 0 && !['previa', 'importar', 'nomes', 'localizacao', 'usuarios', 'vendas_dia', 'sell_out'].includes(activeTab) && (
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -4862,6 +4866,21 @@ export default function App() {
                   setActiveTab('importar');
                   setIsImportDropdownOpen(false);
                 }}
+              />
+            </motion.div>
+          )}
+
+          {/* TAB: ANÁLISE DE SELL OUT (CLIENT EVOLUTION & YOY GROWTH) */}
+          {activeTab === 'sell_out' && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <SellOutTab
+                selectedCoordinator={selectedCoordinator}
+                selectedProductGroups={selectedProductGroups}
+                searchText={searchText}
+                userRole={userRole}
               />
             </motion.div>
           )}
