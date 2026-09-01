@@ -1,32 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import { SalesRecord } from '../types';
-import { getFirebaseConfig, fetchDailySalesIndexFromFirestore, fetchDailySalesDataFromFirestore, DailySalesSnapshot } from '../lib/firebase';
+import { getFirebaseConfig, fetchDailySalesIndexFromFirestore, fetchDailySalesDataFromFirestore } from '../lib/firebase';
 import { getLocalDailySalesIndex, getLocalDailySalesData, DailySnapshotInfo } from '../lib/storage';
 import {
-  CalendarDays,
-  Calendar,
   Search,
-  Filter,
   TrendingUp,
-  ArrowRight,
-  Sparkles,
   ArrowDownUp,
   Download,
   Printer,
   ChevronDown,
   ChevronUp,
   Layers,
-  Users,
   CheckCircle2,
-  AlertCircle,
-  Clock,
-  FileSpreadsheet,
-  Building2,
-  DollarSign,
-  Award,
-  BarChart3,
-  RefreshCw
+  AlertCircle
 } from 'lucide-react';
 
 const formatCurrency = (val: number) => {
@@ -37,9 +23,29 @@ const formatCurrency = (val: number) => {
   }).format(val || 0);
 };
 
-const formatPercentage = (val: number) => {
-  return `${(val || 0).toFixed(1)}%`;
-};
+export interface DailyPeriodTotals {
+  quotaCD: number;
+  faturadoCD: number;
+  quotaVP: number;
+  faturadoVP: number;
+  quotaTotal: number;
+  faturadoTotal: number;
+  pendenteCD: number;
+  pendenteVP: number;
+  faturadoEPendente: number;
+  defasagem: number;
+  valorVendaCD: number;
+  valorVendaVP: number;
+  valorVendaTotal: number;
+  achCD: number;
+  achVP: number;
+  achTotal: number;
+  achSale: number;
+  startDay: number;
+  endDay: number;
+  selectedMonth: number;
+  selectedYear: number;
+}
 
 interface DailySalesTabProps {
   selectedCoordinator: string;
@@ -54,6 +60,7 @@ interface DailySalesTabProps {
   userRole: 'admin' | 'rep' | 'coord';
   userRepId: number | null;
   onOpenImport?: () => void;
+  onPeriodTotalsChange?: (totals: DailyPeriodTotals) => void;
 }
 
 const MONTHS_LIST = [
@@ -97,7 +104,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
   customRepLocations,
   userRole,
   userRepId,
-  onOpenImport
+  onPeriodTotalsChange
 }) => {
   // Current Brasília Time defaults
   const brasiliaDate = useMemo(() => {
@@ -122,7 +129,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
 
   // Snapshots list from DB
   const [availableSnapshots, setAvailableSnapshots] = useState<DailySnapshotInfo[]>([]);
-  const [isLoadingIndex, setIsLoadingIndex] = useState<boolean>(false);
+  const [, setIsLoadingIndex] = useState<boolean>(false);
 
   // Loaded data for start and end days
   const [startRecords, setStartRecords] = useState<SalesRecord[]>([]);
@@ -158,6 +165,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
           index = getLocalDailySalesIndex();
         }
       } catch (err) {
+        console.error(err);
         index = getLocalDailySalesIndex();
       }
     }
@@ -251,7 +259,6 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
 
     const result: SalesRecord[] = [];
 
-    // Map coordinators and custom names
     rawRecords.forEach(r => {
       let coordName = r.coordName;
       const isPro = (r.groupName || '').toLowerCase().includes('pro');
@@ -352,6 +359,8 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
     repId: number;
     repName: string;
     coordName: string;
+    quotaCD: number;
+    quotaVP: number;
     quotaTotal: number;
     startVendas: number;
     startFaturado: number;
@@ -361,6 +370,8 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
     periodFaturado: number; // End - Start
     periodVendasCD: number;
     periodVendasVP: number;
+    periodFaturadoCD: number;
+    periodFaturadoVP: number;
     pctTotalEnd: number; // % quota reached at End Day
     defasagemEnd: number;
     groupBreakdown: Array<{
@@ -376,6 +387,8 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
       repId: number;
       repName: string;
       coordName: string;
+      quotaCD: number;
+      quotaVP: number;
       quotaTotal: number;
       startVendas: number;
       startFaturado: number;
@@ -385,6 +398,10 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
       endVendasCD: number;
       startVendasVP: number;
       endVendasVP: number;
+      startFaturadoCD: number;
+      endFaturadoCD: number;
+      startFaturadoVP: number;
+      endFaturadoVP: number;
       groups: Map<string, { startVendas: number; endVendas: number }>;
     }>();
 
@@ -395,7 +412,9 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
           repId: r.repId,
           repName: r.repName,
           coordName: r.originalCoordName || r.coordName || 'Sem Coordenador',
-          quotaTotal: r.quotaTotal,
+          quotaCD: 0,
+          quotaVP: 0,
+          quotaTotal: 0,
           startVendas: 0,
           startFaturado: 0,
           endVendas: 0,
@@ -404,6 +423,10 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
           endVendasCD: 0,
           startVendasVP: 0,
           endVendasVP: 0,
+          startFaturadoCD: 0,
+          endFaturadoCD: 0,
+          startFaturadoVP: 0,
+          endFaturadoVP: 0,
           groups: new Map()
         });
       }
@@ -412,7 +435,11 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
       entry.startFaturado += r.faturadoTotal;
       entry.startVendasCD += r.valorVendaCD || 0;
       entry.startVendasVP += r.valorVendaVP || 0;
-      entry.quotaTotal = Math.max(entry.quotaTotal, r.quotaTotal);
+      entry.startFaturadoCD += r.faturadoCD || 0;
+      entry.startFaturadoVP += r.faturadoVP || 0;
+      entry.quotaCD += r.quotaCD || 0;
+      entry.quotaVP += r.quotaVP || 0;
+      entry.quotaTotal += r.quotaTotal || 0;
 
       const gName = getMappedGroupName(r.groupName);
       if (!entry.groups.has(gName)) {
@@ -428,7 +455,9 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
           repId: r.repId,
           repName: r.repName,
           coordName: r.originalCoordName || r.coordName || 'Sem Coordenador',
-          quotaTotal: r.quotaTotal,
+          quotaCD: 0,
+          quotaVP: 0,
+          quotaTotal: 0,
           startVendas: 0,
           startFaturado: 0,
           endVendas: 0,
@@ -437,6 +466,10 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
           endVendasCD: 0,
           startVendasVP: 0,
           endVendasVP: 0,
+          startFaturadoCD: 0,
+          endFaturadoCD: 0,
+          startFaturadoVP: 0,
+          endFaturadoVP: 0,
           groups: new Map()
         });
       }
@@ -445,7 +478,16 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
       entry.endFaturado += r.faturadoTotal;
       entry.endVendasCD += r.valorVendaCD || 0;
       entry.endVendasVP += r.valorVendaVP || 0;
-      entry.quotaTotal = Math.max(entry.quotaTotal, r.quotaTotal);
+      entry.endFaturadoCD += r.faturadoCD || 0;
+      entry.endFaturadoVP += r.faturadoVP || 0;
+      
+      // If end day has quota data, prefer it over start day
+      if (filteredStartRecords.length === 0 || entry.quotaTotal === 0) {
+        entry.quotaCD += r.quotaCD || 0;
+        entry.quotaVP += r.quotaVP || 0;
+        entry.quotaTotal += r.quotaTotal || 0;
+      }
+      
       entry.repName = r.repName || entry.repName;
       entry.coordName = r.originalCoordName || r.coordName || entry.coordName;
 
@@ -459,17 +501,16 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
     const result: RepDailyComparison[] = [];
 
     repMap.forEach(item => {
-      // Strictly only display representatives who have custom registered name if required, or matching rep
-      const hasCustomName = Boolean(customRepNames[item.repId.toString().trim() || item.repId]);
-      
       const periodVendas = Math.max(0, item.endVendas - item.startVendas);
       const periodFaturado = Math.max(0, item.endFaturado - item.startFaturado);
       const periodVendasCD = Math.max(0, item.endVendasCD - item.startVendasCD);
       const periodVendasVP = Math.max(0, item.endVendasVP - item.startVendasVP);
+      const periodFaturadoCD = Math.max(0, item.endFaturadoCD - item.startFaturadoCD);
+      const periodFaturadoVP = Math.max(0, item.endFaturadoVP - item.startFaturadoVP);
       const pctTotalEnd = item.quotaTotal > 0 ? (item.endVendas / item.quotaTotal) * 100 : 0;
       const defasagemEnd = item.endVendas - item.quotaTotal;
 
-      // 6. Performance (% Total) filter from sidebar
+      // Performance (% Total) filter from sidebar
       if (progressThreshold !== 'All') {
         if (progressThreshold === '100+' && pctTotalEnd < 100) return;
         if (progressThreshold === '75-99' && (pctTotalEnd < 75 || pctTotalEnd >= 100)) return;
@@ -487,6 +528,8 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
         repId: item.repId,
         repName: item.repName,
         coordName: item.coordName,
+        quotaCD: item.quotaCD,
+        quotaVP: item.quotaVP,
         quotaTotal: item.quotaTotal,
         startVendas: item.startVendas,
         startFaturado: item.startFaturado,
@@ -496,6 +539,8 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
         periodFaturado,
         periodVendasCD,
         periodVendasVP,
+        periodFaturadoCD,
+        periodFaturadoVP,
         pctTotalEnd,
         defasagemEnd,
         groupBreakdown
@@ -503,88 +548,67 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
     });
 
     return result;
-  }, [filteredStartRecords, filteredEndRecords, progressThreshold, customRepNames]);
+  }, [filteredStartRecords, filteredEndRecords, progressThreshold]);
 
-  // Summary Totals for the selected period
-  const periodTotals = useMemo(() => {
-    let totalStartVendas = 0;
-    let totalEndVendas = 0;
-    let totalPeriodVendas = 0;
-    let totalPeriodFaturado = 0;
-    let totalPeriodCD = 0;
-    let totalPeriodVP = 0;
-    let totalQuota = 0;
-    let activeRepsWithSales = 0;
+  // Aggregate Period Totals and notify Parent (App.tsx) to update top KPI cards
+  useEffect(() => {
+    let quotaCD = 0;
+    let quotaVP = 0;
+    let quotaTotal = 0;
+    let valorVendaCD = 0;
+    let valorVendaVP = 0;
+    let valorVendaTotal = 0;
+    let faturadoCD = 0;
+    let faturadoVP = 0;
+    let faturadoTotal = 0;
 
     comparisonData.forEach(c => {
-      totalStartVendas += c.startVendas;
-      totalEndVendas += c.endVendas;
-      totalPeriodVendas += c.periodVendas;
-      totalPeriodFaturado += c.periodFaturado;
-      totalPeriodCD += c.periodVendasCD;
-      totalPeriodVP += c.periodVendasVP;
-      totalQuota += c.quotaTotal;
-      if (c.periodVendas > 0) {
-        activeRepsWithSales++;
-      }
+      quotaCD += c.quotaCD;
+      quotaVP += c.quotaVP;
+      quotaTotal += c.quotaTotal;
+      valorVendaCD += c.periodVendasCD;
+      valorVendaVP += c.periodVendasVP;
+      valorVendaTotal += c.periodVendas;
+      faturadoCD += c.periodFaturadoCD;
+      faturadoVP += c.periodFaturadoVP;
+      faturadoTotal += c.periodFaturado;
     });
 
-    const dayIntervalCount = Math.max(1, endDay - (startDay > 0 ? startDay : 0));
-    const dailyAverage = totalPeriodVendas / dayIntervalCount;
+    const achCD = quotaCD > 0 ? (valorVendaCD / quotaCD) * 100 : 0;
+    const achVP = quotaVP > 0 ? (valorVendaVP / quotaVP) * 100 : 0;
+    const achTotal = quotaTotal > 0 ? (valorVendaTotal / quotaTotal) * 100 : 0;
+    const defasagem = valorVendaTotal - quotaTotal;
 
-    return {
-      totalStartVendas,
-      totalEndVendas,
-      totalPeriodVendas,
-      totalPeriodFaturado,
-      totalPeriodCD,
-      totalPeriodVP,
-      totalQuota,
-      activeRepsWithSales,
-      totalReps: comparisonData.length,
-      dayIntervalCount,
-      dailyAverage
-    };
-  }, [comparisonData, startDay, endDay]);
-
-  // Product Group performance for period
-  const groupPerformance = useMemo(() => {
-    const map = new Map<string, { groupName: string; startVendas: number; endVendas: number; periodVendas: number }>();
-    
-    comparisonData.forEach(c => {
-      c.groupBreakdown.forEach(g => {
-        if (!map.has(g.groupName)) {
-          map.set(g.groupName, {
-            groupName: g.groupName,
-            startVendas: 0,
-            endVendas: 0,
-            periodVendas: 0
-          });
-        }
-        const entry = map.get(g.groupName)!;
-        entry.startVendas += g.startVendas;
-        entry.endVendas += g.endVendas;
-        entry.periodVendas += g.periodVendas;
+    if (onPeriodTotalsChange) {
+      onPeriodTotalsChange({
+        quotaCD,
+        faturadoCD,
+        quotaVP,
+        faturadoVP,
+        quotaTotal,
+        faturadoTotal,
+        pendenteCD: 0,
+        pendenteVP: 0,
+        faturadoEPendente: faturadoTotal,
+        defasagem,
+        valorVendaCD,
+        valorVendaVP,
+        valorVendaTotal,
+        achCD,
+        achVP,
+        achTotal,
+        achSale: achTotal,
+        startDay,
+        endDay,
+        selectedMonth,
+        selectedYear
       });
-    });
+    }
+  }, [comparisonData, startDay, endDay, selectedMonth, selectedYear, onPeriodTotalsChange]);
 
-    return Array.from(map.values()).sort((a, b) => b.periodVendas - a.periodVendas);
-  }, [comparisonData]);
-
-  // Coordinator performance for period
-  const coordinatorPerformance = useMemo(() => {
-    const map = new Map<string, { coordName: string; periodVendas: number; repCount: number }>();
-    
-    comparisonData.forEach(c => {
-      if (!map.has(c.coordName)) {
-        map.set(c.coordName, { coordName: c.coordName, periodVendas: 0, repCount: 0 });
-      }
-      const entry = map.get(c.coordName)!;
-      entry.periodVendas += c.periodVendas;
-      entry.repCount++;
-    });
-
-    return Array.from(map.values()).sort((a, b) => b.periodVendas - a.periodVendas);
+  // Active reps with sales in period count
+  const activeRepsWithSales = useMemo(() => {
+    return comparisonData.filter(c => c.periodVendas > 0).length;
   }, [comparisonData]);
 
   // Filtered and Sorted Table records
@@ -614,7 +638,6 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
   // Export to CSV
   const exportToCSV = () => {
     if (sortedTableData.length === 0) {
-      alert("Não há dados para exportar no período selecionado.");
       return;
     }
 
@@ -665,49 +688,15 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* HEADER BAR & CONTROLS */}
-      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-gradient-to-br from-sky-500 to-indigo-600 text-white rounded-2xl shadow-sm">
-              <CalendarDays className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
-                  Vendas por Dia
-                </h1>
-                <span className="bg-sky-100 text-sky-800 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full">
-                  Memória Diária Permanente
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Filtre períodos diários com cálculo líquido exato (<span className="font-semibold text-slate-700">Venda Dia Final − Venda Dia Inicial</span>).
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={loadSnapshotsIndex}
-              disabled={isLoadingIndex}
-              className="px-3 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-              title="Atualizar registros da memória"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingIndex ? 'animate-spin text-sky-600' : ''}`} />
-              <span>Atualizar</span>
-            </button>
-
-            {onOpenImport && (
-              <button
-                onClick={onOpenImport}
-                className="px-3.5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>Importar Novo Relatório</span>
-              </button>
-            )}
-          </div>
+      {/* SIMPLIFIED HEADER & DATE CONTROLS */}
+      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+        <div className="pb-3 border-b border-slate-100">
+          <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
+            Vendas por Dia
+          </h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Selecione o período desejado para apurar as vendas líquidas realizadas no intervalo.
+          </p>
         </div>
 
         {/* DATE SELECTORS GRID */}
@@ -763,7 +752,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
               </label>
               {startDay > 0 && (
                 <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${startSnapshotInfo ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                  {startSnapshotInfo ? '✅ Salvo' : '⚠️ Sem Dados'}
+                  {startSnapshotInfo ? 'Salvo' : 'Sem Dados'}
                 </span>
               )}
             </div>
@@ -781,7 +770,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
                 const hasData = recordedDaysMap.has(d);
                 return (
                   <option key={d} value={d}>
-                    Dia {String(d).padStart(2, '0')}/{String(selectedMonth).padStart(2, '0')} {hasData ? '• [Relatório Salvo]' : ''}
+                    Dia {String(d).padStart(2, '0')}/{String(selectedMonth).padStart(2, '0')} {hasData ? '• [Salvo]' : ''}
                   </option>
                 );
               })}
@@ -795,7 +784,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
                 Dia Final (Acumulado)
               </label>
               <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${endSnapshotInfo ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                {endSnapshotInfo ? '✅ Salvo' : '⚠️ Sem Dados'}
+                {endSnapshotInfo ? 'Salvo' : 'Sem Dados'}
               </span>
             </div>
             <select
@@ -811,78 +800,11 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
                 const hasData = recordedDaysMap.has(d);
                 return (
                   <option key={d} value={d}>
-                    Dia {String(d).padStart(2, '0')}/{String(selectedMonth).padStart(2, '0')} {hasData ? '• [Relatório Salvo]' : ''}
+                    Dia {String(d).padStart(2, '0')}/{String(selectedMonth).padStart(2, '0')} {hasData ? '• [Salvo]' : ''}
                   </option>
                 );
               })}
             </select>
-          </div>
-        </div>
-
-        {/* TIMELINE OF RECORDED DAYS IN MONTH */}
-        <div className="pt-3 border-t border-slate-100 space-y-2">
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="font-bold text-slate-600 flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-sky-500" />
-              Dias com Relatórios Salvos na Memória ({MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/{selectedYear}):
-            </span>
-            <span className="text-slate-400 text-[10px]">
-              Clique em um dia para selecioná-lo rapidamente
-            </span>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <button
-              onClick={() => setStartDay(0)}
-              className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border transition-all cursor-pointer ${
-                startDay === 0
-                  ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
-                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              Dia 0 (Início)
-            </button>
-
-            {Array.from({ length: daysInSelectedMonth }, (_, i) => i + 1).map(d => {
-              const hasData = recordedDaysMap.has(d);
-              const isStart = startDay === d;
-              const isEnd = endDay === d;
-              const isInRange = startDay > 0 && d >= startDay && d <= endDay;
-
-              let style = "bg-slate-50 text-slate-400 border-slate-100 hover:border-slate-300";
-              if (hasData) {
-                style = "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100 font-bold";
-              }
-              if (isInRange) {
-                style = "bg-sky-100 text-sky-900 border-sky-300 font-bold";
-              }
-              if (isStart) {
-                style = "bg-sky-600 text-white border-sky-600 font-extrabold shadow-xs";
-              }
-              if (isEnd) {
-                style = "bg-indigo-600 text-white border-indigo-600 font-extrabold shadow-xs";
-              }
-
-              return (
-                <button
-                  key={d}
-                  onClick={() => {
-                    if (d > endDay) {
-                      setEndDay(d);
-                    } else if (d < startDay || startDay === 0) {
-                      setStartDay(d);
-                    } else {
-                      // Toggle
-                      setEndDay(d);
-                    }
-                  }}
-                  title={hasData ? `Dia ${d}: Relatório gravado na memória` : `Dia ${d}: Nenhum relatório salvo`}
-                  className={`w-7 h-7 flex items-center justify-center text-[11px] rounded-lg border transition-all cursor-pointer ${style}`}
-                >
-                  {d}
-                </button>
-              );
-            })}
           </div>
         </div>
 
@@ -892,17 +814,9 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
             <div className="flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
               <span>
-                <strong>Atenção:</strong> Não há relatório salvo na memória para o <strong>Dia {String(startDay).padStart(2, '0')}/{String(selectedMonth).padStart(2, '0')}/{selectedYear}</strong>. Os valores iniciais serão considerados como R$ 0,00.
+                Não há relatório salvo na memória para o <strong>Dia {String(startDay).padStart(2, '0')}/{String(selectedMonth).padStart(2, '0')}/{selectedYear}</strong>. Os valores iniciais serão considerados como R$ 0,00.
               </span>
             </div>
-            {onOpenImport && (
-              <button
-                onClick={onOpenImport}
-                className="text-xs font-bold text-amber-900 underline hover:no-underline whitespace-nowrap cursor-pointer"
-              >
-                Importar relatório para este dia
-              </button>
-            )}
           </div>
         )}
 
@@ -911,192 +825,11 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
             <div className="flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
               <span>
-                <strong>Atenção:</strong> Não há relatório salvo na memória para o <strong>Dia {String(endDay).padStart(2, '0')}/{String(selectedMonth).padStart(2, '0')}/{selectedYear}</strong>.
+                Não há relatório salvo na memória para o <strong>Dia {String(endDay).padStart(2, '0')}/{String(selectedMonth).padStart(2, '0')}/{selectedYear}</strong>.
               </span>
             </div>
-            {onOpenImport && (
-              <button
-                onClick={onOpenImport}
-                className="text-xs font-bold text-rose-900 underline hover:no-underline whitespace-nowrap cursor-pointer"
-              >
-                Importar relatório para este dia
-              </button>
-            )}
           </div>
         )}
-      </div>
-
-      {/* KPI METRICS CARDS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Sales in Period */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
-              Vendas no Período
-            </span>
-            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
-              <TrendingUp className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            {formatCurrency(periodTotals.totalPeriodVendas)}
-          </div>
-          <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
-            <span className="font-semibold text-emerald-600">
-              Δ {startDay === 0 ? 'Início' : `Dia ${String(startDay).padStart(2, '0')}`} → Dia {String(endDay).padStart(2, '0')}
-            </span>
-            <span>({periodTotals.dayIntervalCount} {periodTotals.dayIntervalCount === 1 ? 'dia' : 'dias'})</span>
-          </div>
-        </div>
-
-        {/* Total Invoiced in Period */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
-              Faturado no Período
-            </span>
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
-              <DollarSign className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            {formatCurrency(periodTotals.totalPeriodFaturado)}
-          </div>
-          <div className="text-[11px] text-slate-500 flex items-center gap-2">
-            <span>CD: <strong>{formatCurrency(periodTotals.totalPeriodCD)}</strong></span>
-            <span>•</span>
-            <span>VP: <strong>{formatCurrency(periodTotals.totalPeriodVP)}</strong></span>
-          </div>
-        </div>
-
-        {/* Daily Average in Period */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
-              Média Diária no Intervalo
-            </span>
-            <div className="p-2 bg-sky-50 text-sky-600 rounded-xl">
-              <BarChart3 className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            {formatCurrency(periodTotals.dailyAverage)}
-          </div>
-          <div className="text-[11px] text-slate-500">
-            Média por dia ao longo dos {periodTotals.dayIntervalCount} dias
-          </div>
-        </div>
-
-        {/* Active Representatives with Sales */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
-              Reps com Vendas no Período
-            </span>
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
-              <Users className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            {periodTotals.activeRepsWithSales} <span className="text-sm font-semibold text-slate-400">/ {periodTotals.totalReps}</span>
-          </div>
-          <div className="text-[11px] text-slate-500">
-            {periodTotals.totalReps > 0
-              ? `${((periodTotals.activeRepsWithSales / periodTotals.totalReps) * 100).toFixed(0)}% da equipe pontuou vendas`
-              : 'Nenhum representante filtrado'}
-          </div>
-        </div>
-      </div>
-
-      {/* PRODUCT GROUP & COORDINATOR BREAKDOWN CARDS */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Product Group Breakdown */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-sky-600" />
-              <h3 className="font-bold text-slate-900 text-sm">Vendas por Grupo de Produtos no Período</h3>
-            </div>
-            <span className="text-xs font-bold text-slate-500">
-              Total: {formatCurrency(periodTotals.totalPeriodVendas)}
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            {groupPerformance.map((group, idx) => {
-              const pct = periodTotals.totalPeriodVendas > 0 ? (group.periodVendas / periodTotals.totalPeriodVendas) * 100 : 0;
-              return (
-                <div key={idx} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-slate-800">{group.groupName}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-extrabold text-slate-900">{formatCurrency(group.periodVendas)}</span>
-                      <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                        {pct.toFixed(1)}%
-                      </span>
-                    </div>
-                  </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div
-                      className="bg-gradient-to-r from-sky-500 to-indigo-600 h-full rounded-full transition-all duration-500"
-                      style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-
-            {groupPerformance.length === 0 && (
-              <p className="text-xs text-slate-400 italic py-4 text-center">
-                Nenhum grupo de produtos encontrado para os filtros selecionados.
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Coordinator Breakdown */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-indigo-600" />
-              <h3 className="font-bold text-slate-900 text-sm">Vendas por Coordenador no Período</h3>
-            </div>
-            <span className="text-xs font-bold text-slate-500">
-              {coordinatorPerformance.length} Coordenadores
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            {coordinatorPerformance.map((coord, idx) => {
-              const pct = periodTotals.totalPeriodVendas > 0 ? (coord.periodVendas / periodTotals.totalPeriodVendas) * 100 : 0;
-              return (
-                <div key={idx} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-slate-800">{coord.coordName} ({coord.repCount} reps)</span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-extrabold text-slate-900">{formatCurrency(coord.periodVendas)}</span>
-                      <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                        {pct.toFixed(1)}%
-                      </span>
-                    </div>
-                  </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div
-                      className="bg-gradient-to-r from-indigo-500 to-emerald-500 h-full rounded-full transition-all duration-500"
-                      style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-
-            {coordinatorPerformance.length === 0 && (
-              <p className="text-xs text-slate-400 italic py-4 text-center">
-                Nenhum coordenador encontrado para os filtros selecionados.
-              </p>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* DETAILED REPRESENTATIVES TABLE */}
@@ -1124,7 +857,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
               }`}
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Apenas com Vendas ({periodTotals.activeRepsWithSales})</span>
+              <span>Apenas com Vendas ({activeRepsWithSales})</span>
             </button>
           </div>
 
@@ -1225,7 +958,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
                     <ArrowDownUp className="w-3 h-3" />
                   </div>
                 </th>
-                <th className="py-3 px-4 text-center w-10">Detalhe</th>
+                <th className="py-3 px-4 text-center w-10">Detalhes</th>
               </tr>
             </thead>
 

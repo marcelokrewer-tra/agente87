@@ -840,6 +840,7 @@ export default function App() {
   // Dashboard Core Navigation Tabs
   const [activeTab, setActiveTab] = useState<'geral' | 'representantes' | 'comparativo' | 'vendas_dia' | 'detalhado' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao' | 'usuarios'>('geral');
   const [isImportDropdownOpen, setIsImportDropdownOpen] = useState(false);
+  const [dailyPeriodTotals, setDailyPeriodTotals] = useState<any>(null);
 
   // States for growth comparison filtering and sorting
   const [growthSortField, setGrowthSortField] = useState<'taxaCrescimento' | 'diferencaVenda' | 'vendaAtual' | 'vendaAnterior' | 'repName'>('taxaCrescimento');
@@ -1582,6 +1583,14 @@ export default function App() {
       achSale
     };
   }, [filteredRecords]);
+
+  // Active statistics for display (switches to selected daily period when in Vendas por Dia)
+  const activeTotals = useMemo(() => {
+    if (activeTab === 'vendas_dia' && dailyPeriodTotals) {
+      return dailyPeriodTotals;
+    }
+    return totals;
+  }, [activeTab, dailyPeriodTotals, totals]);
 
   // Portuguese monetary layout formatter
   const formatCurrency = (val: number) => {
@@ -3868,28 +3877,28 @@ export default function App() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
                     <MetricCard
                       title="Cota Total"
-                      value={formatCurrency(totals.quotaTotal)}
+                      value={formatCurrency(activeTotals.quotaTotal)}
                       icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
                       accentColor="blue"
                     />
                     <MetricCard
                       title="Vendas Total"
-                      value={formatCurrency(totals.valorVendaTotal)}
+                      value={formatCurrency(activeTotals.valorVendaTotal)}
                       icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
                       accentColor="blue"
                     />
                     <MetricCard
                       title="% Vendas Total"
-                      value={formatPercent(totals.achTotal)}
+                      value={formatPercent(activeTotals.achTotal)}
                       icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
                       accentColor="blue"
                     />
                     <MetricCard
                       title="Defasagem Total"
-                      value={formatDefasagem(totals.defasagem)}
-                      icon={totals.defasagem >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
-                      accentColor={totals.defasagem >= 0 ? "emerald" : "rose"}
-                      valueClassName={totals.defasagem >= 0 ? "text-emerald-600" : "text-rose-600"}
+                      value={formatDefasagem(activeTotals.defasagem)}
+                      icon={activeTotals.defasagem >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                      accentColor={activeTotals.defasagem >= 0 ? "emerald" : "rose"}
+                      valueClassName={activeTotals.defasagem >= 0 ? "text-emerald-600" : "text-rose-600"}
                     />
                   </div>
 
@@ -3897,28 +3906,28 @@ export default function App() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
                     <MetricCard
                       title="Cota CD"
-                      value={formatCurrency(totals.quotaCD)}
+                      value={formatCurrency(activeTotals.quotaCD)}
                       icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
                       accentColor="purple"
                     />
                     <MetricCard
                       title="Vendas CD"
-                      value={formatCurrency(totals.valorVendaCD)}
+                      value={formatCurrency(activeTotals.valorVendaCD)}
                       icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
                       accentColor="purple"
                     />
                     <MetricCard
                       title="% Vendas CD"
-                      value={formatPercent(totals.achCD)}
+                      value={formatPercent(activeTotals.achCD)}
                       icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
                       accentColor="purple"
                     />
                     <MetricCard
                       title="Defasagem CD"
-                      value={formatDefasagem(totals.valorVendaCD - totals.quotaCD)}
-                      icon={(totals.valorVendaCD - totals.quotaCD) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
-                      accentColor={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "emerald" : "rose"}
-                      valueClassName={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "text-emerald-600" : "text-rose-600"}
+                      value={formatDefasagem(activeTotals.valorVendaCD - activeTotals.quotaCD)}
+                      icon={(activeTotals.valorVendaCD - activeTotals.quotaCD) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                      accentColor={(activeTotals.valorVendaCD - activeTotals.quotaCD) >= 0 ? "emerald" : "rose"}
+                      valueClassName={(activeTotals.valorVendaCD - activeTotals.quotaCD) >= 0 ? "text-emerald-600" : "text-rose-600"}
                     />
                   </div>
 
@@ -3926,28 +3935,28 @@ export default function App() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
                     <MetricCard
                       title="Cota VP"
-                      value={formatCurrency(totals.quotaVP)}
+                      value={formatCurrency(activeTotals.quotaVP)}
                       icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
                       accentColor="teal"
                     />
                     <MetricCard
                       title="Vendas VP"
-                      value={formatCurrency(totals.valorVendaVP)}
+                      value={formatCurrency(activeTotals.valorVendaVP)}
                       icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
                       accentColor="teal"
                     />
                     <MetricCard
                       title="% Vendas VP"
-                      value={formatPercent(totals.achVP)}
+                      value={formatPercent(activeTotals.achVP)}
                       icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
                       accentColor="teal"
                     />
                     <MetricCard
                       title="Defasagem VP"
-                      value={formatDefasagem(totals.valorVendaVP - totals.quotaVP)}
-                      icon={(totals.valorVendaVP - totals.quotaVP) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
-                      accentColor={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "emerald" : "rose"}
-                      valueClassName={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "text-emerald-600" : "text-rose-600"}
+                      value={formatDefasagem(activeTotals.valorVendaVP - activeTotals.quotaVP)}
+                      icon={(activeTotals.valorVendaVP - activeTotals.quotaVP) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                      accentColor={(activeTotals.valorVendaVP - activeTotals.quotaVP) >= 0 ? "emerald" : "rose"}
+                      valueClassName={(activeTotals.valorVendaVP - activeTotals.quotaVP) >= 0 ? "text-emerald-600" : "text-rose-600"}
                     />
                   </div>
                 </div>
@@ -3956,28 +3965,28 @@ export default function App() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
                   <MetricCard
                     title="Cota CD"
-                    value={formatCurrency(totals.quotaCD)}
+                    value={formatCurrency(activeTotals.quotaCD)}
                     icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
                     accentColor="purple"
                   />
                   <MetricCard
                     title="Vendas CD"
-                    value={formatCurrency(totals.valorVendaCD)}
+                    value={formatCurrency(activeTotals.valorVendaCD)}
                     icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
                     accentColor="purple"
                   />
                   <MetricCard
                     title="% Vendas CD"
-                    value={formatPercent(totals.achCD)}
+                    value={formatPercent(activeTotals.achCD)}
                     icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />}
                     accentColor="purple"
                   />
                   <MetricCard
                     title="Defasagem CD"
-                    value={formatDefasagem(totals.valorVendaCD - totals.quotaCD)}
-                    icon={(totals.valorVendaCD - totals.quotaCD) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
-                    accentColor={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "emerald" : "rose"}
-                    valueClassName={(totals.valorVendaCD - totals.quotaCD) >= 0 ? "text-emerald-600" : "text-rose-600"}
+                    value={formatDefasagem(activeTotals.valorVendaCD - activeTotals.quotaCD)}
+                    icon={(activeTotals.valorVendaCD - activeTotals.quotaCD) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                    accentColor={(activeTotals.valorVendaCD - activeTotals.quotaCD) >= 0 ? "emerald" : "rose"}
+                    valueClassName={(activeTotals.valorVendaCD - activeTotals.quotaCD) >= 0 ? "text-emerald-600" : "text-rose-600"}
                   />
                 </div>
               ) : (
@@ -3985,28 +3994,28 @@ export default function App() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
                   <MetricCard
                     title="Cota VP"
-                    value={formatCurrency(totals.quotaVP)}
+                    value={formatCurrency(activeTotals.quotaVP)}
                     icon={<Target className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
                     accentColor="teal"
                   />
                   <MetricCard
                     title="Vendas VP"
-                    value={formatCurrency(totals.valorVendaVP)}
+                    value={formatCurrency(activeTotals.valorVendaVP)}
                     icon={<DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
                     accentColor="teal"
                   />
                   <MetricCard
                     title="% Vendas VP"
-                    value={formatPercent(totals.achVP)}
+                    value={formatPercent(activeTotals.achVP)}
                     icon={<TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />}
                     accentColor="teal"
                   />
                   <MetricCard
                     title="Defasagem VP"
-                    value={formatDefasagem(totals.valorVendaVP - totals.quotaVP)}
-                    icon={(totals.valorVendaVP - totals.quotaVP) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
-                    accentColor={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "emerald" : "rose"}
-                    valueClassName={(totals.valorVendaVP - totals.quotaVP) >= 0 ? "text-emerald-600" : "text-rose-600"}
+                    value={formatDefasagem(activeTotals.valorVendaVP - activeTotals.quotaVP)}
+                    icon={(activeTotals.valorVendaVP - activeTotals.quotaVP) >= 0 ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />}
+                    accentColor={(activeTotals.valorVendaVP - activeTotals.quotaVP) >= 0 ? "emerald" : "rose"}
+                    valueClassName={(activeTotals.valorVendaVP - activeTotals.quotaVP) >= 0 ? "text-emerald-600" : "text-rose-600"}
                   />
                 </div>
               )}
@@ -4848,6 +4857,7 @@ export default function App() {
                 customRepLocations={customRepLocations}
                 userRole={userRole}
                 userRepId={userRepId}
+                onPeriodTotalsChange={setDailyPeriodTotals}
                 onOpenImport={() => {
                   setActiveTab('importar');
                   setIsImportDropdownOpen(false);
