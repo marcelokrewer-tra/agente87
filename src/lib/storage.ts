@@ -104,3 +104,92 @@ export const deleteLocalPeriod = (year: number, month: number): void => {
     console.error("Error deleting period from localStorage", e);
   }
 };
+
+// ==================== DAILY SALES LOCAL STORAGE ====================
+const DAILY_INDEX_KEY = 'tramontina_daily_sales_index';
+const DAILY_DATA_PREFIX = 'tramontina_daily_';
+
+export interface DailySnapshotInfo {
+  id: string; // "YYYY-MM-DD"
+  year: number;
+  month: number;
+  day: number;
+  recordsCount: number;
+  updatedAt?: string;
+}
+
+export const getLocalDailySalesIndex = (): DailySnapshotInfo[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const stored = localStorage.getItem(DAILY_INDEX_KEY);
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch (e) {
+    console.error("Error reading daily sales index from localStorage", e);
+  }
+  return [];
+};
+
+export const saveLocalDailySales = (year: number, month: number, day: number, records: SalesRecord[]): void => {
+  if (typeof window === 'undefined') return;
+  const dayId = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const dayKey = `${DAILY_DATA_PREFIX}${year}_${month}_${day}`;
+
+  try {
+    localStorage.setItem(dayKey, JSON.stringify(records));
+    
+    // Update the index
+    const index = getLocalDailySalesIndex();
+    const filteredIndex = index.filter(d => d.id !== dayId);
+    
+    if (records.length > 0) {
+      filteredIndex.push({
+        id: dayId,
+        year,
+        month,
+        day,
+        recordsCount: records.length,
+        updatedAt: new Date().toISOString()
+      });
+    }
+    
+    // Sort descending
+    filteredIndex.sort((a, b) => b.id.localeCompare(a.id));
+    localStorage.setItem(DAILY_INDEX_KEY, JSON.stringify(filteredIndex));
+  } catch (e) {
+    console.error("Error saving daily sales to localStorage", e);
+  }
+};
+
+export const getLocalDailySalesData = (year: number, month: number, day: number): SalesRecord[] => {
+  if (typeof window === 'undefined') return [];
+  const dayKey = `${DAILY_DATA_PREFIX}${year}_${month}_${day}`;
+
+  try {
+    const stored = localStorage.getItem(dayKey);
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch (e) {
+    console.error("Error reading daily sales data from localStorage", e);
+  }
+  return [];
+};
+
+export const deleteLocalDailySales = (year: number, month: number, day: number): void => {
+  if (typeof window === 'undefined') return;
+  const dayId = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const dayKey = `${DAILY_DATA_PREFIX}${year}_${month}_${day}`;
+
+  try {
+    localStorage.removeItem(dayKey);
+    
+    const index = getLocalDailySalesIndex();
+    const updatedIndex = index.filter(d => d.id !== dayId);
+    localStorage.setItem(DAILY_INDEX_KEY, JSON.stringify(updatedIndex));
+  } catch (e) {
+    console.error("Error deleting daily sales from localStorage", e);
+  }
+};
+

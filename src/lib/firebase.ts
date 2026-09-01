@@ -401,4 +401,119 @@ export const saveLocalRepLocations = (locations: Record<string, string>): void =
   }
 };
 
+// ---------------- Daily Sales Memory Persistence ----------------
+
+export interface DailySalesSnapshot {
+  id: string; // "YYYY-MM-DD"
+  year: number;
+  month: number;
+  day: number;
+  recordsCount: number;
+  updatedAt?: string;
+}
+
+export const fetchDailySalesIndexFromFirestore = async (): Promise<DailySalesSnapshot[]> => {
+  try {
+    const db = getDb();
+    const dailyCollection = collection(db, 'daily_sales');
+    const snapshot = await getDocs(dailyCollection);
+    
+    const days: DailySalesSnapshot[] = [];
+    snapshot.forEach((document) => {
+      const data = document.data();
+      days.push({
+        id: document.id, // "YYYY-MM-DD"
+        year: data.year,
+        month: data.month,
+        day: data.day,
+        recordsCount: data.recordsCount || 0,
+        updatedAt: data.updatedAt
+      });
+    });
+
+    return days.sort((a, b) => b.id.localeCompare(a.id));
+  } catch (error) {
+    console.error("Error fetching daily sales index from Firestore:", error);
+    return [];
+  }
+};
+
+export const fetchDailySalesDataFromFirestore = async (year: number, month: number, day: number): Promise<SalesRecord[]> => {
+  const db = getDb();
+  const dayId = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  
+  const itemsCollection = collection(db, 'daily_sales', dayId, 'items');
+  const querySnapshot = await getDocs(itemsCollection);
+  
+  const allRecords: SalesRecord[] = [];
+  querySnapshot.forEach((docSnapshot) => {
+    const data = docSnapshot.data();
+    if (data && Array.isArray(data.chunk)) {
+      allRecords.push(...data.chunk);
+    }
+  });
+
+  return allRecords;
+};
+
+export const saveDailySalesToFirestore = async (year: number, month: number, day: number, records: SalesRecord[]): Promise<void> => {
+  const db = getDb();
+  const dayId = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  
+  // Master document for this day
+  const dayDocRef = doc(db, 'daily_sales', dayId);
+  await setDoc(dayDocRef, {
+    id: dayId,
+    year,
+    month,
+    day,
+    recordsCount: records.length,
+    updatedAt: new Date().toISOString()
+  });
+
+  // Chunking
+  const CHUNK_SIZE = 150;
+  const chunks: SalesRecord[][] = [];
+  for (let i = 0; i < records.length; i += CHUNK_SIZE) {
+    chunks.push(records.slice(i, i + CHUNK_SIZE));
+  }
+
+  // Clear previous subcollection chunks for this day (overwriting previous upload for this date)
+  const itemsCollection = collection(db, 'daily_sales', dayId, 'items');
+  const existingDocs = await getDocs(itemsCollection);
+  
+  const deleteBatch = writeBatch(db);
+  existingDocs.forEach((docSnapshot) => {
+    deleteBatch.delete(docSnapshot.ref);
+  });
+  await deleteBatch.commit();
+
+  // Save new chunks
+  for (let idx = 0; idx < chunks.length; idx++) {
+    const chunkDocRef = doc(db, 'daily_sales', dayId, 'items', `chunk_${idx}`);
+    await setDoc(chunkDocRef, {
+      chunk: chunks[idx],
+      index: idx
+    });
+  }
+};
+
+export const deleteDailySalesFromFirestore = async (year: number, month: number, day: number): Promise<void> => {
+  const db = getDb();
+  const dayId = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  
+  const itemsCollection = collection(db, 'daily_sales', dayId, 'items');
+  const existingDocs = await getDocs(itemsCollection);
+  
+  const deleteBatch = writeBatch(db);
+  existingDocs.forEach((docSnapshot) => {
+    deleteBatch.delete(docSnapshot.ref);
+  });
+  await deleteBatch.commit();
+
+  const dayDocRef = doc(db, 'daily_sales', dayId);
+  await deleteDoc(dayDocRef);
+};
+
+
 

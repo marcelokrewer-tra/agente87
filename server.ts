@@ -14,9 +14,19 @@ interface MonthData {
   records: SalesRecord[];
 }
 
+export interface DailySalesData {
+  id: string; // e.g. "2026-09-01"
+  year: number;
+  month: number;
+  day: number;
+  updatedAt: string;
+  records: SalesRecord[];
+}
+
 const app = express();
 const PORT = 3000;
 const DB_FILE = path.join(process.cwd(), "monthly_sales_db.json");
+const DAILY_DB_FILE = path.join(process.cwd(), "daily_sales_db.json");
 
 // Middleware
 app.use(express.json({ limit: "50mb" }));
@@ -46,6 +56,28 @@ function loadDatabase(): Record<string, MonthData> {
   };
   saveDatabase(db);
   return db;
+}
+
+// Helper to load daily sales database
+function loadDailyDatabase(): Record<string, DailySalesData> {
+  try {
+    if (fs.existsSync(DAILY_DB_FILE)) {
+      const content = fs.readFileSync(DAILY_DB_FILE, "utf-8");
+      return JSON.parse(content);
+    }
+  } catch (error) {
+    console.error("Error loading daily JSON database:", error);
+  }
+  return {};
+}
+
+// Helper to save daily sales database
+function saveDailyDatabase(db: Record<string, DailySalesData>): void {
+  try {
+    fs.writeFileSync(DAILY_DB_FILE, JSON.stringify(db, null, 2), "utf-8");
+  } catch (error) {
+    console.error("Error saving daily JSON database:", error);
+  }
 }
 
 function getMappedGroupName(groupName: string | undefined): string {
@@ -157,6 +189,88 @@ app.post("/api/monthly-data/reset", (req, res) => {
   };
   saveDatabase(db);
   res.json({ success: true, message: "Banco de dados redefinido para os padrões de fábrica." });
+});
+
+// ==================== DAILY SALES MEMORY ROUTES ====================
+// 1. Get list of all recorded days with metadata
+app.get("/api/daily-sales", (req, res) => {
+  const db = loadDailyDatabase();
+  const list = Object.values(db).map(({ id, year, month, day, updatedAt, records }) => ({
+    id,
+    year,
+    month,
+    day,
+    updatedAt,
+    recordsCount: records.length,
+  }));
+  res.json(list);
+});
+
+// 2. Get records for a specific day
+app.get("/api/daily-sales/:year/:month/:day", (req, res) => {
+  const year = parseInt(req.params.year);
+  const month = parseInt(req.params.month);
+  const day = parseInt(req.params.day);
+  const id = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  
+  const db = loadDailyDatabase();
+  const data = db[id];
+  
+  if (data) {
+    res.json(data);
+  } else {
+    res.json({
+      id,
+      year,
+      month,
+      day,
+      updatedAt: "",
+      records: [],
+      exists: false,
+    });
+  }
+});
+
+// 3. Post/update records for a specific day (overwrites any previous submission for that day)
+app.post("/api/daily-sales", (req, res) => {
+  const { year, month, day, records } = req.body;
+  
+  if (!year || !month || !day || !Array.isArray(records)) {
+    return res.status(400).json({ error: "Parâmetros inválidos. 'year', 'month', 'day' e 'records' (array) são obrigatórios." });
+  }
+
+  const id = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const db = loadDailyDatabase();
+  
+  // Always overwrites so only the latest report of that day is stored in permanent database
+  db[id] = {
+    id,
+    year: parseInt(year),
+    month: parseInt(month),
+    day: parseInt(day),
+    updatedAt: new Date().toISOString(),
+    records,
+  };
+  
+  saveDailyDatabase(db);
+  res.json({ success: true, id, recordsCount: records.length, updatedAt: db[id].updatedAt });
+});
+
+// 4. Delete a specific day's data
+app.delete("/api/daily-sales/:year/:month/:day", (req, res) => {
+  const year = parseInt(req.params.year);
+  const month = parseInt(req.params.month);
+  const day = parseInt(req.params.day);
+  const id = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  
+  const db = loadDailyDatabase();
+  if (db[id]) {
+    delete db[id];
+    saveDailyDatabase(db);
+    res.json({ success: true, message: `Dados do dia ${day}/${month}/${year} removidos com sucesso.` });
+  } else {
+    res.status(404).json({ error: "Registro diário não encontrado." });
+  }
 });
 
 // 6. AI Insights Generator powered by Gemini (with Full System Sales DB Access & Local Analytical Fallback)

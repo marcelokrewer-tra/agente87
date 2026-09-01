@@ -1,16 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { SalesRecord } from '../types';
 import { parseTSV, INITIAL_RAW_DATA } from '../rawData';
 import {
   saveLocalPeriod,
   deleteLocalPeriod,
-  getLocalPeriodsIndex
+  getLocalPeriodsIndex,
+  saveLocalDailySales
 } from '../lib/storage';
 import {
   getFirebaseConfig,
   savePeriodToFirestore,
-  deletePeriodFromFirestore
+  deletePeriodFromFirestore,
+  saveDailySalesToFirestore
 } from '../lib/firebase';
 import { logAnalyticsEvent } from '../lib/analytics';
 import { 
@@ -25,7 +27,8 @@ import {
   Trash2,
   Layers,
   TrendingUp,
-  Target
+  Target,
+  Clock
 } from 'lucide-react';
 
 interface ImportDataTabProps {
@@ -65,6 +68,29 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
   const [selectedYear, setSelectedYear] = useState<number>(initialYear);
   const [selectedMonth, setSelectedMonth] = useState<number>(initialMonth);
   
+  // Day selection for daily memory (dynamic based on month/year)
+  const defaultDay = useMemo(() => {
+    try {
+      const now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      return now.getDate();
+    } catch {
+      return new Date().getDate();
+    }
+  }, []);
+
+  const [selectedDay, setSelectedDay] = useState<number>(defaultDay);
+  
+  const daysInSelectedMonth = useMemo(() => {
+    return new Date(selectedYear, selectedMonth, 0).getDate();
+  }, [selectedYear, selectedMonth]);
+
+  // Adjust selected day if month changes and day exceeds days in month
+  useEffect(() => {
+    if (selectedDay > daysInSelectedMonth) {
+      setSelectedDay(daysInSelectedMonth);
+    }
+  }, [daysInSelectedMonth, selectedDay]);
+
   const [tsvText, setTsvText] = useState('');
   const [parsedRecords, setParsedRecords] = useState<SalesRecord[]>([]);
   
@@ -88,7 +114,7 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
       
       setParsedRecords(records);
       setErrorStatus(null);
-      setSuccessStatus(`Planilha processada localmente com sucesso! ${records.length} registros prontos para serem salvos.`);
+      setSuccessStatus(`Planilha processada localmente com sucesso! ${records.length} registros prontos para serem salvos para o dia ${String(selectedDay).padStart(2, '0')}/${String(selectedMonth).padStart(2, '0')}/${selectedYear}.`);
       
       // Auto dismiss message
       setTimeout(() => setSuccessStatus(null), 5000);
@@ -114,13 +140,19 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
     setErrorStatus(null);
     setSuccessStatus(null);
 
+    const formattedDate = `${String(selectedDay).padStart(2, '0')}/${String(selectedMonth).padStart(2, '0')}/${selectedYear}`;
+
     // 1. If Firebase is configured, write directly to Firestore!
     const firebaseCfg = getFirebaseConfig();
     if (firebaseCfg) {
       try {
+        // Save period data for general dashboard
         await savePeriodToFirestore(selectedYear, selectedMonth, parsedRecords);
-        setSuccessStatus(`✨ Sucesso! Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram salvos com sucesso na nuvem do Firebase Firestore e estão públicos para qualquer dispositivo!`);
-        logAnalyticsEvent('data_import', `${parsedRecords.length} reg. p/ ${selectedMonth}/${selectedYear} (Cloud)`);
+        // Save daily snapshot memory (overwrites previous submission of this same day)
+        await saveDailySalesToFirestore(selectedYear, selectedMonth, selectedDay, parsedRecords);
+
+        setSuccessStatus(`✨ Sucesso! Os dados de ${formattedDate} foram salvos com sucesso na nuvem do Firebase Firestore (substituindo envios anteriores deste mesmo dia) e integrados ao painel mensal e ao menu 'Vendas por Dia'!`);
+        logAnalyticsEvent('data_import', `${parsedRecords.length} reg. p/ ${formattedDate} (Cloud)`);
         onDataSaved(selectedYear, selectedMonth, parsedRecords);
         setParsedRecords([]);
         setTsvText('');
@@ -139,6 +171,7 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
       let errorMsg = '';
 
       try {
+        // Save monthly data
         const response = await fetch('/api/monthly-data', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -149,11 +182,23 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
           })
         });
 
+        // Also save daily data
+        await fetch('/api/daily-sales', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            year: selectedYear,
+            month: selectedMonth,
+            day: selectedDay,
+            records: parsedRecords
+          })
+        });
+
         if (response.ok) {
           const result = await response.json();
           if (result.success) {
-            setSuccessStatus(`Sucesso! Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram gravados com sucesso na memória pública do servidor.`);
-            logAnalyticsEvent('data_import', `${parsedRecords.length} reg. p/ ${selectedMonth}/${selectedYear} (Server)`);
+            setSuccessStatus(`Sucesso! Os dados de ${formattedDate} foram gravados com sucesso na memória permanente do servidor (substituindo envios anteriores do dia ${selectedDay}) e disponíveis no menu 'Vendas por Dia'.`);
+            logAnalyticsEvent('data_import', `${parsedRecords.length} reg. p/ ${formattedDate} (Server)`);
             onDataSaved(selectedYear, selectedMonth, parsedRecords);
             setParsedRecords([]);
             setTsvText('');
@@ -171,8 +216,9 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
 
       if (isLocalFallback) {
         saveLocalPeriod(selectedYear, selectedMonth, parsedRecords);
-        setSuccessStatus(`⚠️ Ambiente estático (Vercel) detectado. Os dados de ${MONTHS_LIST.find(m => m.value === selectedMonth)?.label}/${selectedYear} foram salvos localmente no seu navegador! Para persistência pública global, conecte o Firebase no botão da barra lateral.`);
-        logAnalyticsEvent('data_import', `${parsedRecords.length} reg. p/ ${selectedMonth}/${selectedYear} (Local)`);
+        saveLocalDailySales(selectedYear, selectedMonth, selectedDay, parsedRecords);
+        setSuccessStatus(`⚠️ Ambiente estático (Vercel) detectado. Os dados de ${formattedDate} foram salvos localmente no seu navegador (com memória diária do dia ${selectedDay})! Para persistência pública global, conecte o Firebase no botão da barra lateral.`);
+        logAnalyticsEvent('data_import', `${parsedRecords.length} reg. p/ ${formattedDate} (Local)`);
         onDataSaved(selectedYear, selectedMonth, parsedRecords);
         setParsedRecords([]);
         setTsvText('');
@@ -278,7 +324,7 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
           <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Selecione o Período de Destino</h3>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
           <div className="space-y-1.5">
             <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Mês Referente</label>
             <select
@@ -311,6 +357,28 @@ export const ImportDataTab: React.FC<ImportDataTabProps> = ({
             >
               {YEARS_LIST.map(y => (
                 <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Dia do Relatório</label>
+              <span className="text-[9px] text-sky-600 font-bold bg-sky-50 px-1.5 py-0.5 rounded">Memória Diária</span>
+            </div>
+            <select
+              value={selectedDay}
+              onChange={(e) => {
+                setSelectedDay(parseInt(e.target.value));
+                setErrorStatus(null);
+                setSuccessStatus(null);
+              }}
+              className="w-full text-xs bg-sky-50/50 border border-sky-200 py-2.5 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 text-sky-900 cursor-pointer font-bold"
+            >
+              {Array.from({ length: daysInSelectedMonth }, (_, i) => i + 1).map(d => (
+                <option key={d} value={d}>
+                  Dia {String(d).padStart(2, '0')} ({String(d).padStart(2, '0')}/{String(selectedMonth).padStart(2, '0')})
+                </option>
               ))}
             </select>
           </div>
