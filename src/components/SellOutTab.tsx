@@ -16,6 +16,7 @@ import {
   AlertCircle,
   FileSpreadsheet,
   BarChart3,
+  LineChart as LineChartIcon,
   X,
   Check,
   Lock,
@@ -156,6 +157,10 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
 
   // Expanded client row for deep-dive
   const [expandedClients, setExpandedClients] = useState<Record<string, boolean>>({});
+
+  // Chart view mode ('line' | 'bar')
+  const [chartViewMode, setChartViewMode] = useState<'line' | 'bar'>('line');
+  const [hoveredMonthIndex, setHoveredMonthIndex] = useState<number | null>(null);
 
   // Import Modal state
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -756,71 +761,272 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
   return (
     <div className="space-y-6 animate-fade-in">
       
-      {/* 1. TOP HEADER & COORDINATOR SELECTOR BAR */}
+      {/* 1. TOP HEADER & INTEGRATED CONTROLS HUB */}
       <div className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-xs space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600">
-                <Building2 className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-xl font-black text-slate-900 tracking-tight">Análise de Sell Out</h2>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                    Evolução por Clientes
-                  </span>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-extrabold bg-blue-50 text-[#001A9C] border border-blue-200 flex items-center gap-1">
-                    <UserCheck className="w-3 h-3" />
-                    <span>{activeViewingCoordinator}</span>
-                  </span>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <span>Memória Pública Ativa ({uniqueClients.length} clientes)</span>
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 font-medium">
-                  Acompanhamento de Sell Out YoY (2025 vs 2026) sincronizado em tempo real para todos os computadores
-                </p>
+        {/* Top Row: Title, Coordinator Chip, Action Buttons */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3.5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-[#001A9C] shadow-3xs">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-xl font-black text-slate-900 tracking-tight">Análise de Sell Out</h2>
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-blue-50 text-[#001A9C] border border-blue-200 flex items-center gap-1">
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>{activeViewingCoordinator}</span>
+                </span>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              onClick={() => syncSellOutData(activeViewingCoordinator)}
-              disabled={isSyncing}
-              className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all shadow-3xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
-              title="Sincronizar e carregar dados mais recentes do servidor central"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
-            </button>
-
+          {/* Action Buttons: Exportar, Importar, Sair (sem botão Sincronizar) */}
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleExportCSV}
-              className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl text-xs font-bold transition-all shadow-3xs flex items-center gap-2 cursor-pointer"
+              className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl text-xs font-bold transition-all shadow-3xs flex items-center gap-1.5 cursor-pointer"
               title="Exportar planilha formatada exatamente como a importada"
             >
-              <Download className="w-4 h-4 text-emerald-600" />
+              <Download className="w-3.5 h-3.5 text-emerald-600" />
               <span>Exportar Tabela Modelo</span>
             </button>
 
             <button
               onClick={() => setIsImportModalOpen(true)}
-              className="px-3.5 py-2 bg-[#001A9C] hover:bg-[#00147a] text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+              className="px-3.5 py-1.5 bg-[#001A9C] hover:bg-[#00147a] text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
             >
-              <UploadCloud className="w-4 h-4 text-sky-200" />
+              <UploadCloud className="w-3.5 h-3.5 text-sky-200" />
               <span>Importar Sell Out</span>
             </button>
 
             <button
               onClick={handleLogout}
-              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
               title="Bloquear / Sair da sessão"
             >
               <LogOut className="w-4 h-4" />
             </button>
+          </div>
+        </div>
+
+        {/* Second Row: Client Search & Product Line Selector */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-center">
+          {/* Client Search with Autocomplete */}
+          <div className="md:col-span-6 relative space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-500 font-bold">Cliente selecionado:</span>
+                <span className={`px-2 py-0.5 rounded-md font-extrabold text-xs transition-colors ${
+                  selectedClient 
+                    ? 'bg-[#001A9C] text-white shadow-3xs' 
+                    : 'bg-slate-100 text-slate-700 border border-slate-200'
+                }`}>
+                  {selectedClient || 'Todos os Clientes'}
+                </span>
+              </div>
+              {selectedClient && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedClient(null);
+                    setSearchQuery('');
+                  }}
+                  className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer flex items-center gap-1"
+                >
+                  <span>Ver Todos</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onFocus={() => setIsAutocompleteOpen(true)}
+                onChange={e => {
+                  setSearchQuery(e.target.value);
+                  setIsAutocompleteOpen(true);
+                }}
+                placeholder="Buscar cliente na carteira..."
+                className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] transition-all"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setIsAutocompleteOpen(false);
+                  }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {/* Autocomplete Dropdown */}
+              {isAutocompleteOpen && searchQuery.trim().length > 0 && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-40 max-h-60 overflow-y-auto divide-y divide-slate-100">
+                  <div className="p-2 bg-slate-50 text-[10.5px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between sticky top-0 z-10 border-b border-slate-200">
+                    <span>Sugestões ({clientSuggestions.length})</span>
+                    <button 
+                      type="button" 
+                      onClick={() => setIsAutocompleteOpen(false)}
+                      className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  {clientSuggestions.length > 0 ? (
+                    clientSuggestions.map(clientName => {
+                      const isItemActive = selectedClient?.toUpperCase() === clientName.toUpperCase();
+                      return (
+                        <button
+                          key={clientName}
+                          type="button"
+                          onClick={() => {
+                            setSelectedClient(clientName);
+                            setSearchQuery(clientName);
+                            setIsAutocompleteOpen(false);
+                          }}
+                          className={`w-full text-left px-3 py-2.5 text-xs font-bold transition-colors flex items-center justify-between group cursor-pointer ${
+                            isItemActive ? 'bg-blue-50 text-[#001A9C]' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Building2 className={`w-3.5 h-3.5 ${isItemActive ? 'text-[#001A9C]' : 'text-slate-400 group-hover:text-blue-600'}`} />
+                            <span>{clientName}</span>
+                          </div>
+                          {isItemActive && (
+                            <span className="text-[10px] bg-[#001A9C] text-white font-extrabold px-1.5 py-0.5 rounded">
+                              Ativo
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="p-3 text-xs text-slate-400 text-center font-medium">
+                      Nenhum cliente com esse nome
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Product Line Filter Pills */}
+          <div className="md:col-span-6 flex flex-col md:items-end gap-1.5">
+            <span className="text-[11px] font-bold text-slate-400 uppercase">Linha de Produtos:</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { id: 'GERAL', label: 'Geral (Total)' },
+                { id: 'TRAMONTINA MULTI', label: 'Multi' },
+                { id: 'TRAMONTINA MASTER', label: 'Master' },
+                { id: 'TRAMONTINA PRO', label: 'Pro' }
+              ].map(line => (
+                <button
+                  key={line.id}
+                  onClick={() => setActiveLineFilter(line.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    activeLineFilter === line.id
+                      ? 'bg-[#001A9C] text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-transparent'
+                  }`}
+                >
+                  {line.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Third Row: Multi-Month Selection & Presets */}
+        <div className="pt-3 border-t border-slate-100 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-[#001A9C]" />
+                <span>Seleção de Meses (Acumulação):</span>
+              </span>
+              <span className="text-xs font-extrabold text-[#001A9C] bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-100">
+                {activeMonthsList.length} {activeMonthsList.length === 1 ? 'mês' : 'meses'} ({periodDescription})
+              </span>
+            </div>
+
+            {/* Presets */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setPeriodFilterMode('ytd');
+                  setSelectedMonths(['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho']);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  periodFilterMode === 'ytd'
+                    ? 'bg-[#001A9C] text-white shadow-3xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Jan a Jul (2026)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPeriodFilterMode('all');
+                  setSelectedMonths([...MONTH_KEYS]);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  periodFilterMode === 'all'
+                    ? 'bg-[#001A9C] text-white shadow-3xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Ano Completo (12M)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectQuarter(1)}
+                className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all cursor-pointer"
+              >
+                1º Tri (Jan-Mar)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectQuarter(2)}
+                className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all cursor-pointer"
+              >
+                2º Tri (Abr-Jun)
+              </button>
+            </div>
+          </div>
+
+          {/* Month Toggle Pills */}
+          <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5 pt-0.5">
+            {MONTH_NAMES_PT.map(m => {
+              const isSelected = activeMonthsList.includes(m.key);
+              return (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => handleToggleMonth(m.key)}
+                  className={`py-1.5 px-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
+                    isSelected
+                      ? 'bg-[#001A9C] text-white border-[#001A9C] shadow-xs'
+                      : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border-slate-200/80 hover:border-slate-300'
+                  }`}
+                  title={`Clique para selecionar/remover ${m.label}`}
+                >
+                  <span className="text-[11px]">{m.short}</span>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-amber-400' : 'bg-transparent'}`} />
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -876,7 +1082,349 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
         )}
       </div>
 
-      {/* 2. DEDICATED SELL OUT KPIS */}
+      {/* 2. GRÁFICO DE LINHAS DO SELL OUT (2025 vs 2026) */}
+      <div className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-[#001A9C]">
+              {chartViewMode === 'line' ? <LineChartIcon className="w-4.5 h-4.5" /> : <BarChart3 className="w-4.5 h-4.5" />}
+            </div>
+            <div>
+              <h3 className="font-black text-slate-900 text-sm">
+                Gráfico de Sell Out: 2025 vs 2026 {displayedKPIs.isSingleClient ? `(${displayedKPIs.clientName} - ${activeLineFilter})` : `(${activeLineFilter})`}
+              </h3>
+              <p className="text-[11.5px] text-slate-500 font-medium">
+                Comparativo mensal de vendas realizadas homologamente
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Legend */}
+            <div className="flex items-center gap-3 text-xs font-bold mr-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-1 bg-slate-400 rounded-full inline-block" />
+                <span className="text-slate-500">2025</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-1 bg-[#001A9C] rounded-full inline-block" />
+                <span className="text-[#001A9C] font-extrabold">2026</span>
+              </div>
+            </div>
+
+            {/* Toggle Linhas / Barras */}
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/80 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setChartViewMode('line')}
+                className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                  chartViewMode === 'line' 
+                    ? 'bg-white text-[#001A9C] shadow-3xs font-black' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <LineChartIcon className="w-3.5 h-3.5" />
+                <span>Linhas</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartViewMode('bar')}
+                className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                  chartViewMode === 'bar' 
+                    ? 'bg-white text-[#001A9C] shadow-3xs font-black' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <BarChart3 className="w-3.5 h-3.5" />
+                <span>Barras</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Dynamic Chart Display: Line Chart or Bar Chart */}
+        {chartViewMode === 'line' ? (
+          <div className="pt-2">
+            {/* Responsive SVG Line Chart */}
+            <div className="relative w-full overflow-hidden">
+              {(() => {
+                const svgW = 860;
+                const svgH = 230;
+                const padL = 75;
+                const padR = 35;
+                const padT = 25;
+                const padB = 40;
+                const cW = svgW - padL - padR;
+                const cH = svgH - padT - padB;
+
+                const effectiveMax = Math.max(maxMonthlyVal * 1.15, 100);
+
+                const pts2025 = monthlyTimeline.map((m, i) => {
+                  const x = padL + (i / 11) * cW;
+                  const y = padT + cH - (m.venda2025 / effectiveMax) * cH;
+                  return { x, y, m, i };
+                });
+
+                const pts2026 = monthlyTimeline.map((m, i) => {
+                  const x = padL + (i / 11) * cW;
+                  const y = padT + cH - (m.venda2026 / effectiveMax) * cH;
+                  return { x, y, m, i };
+                });
+
+                const poly2025 = pts2025.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+                const poly2026 = pts2026.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+                const area2026 = `${padL},${padT + cH} ` + poly2026 + ` ${padL + cW},${padT + cH}`;
+
+                const gridLevels = [0, 0.33, 0.66, 1.0];
+
+                const hoveredItem = hoveredMonthIndex !== null ? monthlyTimeline[hoveredMonthIndex] : null;
+
+                return (
+                  <div className="space-y-1">
+                    {/* Interactive info banner on hover */}
+                    <div className="h-6 flex items-center justify-between px-2 text-xs font-medium text-slate-500">
+                      {hoveredItem ? (
+                        <div className="flex items-center gap-3 animate-fade-in">
+                          <span className="font-extrabold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">
+                            {hoveredItem.label}
+                          </span>
+                          <span className="text-slate-600 font-semibold">
+                            2025: <strong className="text-slate-800">{formatCurrency(hoveredItem.venda2025)}</strong>
+                          </span>
+                          <span className="text-[#001A9C] font-semibold">
+                            2026: <strong className="text-[#001A9C]">{formatCurrency(hoveredItem.venda2026)}</strong>
+                          </span>
+                          {hoveredItem.venda2025 > 0 && hoveredItem.venda2026 > 0 && (
+                            <span className={`font-black ${hoveredItem.diff >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {hoveredItem.diff >= 0 ? '+' : ''}{formatPercent(hoveredItem.growthPct)} ({formatCurrency(hoveredItem.diff)})
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-slate-400">
+                          Passe o cursor sobre os pontos para visualizar valores detalhados mês a mês
+                        </span>
+                      )}
+                      <span className="text-[11px] text-slate-400">
+                        {activeMonthsList.length} meses selecionados
+                      </span>
+                    </div>
+
+                    <svg viewBox={`0 0 ${svgW} ${svgH}`} className="w-full h-auto overflow-visible select-none">
+                      <defs>
+                        <linearGradient id="sellOutAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#001A9C" stopOpacity="0.18" />
+                          <stop offset="100%" stopColor="#001A9C" stopOpacity="0.01" />
+                        </linearGradient>
+                      </defs>
+
+                      {/* Horizontal Grid lines and Y labels */}
+                      {gridLevels.map((lvl, idx) => {
+                        const y = padT + cH - lvl * cH;
+                        const val = lvl * effectiveMax;
+                        return (
+                          <g key={idx}>
+                            <line
+                              x1={padL}
+                              y1={y}
+                              x2={padL + cW}
+                              y2={y}
+                              stroke="#e2e8f0"
+                              strokeDasharray="3 3"
+                              strokeWidth="1"
+                            />
+                            <text
+                              x={padL - 10}
+                              y={y + 3.5}
+                              textAnchor="end"
+                              className="text-[9.5px] fill-slate-400 font-semibold"
+                            >
+                              {formatCurrency(val)}
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      {/* Hover vertical guide line */}
+                      {hoveredMonthIndex !== null && (
+                        <line
+                          x1={padL + (hoveredMonthIndex / 11) * cW}
+                          y1={padT}
+                          x2={padL + (hoveredMonthIndex / 11) * cW}
+                          y2={padT + cH}
+                          stroke="#cbd5e1"
+                          strokeDasharray="3 3"
+                          strokeWidth="1.5"
+                        />
+                      )}
+
+                      {/* 2026 Gradient Area under curve */}
+                      <polygon points={area2026} fill="url(#sellOutAreaGrad)" />
+
+                      {/* 2025 Line (Dashed Slate) */}
+                      <polyline
+                        points={poly2025}
+                        fill="none"
+                        stroke="#94a3b8"
+                        strokeWidth="2.5"
+                        strokeDasharray="5 4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+
+                      {/* 2026 Line (Solid Tramontina Blue) */}
+                      <polyline
+                        points={poly2026}
+                        fill="none"
+                        stroke="#001A9C"
+                        strokeWidth="3.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+
+                      {/* 2025 Data Points */}
+                      {pts2025.map((p, idx) => (
+                        <circle
+                          key={`pt25-${idx}`}
+                          cx={p.x}
+                          cy={p.y}
+                          r={hoveredMonthIndex === idx ? 5 : 3.5}
+                          fill="#ffffff"
+                          stroke="#94a3b8"
+                          strokeWidth={hoveredMonthIndex === idx ? 2.5 : 1.8}
+                          className="transition-all"
+                        />
+                      ))}
+
+                      {/* 2026 Data Points */}
+                      {pts2026.map((p, idx) => {
+                        const isHovered = hoveredMonthIndex === idx;
+                        return (
+                          <circle
+                            key={`pt26-${idx}`}
+                            cx={p.x}
+                            cy={p.y}
+                            r={isHovered ? 6.5 : p.m.venda2026 > 0 ? 5 : 3}
+                            fill="#001A9C"
+                            stroke="#ffffff"
+                            strokeWidth={isHovered ? 3 : 2}
+                            className="transition-all"
+                          />
+                        );
+                      })}
+
+                      {/* X Axis Month Labels and Click/Hover Strips */}
+                      {monthlyTimeline.map((m, idx) => {
+                        const x = padL + (idx / 11) * cW;
+                        const isHovered = hoveredMonthIndex === idx;
+                        return (
+                          <g
+                            key={`col-${idx}`}
+                            className="cursor-pointer"
+                            onMouseEnter={() => setHoveredMonthIndex(idx)}
+                            onMouseLeave={() => setHoveredMonthIndex(null)}
+                            onClick={() => handleToggleMonth(m.key)}
+                          >
+                            {/* Invisible wide hover target */}
+                            <rect
+                              x={x - cW / 24}
+                              y={padT}
+                              width={cW / 12}
+                              height={cH + padB}
+                              fill="transparent"
+                            />
+
+                            {/* Month Label */}
+                            <text
+                              x={x}
+                              y={padT + cH + 20}
+                              textAnchor="middle"
+                              className={`text-[11px] transition-colors ${
+                                isHovered 
+                                  ? 'fill-blue-700 font-black text-xs' 
+                                  : m.isActive 
+                                    ? 'fill-slate-900 font-extrabold' 
+                                    : 'fill-slate-400 font-medium'
+                              }`}
+                            >
+                              {m.short}
+                            </text>
+
+                            {/* Active Period Indicator Dot */}
+                            {m.isActive && (
+                              <circle
+                                cx={x}
+                                cy={padT + cH + 27}
+                                r={2}
+                                fill="#001A9C"
+                              />
+                            )}
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        ) : (
+          /* Responsive Bar Chart View */
+          <div className="pt-2">
+            <div className="grid grid-cols-6 sm:grid-cols-12 gap-2 sm:gap-3 items-end h-56 pt-6 pb-2 border-b border-slate-100">
+              {monthlyTimeline.map(m => {
+                const h2025Pct = maxMonthlyVal > 0 ? (m.venda2025 / maxMonthlyVal) * 100 : 0;
+                const h2026Pct = maxMonthlyVal > 0 ? (m.venda2026 / maxMonthlyVal) * 100 : 0;
+
+                return (
+                  <div key={m.key} className="flex flex-col items-center h-full justify-end group relative">
+                    <div className="opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity absolute -top-12 left-1/2 -translate-x-1/2 z-20 bg-slate-900 text-white text-[10.5px] p-2 rounded-lg shadow-xl whitespace-nowrap space-y-0.5">
+                      <p className="font-bold">{m.label}</p>
+                      <p className="text-slate-300">2025: {formatCurrency(m.venda2025)}</p>
+                      <p className="text-blue-300">2026: {formatCurrency(m.venda2026)}</p>
+                      {m.venda2025 > 0 && m.venda2026 > 0 && (
+                        <p className={`font-bold ${m.diff >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {formatPercent(m.growthPct)} ({formatCurrency(m.diff)})
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="w-full flex items-end justify-center gap-1 h-full px-0.5">
+                      <div
+                        className="w-1/2 bg-slate-200 hover:bg-slate-300 rounded-t-sm transition-all relative"
+                        style={{ height: `${Math.max(h2025Pct, 4)}%` }}
+                      />
+                      <div
+                        className={`w-1/2 rounded-t-sm transition-all relative ${
+                          m.venda2026 > 0 ? 'bg-[#001A9C] hover:bg-blue-700' : 'bg-slate-100'
+                        }`}
+                        style={{ height: `${Math.max(h2026Pct, m.venda2026 > 0 ? 4 : 1)}%` }}
+                      />
+                    </div>
+
+                    <div className="pt-2 text-center">
+                      <span className={`text-[11px] font-bold block ${
+                        m.isActive ? 'text-slate-900 font-black' : 'text-slate-400'
+                      }`}>
+                        {m.short}
+                      </span>
+                      {m.venda2026 > 0 && m.venda2025 > 0 && (
+                        <span className={`text-[9.5px] font-extrabold block ${
+                          m.diff >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                        }`}>
+                          {formatPercent(m.growthPct)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 3. DEDICATED SELL OUT KPIS (POSICIONADOS ABAIXO DO GRÁFICO) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
         {/* KPI 1: Sell Out 2026 */}
         <div className="bg-white border border-slate-200/80 p-4.5 rounded-2xl shadow-xs space-y-2 relative overflow-hidden group hover:border-blue-300 transition-all">
@@ -961,304 +1509,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
         </div>
       </div>
 
-      {/* 3. CONTROL PANEL: CLIENT SELECTION, PRODUCT LINES & MULTI-MONTH ACCUMULATION */}
-      <div className="bg-white border border-slate-200/80 p-4.5 rounded-2xl shadow-xs space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-end">
-          
-          {/* Search bar with Autocomplete */}
-          <div className="md:col-span-5 relative space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-1.5">
-                <span className="text-slate-500 font-bold">Cliente selecionado:</span>
-                <span className={`px-2 py-0.5 rounded-md font-extrabold text-xs transition-colors ${
-                  selectedClient 
-                    ? 'bg-[#001A9C] text-white shadow-3xs' 
-                    : 'bg-slate-100 text-slate-700 border border-slate-200'
-                }`}>
-                  {selectedClient || 'Todos'}
-                </span>
-              </div>
-              {selectedClient && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedClient(null);
-                    setSearchQuery('');
-                  }}
-                  className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer flex items-center gap-1"
-                >
-                  <span>Ver Todos</span>
-                  <X className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onFocus={() => setIsAutocompleteOpen(true)}
-                onChange={e => {
-                  setSearchQuery(e.target.value);
-                  setIsAutocompleteOpen(true);
-                }}
-                placeholder="Buscar cliente..."
-                className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] transition-all"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setIsAutocompleteOpen(false);
-                  }}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-
-              {/* Autocomplete Dropdown */}
-              {isAutocompleteOpen && searchQuery.trim().length > 0 && (
-                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-40 max-h-60 overflow-y-auto divide-y divide-slate-100">
-                  <div className="p-2 bg-slate-50 text-[10.5px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between sticky top-0 z-10 border-b border-slate-200">
-                    <span>Sugestões ({clientSuggestions.length})</span>
-                    <button 
-                      type="button" 
-                      onClick={() => setIsAutocompleteOpen(false)}
-                      className="text-slate-400 hover:text-slate-700 cursor-pointer"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-
-                  {clientSuggestions.length > 0 ? (
-                    clientSuggestions.map(clientName => {
-                      const isItemActive = selectedClient?.toUpperCase() === clientName.toUpperCase();
-                      return (
-                        <button
-                          key={clientName}
-                          type="button"
-                          onClick={() => {
-                            setSelectedClient(clientName);
-                            setSearchQuery(clientName);
-                            setIsAutocompleteOpen(false);
-                          }}
-                          className={`w-full text-left px-3 py-2.5 text-xs font-bold transition-colors flex items-center justify-between group cursor-pointer ${
-                            isItemActive ? 'bg-blue-50 text-[#001A9C]' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Building2 className={`w-3.5 h-3.5 ${isItemActive ? 'text-[#001A9C]' : 'text-slate-400 group-hover:text-blue-600'}`} />
-                            <span>{clientName}</span>
-                          </div>
-                          {isItemActive && (
-                            <span className="text-[10px] bg-[#001A9C] text-white font-extrabold px-1.5 py-0.5 rounded">
-                              Ativo
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <div className="p-3 text-xs text-slate-400 text-center font-medium">
-                      Nenhum cliente com esse nome
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Product Line Filter Pills */}
-          <div className="md:col-span-7 flex flex-wrap items-center justify-start md:justify-end gap-1.5">
-            <span className="text-[11px] font-bold text-slate-400 uppercase mr-1">Linha:</span>
-            {[
-              { id: 'GERAL', label: 'Geral (Total)' },
-              { id: 'TRAMONTINA MULTI', label: 'Multi' },
-              { id: 'TRAMONTINA MASTER', label: 'Master' },
-              { id: 'TRAMONTINA PRO', label: 'Pro' }
-            ].map(line => (
-              <button
-                key={line.id}
-                onClick={() => setActiveLineFilter(line.id)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeLineFilter === line.id
-                    ? 'bg-[#001A9C] text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-transparent'
-                }`}
-              >
-                {line.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Multi-Month Accumulator in PERÍODO */}
-        <div className="pt-3 border-t border-slate-100 space-y-2.5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-[#001A9C]" />
-                <span>Período & Acumulação de Meses:</span>
-              </span>
-              <span className="text-xs font-extrabold text-[#001A9C] bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
-                {activeMonthsList.length} {activeMonthsList.length === 1 ? 'mês acumulado' : 'meses acumulados'}
-              </span>
-            </div>
-
-            {/* Presets */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setPeriodFilterMode('ytd');
-                  setSelectedMonths(['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho']);
-                }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  periodFilterMode === 'ytd'
-                    ? 'bg-amber-600 text-white font-black shadow-3xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                Jan a Jul (2026)
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setPeriodFilterMode('all');
-                  setSelectedMonths([...MONTH_KEYS]);
-                }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  periodFilterMode === 'all'
-                    ? 'bg-amber-600 text-white font-black shadow-3xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                Ano Completo (12M)
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleSelectQuarter(1)}
-                className="px-2 py-1 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all cursor-pointer"
-              >
-                1º Trimestre (Jan-Mar)
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleSelectQuarter(2)}
-                className="px-2 py-1 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all cursor-pointer"
-              >
-                2º Trimestre (Abr-Jun)
-              </button>
-            </div>
-          </div>
-
-          {/* Individual Month Buttons (Click to toggle/accumulate multiple months) */}
-          <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5 pt-1">
-            {MONTH_NAMES_PT.map(m => {
-              const isSelected = activeMonthsList.includes(m.key);
-              return (
-                <button
-                  key={m.key}
-                  type="button"
-                  onClick={() => handleToggleMonth(m.key)}
-                  className={`py-1.5 px-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
-                    isSelected
-                      ? 'bg-[#001A9C] text-white border-[#001A9C] shadow-xs'
-                      : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border-slate-200/80 hover:border-slate-300'
-                  }`}
-                  title={`Clique para adicionar/remover ${m.label} da acumulação`}
-                >
-                  <span className="text-[11.5px]">{m.short}</span>
-                  <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-amber-400' : 'bg-transparent'}`} />
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* 4. VISUAL TIMELINE & MONTHLY EVOLUTION BAR CHART */}
-      <div className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="w-4.5 h-4.5 text-[#001A9C]" />
-            <h3 className="font-black text-slate-800 text-sm">
-              Evolução Mensal do Sell Out: 2025 vs 2026 {displayedKPIs.isSingleClient ? `(${displayedKPIs.clientName} - ${activeLineFilter})` : `(${activeLineFilter})`}
-            </h3>
-          </div>
-          <div className="flex items-center gap-4 text-xs font-bold">
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-sm bg-slate-300 inline-block" />
-              <span className="text-slate-500">2025</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-sm bg-blue-600 inline-block" />
-              <span className="text-blue-900">2026</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Responsive Bar Chart */}
-        <div className="pt-2">
-          <div className="grid grid-cols-6 sm:grid-cols-12 gap-2 sm:gap-3 items-end h-56 pt-6 pb-2 border-b border-slate-100">
-            {monthlyTimeline.map(m => {
-              const h2025Pct = maxMonthlyVal > 0 ? (m.venda2025 / maxMonthlyVal) * 100 : 0;
-              const h2026Pct = maxMonthlyVal > 0 ? (m.venda2026 / maxMonthlyVal) * 100 : 0;
-
-              return (
-                <div key={m.key} className="flex flex-col items-center h-full justify-end group relative">
-                  <div className="opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity absolute -top-12 left-1/2 -translate-x-1/2 z-20 bg-slate-900 text-white text-[10.5px] p-2 rounded-lg shadow-xl whitespace-nowrap space-y-0.5">
-                    <p className="font-bold">{m.label}</p>
-                    <p className="text-slate-300">2025: {formatCurrency(m.venda2025)}</p>
-                    <p className="text-blue-300">2026: {formatCurrency(m.venda2026)}</p>
-                    {m.venda2025 > 0 && m.venda2026 > 0 && (
-                      <p className={`font-bold ${m.diff >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {formatPercent(m.growthPct)} ({formatCurrency(m.diff)})
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="w-full flex items-end justify-center gap-1 h-full px-0.5">
-                    <div
-                      className="w-1/2 bg-slate-200 hover:bg-slate-300 rounded-t-sm transition-all relative"
-                      style={{ height: `${Math.max(h2025Pct, 4)}%` }}
-                    />
-                    <div
-                      className={`w-1/2 rounded-t-sm transition-all relative ${
-                        m.venda2026 > 0 ? 'bg-[#001A9C] hover:bg-blue-700' : 'bg-slate-100'
-                      }`}
-                      style={{ height: `${Math.max(h2026Pct, m.venda2026 > 0 ? 4 : 1)}%` }}
-                    />
-                  </div>
-
-                  <div className="pt-2 text-center">
-                    <span className={`text-[11px] font-bold block ${
-                      m.isActive ? 'text-slate-900 font-black' : 'text-slate-400'
-                    }`}>
-                      {m.short}
-                    </span>
-                    {m.venda2026 > 0 && m.venda2025 > 0 && (
-                      <span className={`text-[9.5px] font-extrabold block ${
-                        m.diff >= 0 ? 'text-emerald-600' : 'text-rose-600'
-                      }`}>
-                        {formatPercent(m.growthPct)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* 5. MAIN CONTENT DISPLAY: TABLE (Cleaned without AÇÃO column & without standalone arrow) */}
+      {/* 4. MAIN CONTENT DISPLAY: TABLE */}
       <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden">
         <div className="p-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
