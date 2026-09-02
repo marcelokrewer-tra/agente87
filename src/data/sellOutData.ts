@@ -468,46 +468,108 @@ export function parseSellOutExcel(buffer: ArrayBuffer): SellOutRecord[] {
   }
 }
 
-const STORAGE_KEY_SELL_OUT = 'tramontina_sell_out_records_v2';
+export function getCoordinatorStorageKey(coordinatorName: string): string {
+  const norm = coordinatorName.trim().toLowerCase();
+  if (norm.includes('adriano')) return 'tramontina_sell_out_records_adriano';
+  if (norm.includes('dionatan')) return 'tramontina_sell_out_records_dionatan';
+  if (norm.includes('juan')) return 'tramontina_sell_out_records_juan';
+  if (norm.includes('julio')) return 'tramontina_sell_out_records_julio';
+  return `tramontina_sell_out_records_${norm.replace(/\s+/g, '_')}`;
+}
 
-export function getStoredSellOutRecords(): SellOutRecord[] {
+export function getStoredSellOutRecords(coordinatorName: string = 'Adriano Almeida'): SellOutRecord[] {
   if (typeof window === 'undefined') return parseSellOutCSV(INITIAL_SELL_OUT_CSV);
+  const targetKey = getCoordinatorStorageKey(coordinatorName);
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_SELL_OUT);
+    const raw = localStorage.getItem(targetKey);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed;
       }
     }
-    // Also check old storage key v1 for backwards compatibility
-    const oldRaw = localStorage.getItem('tramontina_sell_out_records_v1');
-    if (oldRaw) {
-      const parsedOld = JSON.parse(oldRaw);
-      if (Array.isArray(parsedOld) && parsedOld.length > 0) {
-        return parsedOld;
+    // Check old keys if Adriano or fallback
+    if (targetKey === 'tramontina_sell_out_records_adriano') {
+      const v2Raw = localStorage.getItem('tramontina_sell_out_records_v2');
+      if (v2Raw) {
+        const parsedV2 = JSON.parse(v2Raw);
+        if (Array.isArray(parsedV2) && parsedV2.length > 0) {
+          localStorage.setItem(targetKey, v2Raw);
+          return parsedV2;
+        }
+      }
+      const v1Raw = localStorage.getItem('tramontina_sell_out_records_v1');
+      if (v1Raw) {
+        const parsedV1 = JSON.parse(v1Raw);
+        if (Array.isArray(parsedV1) && parsedV1.length > 0) {
+          localStorage.setItem(targetKey, v1Raw);
+          return parsedV1;
+        }
       }
     }
   } catch (e) {
     console.error('Error loading sell out records from localStorage', e);
   }
 
+  // If coordinator is Adriano, return initial dataset, otherwise return empty template or initial
   const initial = parseSellOutCSV(INITIAL_SELL_OUT_CSV);
-  try {
-    localStorage.setItem(STORAGE_KEY_SELL_OUT, JSON.stringify(initial));
-  } catch (e) {
-    console.error('Error saving initial sell out to localStorage', e);
+  if (targetKey === 'tramontina_sell_out_records_adriano') {
+    try {
+      localStorage.setItem(targetKey, JSON.stringify(initial));
+    } catch (e) {
+      console.error('Error saving initial sell out to localStorage', e);
+    }
+    return initial;
   }
-  return initial;
+
+  return [];
 }
 
-export function saveStoredSellOutRecords(records: SellOutRecord[]): void {
+export function saveStoredSellOutRecords(records: SellOutRecord[], coordinatorName: string = 'Adriano Almeida'): void {
   if (typeof window === 'undefined') return;
+  const targetKey = getCoordinatorStorageKey(coordinatorName);
   try {
-    localStorage.setItem(STORAGE_KEY_SELL_OUT, JSON.stringify(records));
-    // Also update v1 key for safety
-    localStorage.setItem('tramontina_sell_out_records_v1', JSON.stringify(records));
+    localStorage.setItem(targetKey, JSON.stringify(records));
+    if (targetKey === 'tramontina_sell_out_records_adriano') {
+      localStorage.setItem('tramontina_sell_out_records_v2', JSON.stringify(records));
+      localStorage.setItem('tramontina_sell_out_records_v1', JSON.stringify(records));
+    }
   } catch (e) {
     console.error('Error saving sell out records to localStorage', e);
   }
+}
+
+/**
+ * Generates an export string formatted EXACTLY like the imported spreadsheet format
+ * (CLIENTE;SELL OUT;ANO;JANEIRO;FEVEREIRO;MARÇO;ABRIL;MAIO;JUNHO;JULHO;AGOSTO;SETEMBRO;OUTUBRO;NOVEMBRO;DEZEMBRO)
+ */
+export function exportSellOutRecordsToRawCSV(records: SellOutRecord[]): string {
+  const header = 'CLIENTE;SELL OUT;ANO;JANEIRO;FEVEREIRO;MARÇO;ABRIL;MAIO;JUNHO;JULHO;AGOSTO;SETEMBRO;OUTUBRO;NOVEMBRO;DEZEMBRO';
+  
+  const formatVal = (v: number | undefined) => {
+    if (!v || v === 0) return '0';
+    return `R$ ${Math.round(v).toLocaleString('pt-BR')}`;
+  };
+
+  const rows = records.map(r => {
+    return [
+      r.cliente,
+      r.linha,
+      r.ano,
+      formatVal(r.meses.janeiro),
+      formatVal(r.meses.fevereiro),
+      formatVal(r.meses.marco),
+      formatVal(r.meses.abril),
+      formatVal(r.meses.maio),
+      formatVal(r.meses.junho),
+      formatVal(r.meses.julho),
+      formatVal(r.meses.agosto),
+      formatVal(r.meses.setembro),
+      formatVal(r.meses.outubro),
+      formatVal(r.meses.novembro),
+      formatVal(r.meses.dezembro)
+    ].join(';');
+  });
+
+  return [header, ...rows].join('\n');
 }

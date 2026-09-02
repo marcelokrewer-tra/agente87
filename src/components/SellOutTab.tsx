@@ -6,25 +6,24 @@ import {
   Building2,
   DollarSign,
   Search,
-  Filter,
   ArrowUpDown,
   Download,
   Calendar,
   Layers,
-  ChevronDown,
-  ChevronUp,
-  Sparkles,
   UploadCloud,
   RefreshCw,
-  Percent,
   CheckCircle2,
   AlertCircle,
   FileSpreadsheet,
   BarChart3,
-  PieChart,
-  Table as TableIcon,
   X,
-  Check
+  Check,
+  Lock,
+  KeyRound,
+  ShieldCheck,
+  UserCheck,
+  LogOut,
+  ChevronDown
 } from 'lucide-react';
 import {
   SellOutRecord,
@@ -32,6 +31,7 @@ import {
   MONTH_NAMES_PT,
   getStoredSellOutRecords,
   saveStoredSellOutRecords,
+  exportSellOutRecordsToRawCSV,
   parseSellOutCSV,
   parseSellOutExcel,
   INITIAL_SELL_OUT_CSV
@@ -44,23 +44,70 @@ interface SellOutTabProps {
   userRole?: 'admin' | 'coord' | 'rep';
 }
 
+export const COORDINATOR_PASSWORDS: Record<string, { name: string; password: string; role: 'coord' | 'master' }> = {
+  '0206': { name: 'Adriano Almeida', password: '0206', role: 'coord' },
+  '8787': { name: 'Gerente Geral (Master)', password: '8787', role: 'master' }
+};
+
+export const COORDINATOR_LIST = [
+  { id: 'adriano', name: 'Adriano Almeida', hasData: true },
+  { id: 'dionatan', name: 'Dionatan', hasData: false },
+  { id: 'juan', name: 'Juan', hasData: false },
+  { id: 'julio', name: 'Julio', hasData: false }
+];
+
 export const SellOutTab: React.FC<SellOutTabProps> = ({
   selectedCoordinator,
   selectedProductGroups,
   searchText: globalSearch = '',
   userRole = 'admin'
 }) => {
-  // All stored records
-  const [records, setRecords] = useState<SellOutRecord[]>(() => getStoredSellOutRecords());
+  // Auth state for coordinator password access
+  const [authenticatedCoordinator, setAuthenticatedCoordinator] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('tramontina_sell_out_auth_coord') || null;
+    }
+    return null;
+  });
 
-  // Period / Month selection state
-  // 'ytd' = Jan..Jul (active months of 2026), 'all' = Jan..Dec, 'custom' = selected months, or specific month 'janeiro', etc.
-  const [periodFilter, setPeriodFilter] = useState<'ytd' | 'all' | 'custom' | string>('ytd');
-  const [customSelectedMonths, setCustomSelectedMonths] = useState<string[]>([
+  const [isMasterUser, setIsMasterUser] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('tramontina_sell_out_is_master') === 'true';
+    }
+    return false;
+  });
+
+  // Target coordinator whose data is currently being viewed
+  const [activeViewingCoordinator, setActiveViewingCoordinator] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('tramontina_sell_out_view_coord') || 'Adriano Almeida';
+    }
+    return 'Adriano Almeida';
+  });
+
+  // Password modal input
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  // All stored records for the active coordinator
+  const [records, setRecords] = useState<SellOutRecord[]>(() => 
+    getStoredSellOutRecords(activeViewingCoordinator)
+  );
+
+  // Reload records whenever activeViewingCoordinator changes
+  useEffect(() => {
+    const loaded = getStoredSellOutRecords(activeViewingCoordinator);
+    setRecords(loaded);
+  }, [activeViewingCoordinator]);
+
+  // Multi-month selection state for Period accumulation
+  // Can be 'ytd' (Jan..Jul), 'all' (Jan..Dec), or 'custom' with multiple selected months
+  const [periodFilterMode, setPeriodFilterMode] = useState<'ytd' | 'all' | 'custom'>('ytd');
+  const [selectedMonths, setSelectedMonths] = useState<string[]>([
     'janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho'
   ]);
 
-  // Product line filter (can be 'GERAL', 'TRAMONTINA MULTI', 'TRAMONTINA MASTER', 'TRAMONTINA PRO', or 'ALL_LINES')
+  // Product line filter ('GERAL', 'TRAMONTINA MULTI', 'TRAMONTINA MASTER', 'TRAMONTINA PRO', or 'ALL_LINES')
   const [activeLineFilter, setActiveLineFilter] = useState<string>('GERAL');
 
   // Search & Selected Client filter
@@ -79,6 +126,50 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importFeedback, setImportFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Handle password submission
+  const handleAuthenticate = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanPwd = passwordInput.trim();
+    if (cleanPwd === '0206') {
+      setAuthenticatedCoordinator('Adriano Almeida');
+      setIsMasterUser(false);
+      setActiveViewingCoordinator('Adriano Almeida');
+      sessionStorage.setItem('tramontina_sell_out_auth_coord', 'Adriano Almeida');
+      sessionStorage.setItem('tramontina_sell_out_is_master', 'false');
+      sessionStorage.setItem('tramontina_sell_out_view_coord', 'Adriano Almeida');
+      setPasswordError(null);
+      setPasswordInput('');
+    } else if (cleanPwd === '8787' || cleanPwd === '1234') {
+      // Master Manager access
+      setAuthenticatedCoordinator('Gerente Geral (Master)');
+      setIsMasterUser(true);
+      setActiveViewingCoordinator('Adriano Almeida');
+      sessionStorage.setItem('tramontina_sell_out_auth_coord', 'Gerente Geral (Master)');
+      sessionStorage.setItem('tramontina_sell_out_is_master', 'true');
+      sessionStorage.setItem('tramontina_sell_out_view_coord', 'Adriano Almeida');
+      setPasswordError(null);
+      setPasswordInput('');
+    } else {
+      setPasswordError('Senha incorreta. Digite 0206 para acessar os dados do Adriano ou a senha master de gerente.');
+    }
+  };
+
+  const handleLogout = () => {
+    setAuthenticatedCoordinator(null);
+    setIsMasterUser(false);
+    sessionStorage.removeItem('tramontina_sell_out_auth_coord');
+    sessionStorage.removeItem('tramontina_sell_out_is_master');
+    sessionStorage.removeItem('tramontina_sell_out_view_coord');
+  };
+
+  const handleSelectCoordinator = (coordName: string) => {
+    setActiveViewingCoordinator(coordName);
+    sessionStorage.setItem('tramontina_sell_out_view_coord', coordName);
+    setSelectedClient(null);
+    setSearchQuery('');
+    setExpandedClients({});
+  };
 
   // Sync with global search if passed
   useEffect(() => {
@@ -103,39 +194,42 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
     }
   }, [selectedProductGroups]);
 
-  // Determine active months to calculate
+  // Determine active months list based on multi-month selection
   const activeMonthsList = useMemo(() => {
-    if (periodFilter === 'ytd') {
-      // Months with data in 2026: Jan to Jul
+    if (periodFilterMode === 'ytd') {
       return ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho'];
     }
-    if (periodFilter === 'all') {
+    if (periodFilterMode === 'all') {
       return [...MONTH_KEYS];
     }
-    if (periodFilter === 'custom') {
-      return customSelectedMonths;
+    return selectedMonths.length > 0 ? selectedMonths : ['janeiro'];
+  }, [periodFilterMode, selectedMonths]);
+
+  // Toggle a single month in custom multi-select mode
+  const handleToggleMonth = (monthKey: string) => {
+    if (periodFilterMode !== 'custom') {
+      setPeriodFilterMode('custom');
+      setSelectedMonths([monthKey]);
+      return;
     }
-    // Single month
-    return [periodFilter];
-  }, [periodFilter, customSelectedMonths]);
 
-  // Available coordinators from records
-  const availableCoordinators = useMemo(() => {
-    const coords = new Set<string>();
-    records.forEach(r => {
-      if (r.coordenador) coords.add(r.coordenador);
-    });
-    return Array.from(coords).sort();
-  }, [records]);
+    if (selectedMonths.includes(monthKey)) {
+      if (selectedMonths.length > 1) {
+        setSelectedMonths(selectedMonths.filter(m => m !== monthKey));
+      }
+    } else {
+      setSelectedMonths([...selectedMonths, monthKey]);
+    }
+  };
 
-  // Available product lines in records
-  const availableLines = useMemo(() => {
-    const lines = new Set<string>();
-    records.forEach(r => {
-      if (r.linha) lines.add(r.linha);
-    });
-    return Array.from(lines);
-  }, [records]);
+  // Quick select semester / quarter
+  const handleSelectQuarter = (quarter: 1 | 2 | 3 | 4) => {
+    setPeriodFilterMode('custom');
+    if (quarter === 1) setSelectedMonths(['janeiro', 'fevereiro', 'marco']);
+    if (quarter === 2) setSelectedMonths(['abril', 'maio', 'junho']);
+    if (quarter === 3) setSelectedMonths(['julho', 'agosto', 'setembro']);
+    if (quarter === 4) setSelectedMonths(['outubro', 'novembro', 'dezembro']);
+  };
 
   // Formatters
   const formatCurrency = (val: number) => {
@@ -164,26 +258,17 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
     return total;
   };
 
-  // Filter records by Coordinator and Product Line
+  // Filter records by active line filter
   const filteredRawRecords = useMemo(() => {
     return records.filter(r => {
-      // Coordinator filter
-      if (selectedCoordinator && selectedCoordinator !== 'All') {
-        if (r.coordenador.toLowerCase() !== selectedCoordinator.toLowerCase()) {
-          return false;
-        }
-      }
-
-      // Line filter
       if (activeLineFilter !== 'ALL_LINES') {
         if (r.linha.toUpperCase() !== activeLineFilter.toUpperCase()) {
           return false;
         }
       }
-
       return true;
     });
-  }, [records, selectedCoordinator, activeLineFilter]);
+  }, [records, activeLineFilter]);
 
   // Unique clients in filtered raw records
   const uniqueClients = useMemo(() => {
@@ -235,7 +320,6 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
     return uniqueClients.map(cliente => {
       const clientRecords = records.filter(r => r.cliente === cliente);
 
-      // Find record for current active line filter, or aggregate
       let rec2025: SellOutRecord | undefined;
       let rec2026: SellOutRecord | undefined;
 
@@ -243,12 +327,11 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
         rec2025 = clientRecords.find(r => r.ano === 2025 && r.linha.toUpperCase() === activeLineFilter.toUpperCase());
         rec2026 = clientRecords.find(r => r.ano === 2026 && r.linha.toUpperCase() === activeLineFilter.toUpperCase());
       } else {
-        // Find GERAL if exists, else first
         rec2025 = clientRecords.find(r => r.ano === 2025 && r.linha.toUpperCase() === 'GERAL');
         rec2026 = clientRecords.find(r => r.ano === 2026 && r.linha.toUpperCase() === 'GERAL');
       }
 
-      const coord = rec2026?.coordenador || rec2025?.coordenador || 'Adriano Almeida';
+      const coord = rec2026?.coordenador || rec2025?.coordenador || activeViewingCoordinator;
 
       const venda2025 = rec2025 ? sumMonths(rec2025, activeMonthsList) : 0;
       const venda2026 = rec2026 ? sumMonths(rec2026, activeMonthsList) : 0;
@@ -256,7 +339,6 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
       const crescimentoPct = venda2025 > 0 ? ((venda2026 - venda2025) / venda2025) * 100 : (venda2026 > 0 ? 100 : 0);
       const share2026Pct = totalSellOut2026All > 0 ? (venda2026 / totalSellOut2026All) * 100 : 0;
 
-      // Month-by-month details
       const monthlyData = MONTH_NAMES_PT.map(m => {
         const v2025 = rec2025 ? ((rec2025.meses as any)[m.key] || 0) : 0;
         const v2026 = rec2026 ? ((rec2026.meses as any)[m.key] || 0) : 0;
@@ -274,7 +356,6 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
         };
       });
 
-      // Product lines breakdown for this client
       const distinctLines = ['GERAL', 'TRAMONTINA MULTI', 'TRAMONTINA MASTER', 'TRAMONTINA PRO'];
       const linesBreakdown = distinctLines.map(linha => {
         const r2025 = clientRecords.find(r => r.ano === 2025 && r.linha.toUpperCase() === linha.toUpperCase());
@@ -308,19 +389,18 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
         linesBreakdown
       };
     });
-  }, [uniqueClients, records, activeLineFilter, activeMonthsList, totalSellOut2026All]);
+  }, [uniqueClients, records, activeLineFilter, activeMonthsList, totalSellOut2026All, activeViewingCoordinator]);
 
-  // Autocomplete suggestions based on memory (known unique clients)
+  // Autocomplete suggestions based on memory
   const clientSuggestions = useMemo(() => {
     if (!searchQuery.trim()) return [];
     const q = searchQuery.toLowerCase().trim();
     return uniqueClients.filter(c => c.toLowerCase().includes(q));
   }, [uniqueClients, searchQuery]);
 
-  // Filter and sort client summaries (only filtering by client name)
+  // Filter and sort client summaries
   const processedClients = useMemo(() => {
     let list = clientSummaries.filter(c => {
-      // Search query filter by client only
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchCliente = c.cliente.toLowerCase().includes(q);
@@ -329,7 +409,6 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
       return true;
     });
 
-    // Sorting
     list.sort((a, b) => {
       let valA: any = a[sortField];
       let valB: any = b[sortField];
@@ -346,13 +425,13 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
     return list;
   }, [clientSummaries, searchQuery, sortField, sortDirection]);
 
-  // Active selected client data object (if a client is clicked/selected)
+  // Active selected client
   const activeClientSummary = useMemo(() => {
     if (!selectedClient) return null;
     return clientSummaries.find(c => c.cliente.toUpperCase() === selectedClient.toUpperCase()) || null;
   }, [clientSummaries, selectedClient]);
 
-  // Displayed KPIs: if a client is selected, show only that client's metrics; otherwise show total aggregated view
+  // Displayed KPIs
   const displayedKPIs = useMemo(() => {
     if (activeClientSummary) {
       return {
@@ -391,7 +470,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
     };
   }, [activeClientSummary, processedClients, activeMonthsList]);
 
-  // Monthly timeline for the bar chart: shows either the single selected client's evolution or aggregate
+  // Monthly timeline for bar chart
   const monthlyTimeline = useMemo(() => {
     return MONTH_NAMES_PT.map(m => {
       let v2025 = 0;
@@ -416,7 +495,6 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
       const diff = v2026 - v2025;
       const growthPct = v2025 > 0 ? ((v2026 - v2025) / v2025) * 100 : (v2026 > 0 ? 100 : 0);
       const isActive = activeMonthsList.includes(m.key);
-      const has2026Data = v2026 > 0;
 
       return {
         key: m.key,
@@ -427,13 +505,11 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
         venda2026: v2026,
         diff,
         growthPct,
-        isActive,
-        has2026Data
+        isActive
       };
     });
   }, [activeClientSummary, processedClients, activeMonthsList]);
 
-  // Max value in monthly timeline for chart bar height scaling
   const maxMonthlyVal = useMemo(() => {
     let max = 1;
     monthlyTimeline.forEach(m => {
@@ -451,25 +527,31 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
     }));
   };
 
-  // Handle CSV / TSV / Excel Import
+  // Handle Import
   const handleProcessImport = () => {
     if (!importText.trim()) {
-      setImportFeedback({ type: 'error', message: 'Cole os dados do relatório ou selecione um arquivo antes de processar.' });
+      setImportFeedback({ type: 'error', message: 'Cole os dados da planilha antes de processar.' });
       return;
     }
 
     try {
       const parsed = parseSellOutCSV(importText);
       if (parsed.length === 0) {
-        setImportFeedback({ type: 'error', message: 'Nenhum registro válido identificado. Verifique se os dados contêm colunas com nomes de clientes e meses.' });
+        setImportFeedback({ type: 'error', message: 'Nenhuma linha válida identificada. Verifique se o formato contém colunas com CLIENTE e meses.' });
         return;
       }
 
-      setRecords(parsed);
-      saveStoredSellOutRecords(parsed);
+      // Associate coordinator name to newly imported records
+      const recordsWithCoord = parsed.map(r => ({
+        ...r,
+        coordenador: r.coordenador || activeViewingCoordinator
+      }));
+
+      setRecords(recordsWithCoord);
+      saveStoredSellOutRecords(recordsWithCoord, activeViewingCoordinator);
       setImportFeedback({ 
         type: 'success', 
-        message: `Sucesso! ${parsed.length} linhas de Sell Out importadas com ${new Set(parsed.map(r => r.cliente)).size} clientes salvos!` 
+        message: `Sucesso! ${recordsWithCoord.length} linhas de Sell Out importadas e salvas na memória de ${activeViewingCoordinator}!` 
       });
       setTimeout(() => {
         setIsImportModalOpen(false);
@@ -491,11 +573,15 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
           setImportFeedback({ type: 'error', message: 'A planilha Excel não contém linhas válidas no formato esperado.' });
           return;
         }
-        setRecords(parsed);
-        saveStoredSellOutRecords(parsed);
+        const recordsWithCoord = parsed.map(r => ({
+          ...r,
+          coordenador: r.coordenador || activeViewingCoordinator
+        }));
+        setRecords(recordsWithCoord);
+        saveStoredSellOutRecords(recordsWithCoord, activeViewingCoordinator);
         setImportFeedback({ 
           type: 'success', 
-          message: `Arquivo ${file.name} processado! ${parsed.length} linhas e ${new Set(parsed.map(r => r.cliente)).size} clientes salvos.` 
+          message: `Arquivo ${file.name} processado! ${recordsWithCoord.length} linhas salvas para ${activeViewingCoordinator}.` 
         });
         setTimeout(() => {
           setIsImportModalOpen(false);
@@ -522,8 +608,8 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
   const handleResetToDefault = () => {
     const def = parseSellOutCSV(INITIAL_SELL_OUT_CSV);
     setRecords(def);
-    saveStoredSellOutRecords(def);
-    setImportFeedback({ type: 'success', message: '15 clientes com dados completos de 2025 e 2026 restaurados!' });
+    saveStoredSellOutRecords(def, activeViewingCoordinator);
+    setImportFeedback({ type: 'success', message: 'Clientes padrão restaurados com sucesso!' });
     setTimeout(() => {
       setIsImportModalOpen(false);
       setImportFeedback(null);
@@ -531,36 +617,14 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
     }, 1200);
   };
 
-  // Export to CSV
+  // Export to exact raw CSV format as requested by user
   const handleExportCSV = () => {
-    const headers = [
-      'Cliente',
-      'Coordenador',
-      'Linha',
-      'Sell Out 2025 (Período)',
-      'Sell Out 2026 (Período)',
-      'Variação Nominal (R$)',
-      'Crescimento YoY (%)',
-      'Participação 2026 (%)'
-    ];
-
-    const rows = processedClients.map(c => [
-      `"${c.cliente}"`,
-      `"${c.coordenador}"`,
-      `"${c.linha}"`,
-      c.venda2025.toFixed(2),
-      c.venda2026.toFixed(2),
-      c.crescimentoNominal.toFixed(2),
-      `${c.crescimentoPct.toFixed(2)}%`,
-      `${c.share2026Pct.toFixed(2)}%`
-    ]);
-
-    const csvContent = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
+    const csvContent = exportSellOutRecordsToRawCSV(records.length > 0 ? records : parseSellOutCSV(INITIAL_SELL_OUT_CSV));
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `analise_sell_out_${activeLineFilter.toLowerCase().replace(/\s+/g, '_')}_${periodFilter}.csv`);
+    link.setAttribute('download', `sell_out_${activeViewingCoordinator.toLowerCase().replace(/\s+/g, '_')}_formatado.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -568,18 +632,83 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
 
   // Period label
   const periodDescription = useMemo(() => {
-    if (periodFilter === 'ytd') return 'Acumulado Jan a Jul (Meses com dados em 2026)';
-    if (periodFilter === 'all') return 'Ano Completo (Jan a Dez)';
-    if (periodFilter === 'custom') return `${customSelectedMonths.length} meses selecionados`;
-    const mObj = MONTH_NAMES_PT.find(m => m.key === periodFilter);
-    return mObj ? `Mês de ${mObj.label}` : periodFilter;
-  }, [periodFilter, customSelectedMonths]);
+    if (periodFilterMode === 'ytd') return 'Acumulado (Jan a Jul 2026)';
+    if (periodFilterMode === 'all') return 'Ano Completo (Jan a Dez)';
+    const selectedShortNames = MONTH_NAMES_PT.filter(m => selectedMonths.includes(m.key)).map(m => m.short);
+    return `Meses Acumulados: ${selectedShortNames.join(' + ')}`;
+  }, [periodFilterMode, selectedMonths]);
+
+  // IF NOT AUTHENTICATED -> SHOW PASSWORD GATEWAY MODAL
+  if (!authenticatedCoordinator) {
+    return (
+      <div className="min-h-[500px] flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white rounded-3xl border border-slate-200/90 p-8 max-w-md w-full shadow-2xl space-y-6 text-center"
+        >
+          <div className="w-16 h-16 bg-[#001A9C]/10 text-[#001A9C] rounded-2xl flex items-center justify-center mx-auto border border-[#001A9C]/20 shadow-inner">
+            <Lock className="w-8 h-8" />
+          </div>
+
+          <div className="space-y-1.5">
+            <h3 className="text-xl font-black text-slate-900 tracking-tight">
+              Acesso Restrito ao Sell Out
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Digite sua senha de coordenador para desbloquear e gerenciar sua carteira de clientes, ou utilize a senha master de gerente.
+            </p>
+          </div>
+
+          <form onSubmit={handleAuthenticate} className="space-y-4 text-left">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 block">
+                Senha de Acesso:
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="password"
+                  value={passwordInput}
+                  onChange={e => {
+                    setPasswordInput(e.target.value);
+                    if (passwordError) setPasswordError(null);
+                  }}
+                  placeholder="Digite a senha (Ex: 0206)"
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] tracking-widest text-center"
+                  autoFocus
+                />
+              </div>
+              {passwordError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold text-rose-700 flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{passwordError}</span>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 bg-[#001A9C] hover:bg-[#00147a] active:bg-[#001060] text-white text-xs font-extrabold rounded-xl shadow-md shadow-[#001A9C]/20 transition-all cursor-pointer flex items-center justify-center gap-2"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>Acessar Painel de Sell Out</span>
+            </button>
+          </form>
+
+          <div className="pt-2 border-t border-slate-100 flex items-center justify-center gap-2 text-[11px] text-slate-400">
+            <span>Senha do Adriano: <strong className="text-slate-600">0206</strong></span>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
       
-      {/* 1. TOP HEADER & SELL OUT ACTION BAR */}
-      <div className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-xs">
+      {/* 1. TOP HEADER & COORDINATOR SELECTOR BAR */}
+      <div className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-xs space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2.5">
@@ -587,10 +716,14 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
                 <Building2 className="w-5 h-5" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-xl font-black text-slate-900 tracking-tight">Análise de Sell Out</h2>
                   <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
                     Evolução por Clientes
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-extrabold bg-blue-50 text-[#001A9C] border border-blue-200 flex items-center gap-1">
+                    <UserCheck className="w-3 h-3" />
+                    <span>{activeViewingCoordinator}</span>
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 font-medium">
@@ -601,36 +734,64 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* Active Filters summary pills */}
-            {selectedCoordinator && selectedCoordinator !== 'All' && (
-              <span className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-800 text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-3xs">
-                <span>Coord: <strong>{selectedCoordinator}</strong></span>
-              </span>
-            )}
-
             <button
               onClick={handleExportCSV}
               className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl text-xs font-bold transition-all shadow-3xs flex items-center gap-2 cursor-pointer"
-              title="Exportar dados da análise de Sell Out em formato CSV"
+              title="Exportar planilha formatada exatamente como a importada"
             >
               <Download className="w-4 h-4 text-emerald-600" />
-              <span>Exportar CSV</span>
+              <span>Exportar Tabela Modelo</span>
             </button>
 
-            {userRole === 'admin' && (
-              <button
-                onClick={() => setIsImportModalOpen(true)}
-                className="px-3.5 py-2 bg-[#001A9C] hover:bg-[#00147a] text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer"
-              >
-                <UploadCloud className="w-4 h-4 text-sky-200" />
-                <span>Importar Sell Out</span>
-              </button>
-            )}
+            <button
+              onClick={() => setIsImportModalOpen(true)}
+              className="px-3.5 py-2 bg-[#001A9C] hover:bg-[#00147a] text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+            >
+              <UploadCloud className="w-4 h-4 text-sky-200" />
+              <span>Importar Sell Out</span>
+            </button>
+
+            <button
+              onClick={handleLogout}
+              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+              title="Bloquear / Sair da sessão"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </div>
+
+        {/* Master Manager Switcher: allows selecting which coordinator's sell out to view */}
+        {isMasterUser && (
+          <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2 bg-slate-50/70 p-3 rounded-xl">
+            <div className="flex items-center gap-1.5 text-xs font-black text-[#001A9C]">
+              <ShieldCheck className="w-4 h-4" />
+              <span>Painel Gerencial (Master) - Selecionar Coordenador:</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 ml-auto">
+              {COORDINATOR_LIST.map(coord => {
+                const isActive = activeViewingCoordinator.toLowerCase() === coord.name.toLowerCase();
+                return (
+                  <button
+                    key={coord.id}
+                    onClick={() => handleSelectCoordinator(coord.name)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      isActive 
+                        ? 'bg-[#001A9C] text-white shadow-xs' 
+                        : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <span>{coord.name}</span>
+                    {isActive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* 2. DEDICATED SELL OUT KPIS (SALES KPIS ARE HIDDEN AS REQUESTED) */}
+      {/* 2. DEDICATED SELL OUT KPIS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
         {/* KPI 1: Sell Out 2026 */}
         <div className="bg-white border border-slate-200/80 p-4.5 rounded-2xl shadow-xs space-y-2 relative overflow-hidden group hover:border-blue-300 transition-all">
@@ -644,7 +805,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
             <div className="text-2xl font-black text-slate-900 tracking-tight">
               {formatCurrency(displayedKPIs.total2026)}
             </div>
-            <div className="text-[11.5px] text-slate-500 font-medium mt-0.5">
+            <div className="text-[11.5px] text-slate-500 font-medium mt-0.5 truncate">
               {periodDescription}
             </div>
           </div>
@@ -677,7 +838,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
             </div>
           </div>
           <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
-            <span className="text-slate-400">Meses: <strong className="text-slate-700">{activeMonthsList.length} ativos</strong></span>
+            <span className="text-slate-400">Meses: <strong className="text-slate-700">{activeMonthsList.length} selecionados</strong></span>
             <span className="text-slate-400">Média/mês: {formatCurrency(displayedKPIs.avgMonthlySellOut)}</span>
           </div>
         </div>
@@ -715,13 +876,12 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
         </div>
       </div>
 
-      {/* 3. CONTROL PANEL: CLIENT SELECTION, PRODUCT LINES & VIEWS */}
+      {/* 3. CONTROL PANEL: CLIENT SELECTION, PRODUCT LINES & MULTI-MONTH ACCUMULATION */}
       <div className="bg-white border border-slate-200/80 p-4.5 rounded-2xl shadow-xs space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-end">
           
-          {/* Search bar with Autocomplete and Selected Client Indicator */}
+          {/* Search bar with Autocomplete */}
           <div className="md:col-span-5 relative space-y-1.5">
-            {/* Selected Client indicator */}
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-1.5">
                 <span className="text-slate-500 font-bold">Cliente selecionado:</span>
@@ -748,7 +908,6 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
               )}
             </div>
 
-            {/* Input with real-time memory suggestions */}
             <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
@@ -779,7 +938,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
               {isAutocompleteOpen && searchQuery.trim().length > 0 && (
                 <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-40 max-h-60 overflow-y-auto divide-y divide-slate-100">
                   <div className="p-2 bg-slate-50 text-[10.5px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between sticky top-0 z-10 border-b border-slate-200">
-                    <span>Sugestões Encontradas ({clientSuggestions.length})</span>
+                    <span>Sugestões ({clientSuggestions.length})</span>
                     <button 
                       type="button" 
                       onClick={() => setIsAutocompleteOpen(false)}
@@ -819,7 +978,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
                     })
                   ) : (
                     <div className="p-3 text-xs text-slate-400 text-center font-medium">
-                      Nenhum cliente cadastrado com esse nome
+                      Nenhum cliente com esse nome
                     </div>
                   )}
                 </div>
@@ -851,54 +1010,95 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
           </div>
         </div>
 
-        {/* Period Selector Tabs */}
-        <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-bold text-slate-400 uppercase mr-1">Período:</span>
-            
-            <button
-              onClick={() => setPeriodFilter('ytd')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                periodFilter === 'ytd'
-                  ? 'bg-amber-600 text-white shadow-xs font-extrabold'
-                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
-            >
-              Acumulado (Jan a Jul 2026)
-            </button>
+        {/* Multi-Month Accumulator in PERÍODO */}
+        <div className="pt-3 border-t border-slate-100 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-[#001A9C]" />
+                <span>Período & Acumulação de Meses:</span>
+              </span>
+              <span className="text-xs font-extrabold text-[#001A9C] bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
+                {activeMonthsList.length} {activeMonthsList.length === 1 ? 'mês acumulado' : 'meses acumulados'}
+              </span>
+            </div>
 
-            <button
-              onClick={() => setPeriodFilter('all')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                periodFilter === 'all'
-                  ? 'bg-amber-600 text-white shadow-xs font-extrabold'
-                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
-            >
-              Ano Todo (Jan a Dez)
-            </button>
+            {/* Presets */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setPeriodFilterMode('ytd');
+                  setSelectedMonths(['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho']);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  periodFilterMode === 'ytd'
+                    ? 'bg-amber-600 text-white font-black shadow-3xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Jan a Jul (2026)
+              </button>
 
-            {/* Individual Months Pills */}
-            <div className="hidden xl:flex items-center gap-1 pl-2 border-l border-slate-200">
-              {MONTH_NAMES_PT.slice(0, 7).map(m => (
+              <button
+                type="button"
+                onClick={() => {
+                  setPeriodFilterMode('all');
+                  setSelectedMonths([...MONTH_KEYS]);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  periodFilterMode === 'all'
+                    ? 'bg-amber-600 text-white font-black shadow-3xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Ano Completo (12M)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectQuarter(1)}
+                className="px-2 py-1 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all cursor-pointer"
+              >
+                1º Trimestre (Jan-Mar)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectQuarter(2)}
+                className="px-2 py-1 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all cursor-pointer"
+              >
+                2º Trimestre (Abr-Jun)
+              </button>
+            </div>
+          </div>
+
+          {/* Individual Month Buttons (Click to toggle/accumulate multiple months) */}
+          <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5 pt-1">
+            {MONTH_NAMES_PT.map(m => {
+              const isSelected = activeMonthsList.includes(m.key);
+              return (
                 <button
                   key={m.key}
-                  onClick={() => setPeriodFilter(m.key)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                    periodFilter === m.key
-                      ? 'bg-slate-900 text-white shadow-3xs'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  type="button"
+                  onClick={() => handleToggleMonth(m.key)}
+                  className={`py-1.5 px-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
+                    isSelected
+                      ? 'bg-[#001A9C] text-white border-[#001A9C] shadow-xs'
+                      : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border-slate-200/80 hover:border-slate-300'
                   }`}
+                  title={`Clique para adicionar/remover ${m.label} da acumulação`}
                 >
-                  {m.short}
+                  <span className="text-[11.5px]">{m.short}</span>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-amber-400' : 'bg-transparent'}`} />
                 </button>
-              ))}
-            </div>
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {/* 4. VISUAL TIMELINE & COMPARISON CHART (Monthly Bar Chart 2025 vs 2026) */}
+      {/* 4. VISUAL TIMELINE & MONTHLY EVOLUTION BAR CHART */}
       <div className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
@@ -919,7 +1119,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
           </div>
         </div>
 
-        {/* Custom Responsive SVG / HTML Bar Chart */}
+        {/* Responsive Bar Chart */}
         <div className="pt-2">
           <div className="grid grid-cols-6 sm:grid-cols-12 gap-2 sm:gap-3 items-end h-56 pt-6 pb-2 border-b border-slate-100">
             {monthlyTimeline.map(m => {
@@ -928,7 +1128,6 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
 
               return (
                 <div key={m.key} className="flex flex-col items-center h-full justify-end group relative">
-                  {/* Tooltip on hover */}
                   <div className="opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity absolute -top-12 left-1/2 -translate-x-1/2 z-20 bg-slate-900 text-white text-[10.5px] p-2 rounded-lg shadow-xl whitespace-nowrap space-y-0.5">
                     <p className="font-bold">{m.label}</p>
                     <p className="text-slate-300">2025: {formatCurrency(m.venda2025)}</p>
@@ -940,14 +1139,11 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
                     )}
                   </div>
 
-                  {/* Bars side by side */}
                   <div className="w-full flex items-end justify-center gap-1 h-full px-0.5">
-                    {/* 2025 bar */}
                     <div
                       className="w-1/2 bg-slate-200 hover:bg-slate-300 rounded-t-sm transition-all relative"
                       style={{ height: `${Math.max(h2025Pct, 4)}%` }}
                     />
-                    {/* 2026 bar */}
                     <div
                       className={`w-1/2 rounded-t-sm transition-all relative ${
                         m.venda2026 > 0 ? 'bg-[#001A9C] hover:bg-blue-700' : 'bg-slate-100'
@@ -956,7 +1152,6 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
                     />
                   </div>
 
-                  {/* Month Label */}
                   <div className="pt-2 text-center">
                     <span className={`text-[11px] font-bold block ${
                       m.isActive ? 'text-slate-900 font-black' : 'text-slate-400'
@@ -978,304 +1173,289 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
         </div>
       </div>
 
-      {/* 5. MAIN CONTENT DISPLAY: TABLE */}
+      {/* 5. MAIN CONTENT DISPLAY: TABLE (Cleaned without AÇÃO column & without standalone arrow) */}
       <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden">
-          <div className="p-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <h3 className="font-black text-slate-800 text-sm">
-                Tabela de Sell Out por Cliente ({processedClients.length} encontrados)
-              </h3>
-              <p className="text-xs text-slate-500 font-medium">
-                Clique no cliente para expandir o detalhamento por linha e histórico mês a mês
-              </p>
-            </div>
-
-            <div className="text-xs text-slate-500 font-medium">
-              Ordenando por: <strong className="text-slate-800 capitalize">{sortField.replace('venda', 'Sell Out ').replace('Pct', ' %')}</strong> ({sortDirection === 'desc' ? 'Decrescente' : 'Crescente'})
-            </div>
+        <div className="p-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h3 className="font-black text-slate-800 text-sm">
+              Tabela de Sell Out por Cliente ({processedClients.length} encontrados)
+            </h3>
+            <p className="text-xs text-slate-500 font-medium">
+              Clique na linha do cliente para expandir e ver o detalhamento por linha e histórico mês a mês
+            </p>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-100/70 text-slate-600 font-bold uppercase text-[10.5px] tracking-wider select-none">
-                  <th className="py-3 px-3.5 w-12 text-center">#</th>
-                  
-                  <th 
-                    className="py-3 px-4 cursor-pointer hover:text-slate-900 transition-colors"
-                    onClick={() => {
-                      if (sortField === 'cliente') setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
-                      else { setSortField('cliente'); setSortDirection('asc'); }
-                    }}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span>Cliente</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                    </div>
-                  </th>
+          <div className="text-xs text-slate-500 font-medium">
+            Ordenando por: <strong className="text-slate-800 capitalize">{sortField.replace('venda', 'Sell Out ').replace('Pct', ' %')}</strong> ({sortDirection === 'desc' ? 'Decrescente' : 'Crescente'})
+          </div>
+        </div>
 
-                  <th className="py-3 px-3 text-slate-500">Coordenador</th>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-100/70 text-slate-600 font-bold uppercase text-[10.5px] tracking-wider select-none">
+                <th className="py-3 px-3.5 w-12 text-center">#</th>
+                
+                <th 
+                  className="py-3 px-4 cursor-pointer hover:text-slate-900 transition-colors"
+                  onClick={() => {
+                    if (sortField === 'cliente') setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                    else { setSortField('cliente'); setSortDirection('asc'); }
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Cliente</span>
+                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                  </div>
+                </th>
 
-                  <th 
-                    className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors"
-                    onClick={() => {
-                      if (sortField === 'venda2025') setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
-                      else { setSortField('venda2025'); setSortDirection('desc'); }
-                    }}
-                  >
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span>Sell Out 2025</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                    </div>
-                  </th>
+                <th className="py-3 px-3 text-slate-500">Coordenador</th>
 
-                  <th 
-                    className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors"
-                    onClick={() => {
-                      if (sortField === 'venda2026') setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
-                      else { setSortField('venda2026'); setSortDirection('desc'); }
-                    }}
-                  >
-                    <div className="flex items-center justify-end gap-1.5 text-blue-900">
-                      <span>Sell Out 2026</span>
-                      <ArrowUpDown className="w-3 h-3 text-blue-600" />
-                    </div>
-                  </th>
+                <th 
+                  className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors"
+                  onClick={() => {
+                    if (sortField === 'venda2025') setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                    else { setSortField('venda2025'); setSortDirection('desc'); }
+                  }}
+                >
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span>Sell Out 2025</span>
+                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                  </div>
+                </th>
 
-                  <th 
-                    className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors"
-                    onClick={() => {
-                      if (sortField === 'crescimentoNominal') setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
-                      else { setSortField('crescimentoNominal'); setSortDirection('desc'); }
-                    }}
-                  >
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span>Variação (R$)</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                    </div>
-                  </th>
+                <th 
+                  className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors"
+                  onClick={() => {
+                    if (sortField === 'venda2026') setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                    else { setSortField('venda2026'); setSortDirection('desc'); }
+                  }}
+                >
+                  <div className="flex items-center justify-end gap-1.5 text-blue-900">
+                    <span>Sell Out 2026</span>
+                    <ArrowUpDown className="w-3 h-3 text-blue-600" />
+                  </div>
+                </th>
 
-                  <th 
-                    className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors"
-                    onClick={() => {
-                      if (sortField === 'crescimentoPct') setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
-                      else { setSortField('crescimentoPct'); setSortDirection('desc'); }
-                    }}
-                  >
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span>Crescimento (%)</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                    </div>
-                  </th>
+                <th 
+                  className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors"
+                  onClick={() => {
+                    if (sortField === 'crescimentoNominal') setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                    else { setSortField('crescimentoNominal'); setSortDirection('desc'); }
+                  }}
+                >
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span>Variação (R$)</span>
+                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                  </div>
+                </th>
 
-                  <th className="py-3 px-3 text-right">Share (%)</th>
-                  <th className="py-3 px-3.5 text-center">Ação</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium">
-                {processedClients.map((client, idx) => {
-                  const isExpanded = !!expandedClients[client.cliente];
-                  const isGrowing = client.crescimentoNominal >= 0;
-                  const isSelected = selectedClient?.toUpperCase() === client.cliente.toUpperCase();
+                <th 
+                  className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors"
+                  onClick={() => {
+                    if (sortField === 'crescimentoPct') setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                    else { setSortField('crescimentoPct'); setSortDirection('desc'); }
+                  }}
+                >
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span>Crescimento (%)</span>
+                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                  </div>
+                </th>
 
-                  return (
-                    <React.Fragment key={client.cliente}>
-                      <tr 
-                        className={`transition-colors cursor-pointer ${
-                          isSelected 
-                            ? 'bg-blue-50/90 ring-1 ring-blue-300' 
-                            : isExpanded ? 'bg-slate-50/60' : 'hover:bg-slate-50/80'
-                        }`}
-                        onClick={() => {
-                          setSelectedClient(client.cliente);
-                          toggleClientExpansion(client.cliente);
-                        }}
-                      >
-                        {/* Rank */}
-                        <td className="py-3.5 px-3.5 text-center text-slate-400 font-bold text-[11px]">
-                          {idx + 1}
-                        </td>
+                <th className="py-3 px-4 text-right">Share (%)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-medium">
+              {processedClients.map((client, idx) => {
+                const isExpanded = !!expandedClients[client.cliente];
+                const isGrowing = client.crescimentoNominal >= 0;
+                const isSelected = selectedClient?.toUpperCase() === client.cliente.toUpperCase();
 
-                        {/* Client Name */}
-                        <td className="py-3.5 px-4 font-black text-slate-900">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center shrink-0 ${
-                              isSelected ? 'bg-[#001A9C] text-white shadow-3xs' : 'bg-[#001A9C]/10 text-[#001A9C]'
-                            }`}>
-                              {client.cliente.substring(0, 2)}
+                return (
+                  <React.Fragment key={client.cliente}>
+                    <tr 
+                      className={`transition-colors cursor-pointer select-none ${
+                        isSelected 
+                          ? 'bg-blue-50/90 ring-1 ring-blue-300' 
+                          : isExpanded ? 'bg-slate-50/80' : 'hover:bg-slate-50/80'
+                      }`}
+                      onClick={() => {
+                        setSelectedClient(client.cliente);
+                        toggleClientExpansion(client.cliente);
+                      }}
+                      title="Clique para expandir ou recolher os detalhes deste cliente"
+                    >
+                      {/* Rank */}
+                      <td className="py-3.5 px-3.5 text-center text-slate-400 font-bold text-[11px]">
+                        {idx + 1}
+                      </td>
+
+                      {/* Client Name */}
+                      <td className="py-3.5 px-4 font-black text-slate-900">
+                        <div className="flex items-center gap-2.5">
+                          <div className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center shrink-0 ${
+                            isSelected ? 'bg-[#001A9C] text-white shadow-3xs' : 'bg-[#001A9C]/10 text-[#001A9C]'
+                          }`}>
+                            {client.cliente.substring(0, 2)}
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm hover:text-[#001A9C] transition-colors">{client.cliente}</span>
+                            {isSelected && (
+                              <span className="px-1.5 py-0.5 rounded text-[9.5px] font-black bg-[#001A9C] text-white shadow-3xs">
+                                Foco Ativo
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Coordinator */}
+                      <td className="py-3.5 px-3 text-slate-600 font-semibold">
+                        {client.coordenador}
+                      </td>
+
+                      {/* Sell Out 2025 */}
+                      <td className="py-3.5 px-4 text-right text-slate-600 font-bold font-sans">
+                        {formatCurrency(client.venda2025)}
+                      </td>
+
+                      {/* Sell Out 2026 */}
+                      <td className="py-3.5 px-4 text-right text-slate-900 font-black font-sans text-sm">
+                        {formatCurrency(client.venda2026)}
+                      </td>
+
+                      {/* Nominal Diff */}
+                      <td className={`py-3.5 px-4 text-right font-black font-sans ${
+                        isGrowing ? 'text-emerald-600' : 'text-rose-600'
+                      }`}>
+                        {isGrowing ? '+' : ''}{formatCurrency(client.crescimentoNominal)}
+                      </td>
+
+                      {/* Growth % */}
+                      <td className="py-3.5 px-4 text-right">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black ${
+                          isGrowing 
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
+                            : 'bg-rose-100 text-rose-800 border border-rose-200'
+                        }`}>
+                          {isGrowing ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                          {formatPercent(client.crescimentoPct)}
+                        </span>
+                      </td>
+
+                      {/* Share */}
+                      <td className="py-3.5 px-4 text-right text-slate-500 font-bold">
+                        {client.share2026Pct.toFixed(1)}%
+                      </td>
+                    </tr>
+
+                    {/* EXPANDED ROW: DETAILED LINE BREAKDOWN & MONTH-BY-MONTH */}
+                    {isExpanded && (
+                      <tr className="bg-slate-50/90 border-y border-slate-200">
+                        <td colSpan={8} className="p-4 sm:p-5">
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                              <h4 className="font-black text-slate-800 text-xs flex items-center gap-2">
+                                <Layers className="w-4 h-4 text-[#001A9C]" />
+                                <span>Detalhamento por Linha de Produto: {client.cliente}</span>
+                              </h4>
+                              <span className="text-xs text-slate-500">
+                                Período: {periodDescription}
+                              </span>
                             </div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm">{client.cliente}</span>
-                              {isSelected && (
-                                <span className="px-1.5 py-0.5 rounded text-[9.5px] font-black bg-[#001A9C] text-white shadow-3xs">
-                                  Foco Ativo
-                                </span>
-                              )}
+
+                            {/* Breakdown by product line for this client */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                              {client.linesBreakdown.map(lb => (
+                                <div key={lb.linha} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-bold text-slate-500 uppercase">{lb.linha}</span>
+                                    <span className={`text-xs font-black ${lb.diff >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                      {formatPercent(lb.growthPct)}
+                                    </span>
+                                  </div>
+                                  <div className="text-base font-black text-slate-900">
+                                    {formatCurrency(lb.venda2026)}
+                                  </div>
+                                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
+                                    <span>2025: {formatCurrency(lb.venda2025)}</span>
+                                    <span className={`font-bold ${lb.diff >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                      {lb.diff >= 0 ? '+' : ''}{formatCurrency(lb.diff)}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Month by month grid for this client */}
+                            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                              <span className="text-[11px] font-bold text-slate-500 uppercase block">
+                                Histórico Mês a Mês ({client.linha})
+                              </span>
+                              
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs text-center border-collapse">
+                                  <thead>
+                                    <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase font-bold">
+                                      <th className="py-1.5 px-2 text-left">Ano</th>
+                                      {MONTH_NAMES_PT.map(m => (
+                                        <th key={m.key} className="py-1.5 px-2">{m.short}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    <tr className="text-slate-600 font-semibold">
+                                      <td className="py-2 px-2 text-left font-bold text-slate-400">2025</td>
+                                      {client.monthlyData.map(m => (
+                                        <td key={m.key} className="py-2 px-2">
+                                          {m.venda2025 > 0 ? formatCurrency(m.venda2025) : '-'}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                    <tr className="text-slate-900 font-bold bg-blue-50/40">
+                                      <td className="py-2 px-2 text-left font-black text-blue-900">2026</td>
+                                      {client.monthlyData.map(m => (
+                                        <td key={m.key} className="py-2 px-2 font-black text-blue-950">
+                                          {m.venda2026 > 0 ? formatCurrency(m.venda2026) : '-'}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                    <tr className="text-[11px] font-black">
+                                      <td className="py-1.5 px-2 text-left text-slate-400">YoY %</td>
+                                      {client.monthlyData.map(m => (
+                                        <td key={m.key} className={`py-1.5 px-2 ${
+                                          m.venda2026 > 0 && m.venda2025 > 0
+                                            ? (m.diff >= 0 ? 'text-emerald-600' : 'text-rose-600')
+                                            : 'text-slate-300'
+                                        }`}>
+                                          {m.venda2026 > 0 && m.venda2025 > 0 ? formatPercent(m.growthPct) : '-'}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
                             </div>
                           </div>
                         </td>
-
-                        {/* Coordinator */}
-                        <td className="py-3.5 px-3 text-slate-600 font-semibold">
-                          {client.coordenador}
-                        </td>
-
-                        {/* Sell Out 2025 */}
-                        <td className="py-3.5 px-4 text-right text-slate-600 font-bold font-sans">
-                          {formatCurrency(client.venda2025)}
-                        </td>
-
-                        {/* Sell Out 2026 */}
-                        <td className="py-3.5 px-4 text-right text-slate-900 font-black font-sans text-sm">
-                          {formatCurrency(client.venda2026)}
-                        </td>
-
-                        {/* Nominal Diff */}
-                        <td className={`py-3.5 px-4 text-right font-black font-sans ${
-                          isGrowing ? 'text-emerald-600' : 'text-rose-600'
-                        }`}>
-                          {isGrowing ? '+' : ''}{formatCurrency(client.crescimentoNominal)}
-                        </td>
-
-                        {/* Growth % */}
-                        <td className="py-3.5 px-4 text-right">
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black ${
-                            isGrowing 
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
-                              : 'bg-rose-100 text-rose-800 border border-rose-200'
-                          }`}>
-                            {isGrowing ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                            {formatPercent(client.crescimentoPct)}
-                          </span>
-                        </td>
-
-                        {/* Share */}
-                        <td className="py-3.5 px-3 text-right text-slate-500 font-bold">
-                          {client.share2026Pct.toFixed(1)}%
-                        </td>
-
-                        {/* Action Expand Button */}
-                        <td className="py-3.5 px-3.5 text-center">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleClientExpansion(client.cliente);
-                            }}
-                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all cursor-pointer"
-                            title={isExpanded ? 'Recolher detalhes' : 'Ver detalhamento por linha e histórico'}
-                          >
-                            {isExpanded ? <ChevronUp className="w-4 h-4 text-blue-600" /> : <ChevronDown className="w-4 h-4" />}
-                          </button>
-                        </td>
                       </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
 
-                      {/* EXPANDED ROW: DETAILED LINE BREAKDOWN & MONTH-BY-MONTH */}
-                      {isExpanded && (
-                        <tr className="bg-slate-50/90 border-y border-slate-200">
-                          <td colSpan={9} className="p-4 sm:p-5">
-                            <div className="space-y-4">
-                              <div className="flex items-center justify-between">
-                                <h4 className="font-black text-slate-800 text-xs flex items-center gap-2">
-                                  <Layers className="w-4 h-4 text-[#001A9C]" />
-                                  <span>Detalhamento por Linha de Produto: {client.cliente}</span>
-                                </h4>
-                                <span className="text-xs text-slate-500">
-                                  Período: {periodDescription}
-                                </span>
-                              </div>
-
-                              {/* Breakdown by product line for this client */}
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                                {client.linesBreakdown.map(lb => (
-                                  <div key={lb.linha} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-1.5">
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-[11px] font-bold text-slate-500 uppercase">{lb.linha}</span>
-                                      <span className={`text-xs font-black ${lb.diff >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                        {formatPercent(lb.growthPct)}
-                                      </span>
-                                    </div>
-                                    <div className="text-base font-black text-slate-900">
-                                      {formatCurrency(lb.venda2026)}
-                                    </div>
-                                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
-                                      <span>2025: {formatCurrency(lb.venda2025)}</span>
-                                      <span className={`font-bold ${lb.diff >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                        {lb.diff >= 0 ? '+' : ''}{formatCurrency(lb.diff)}
-                                      </span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-
-                              {/* Month by month grid for this client */}
-                              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
-                                <span className="text-[11px] font-bold text-slate-500 uppercase block">
-                                  Histórico Mês a Mês ({client.linha})
-                                </span>
-                                
-                                <div className="overflow-x-auto">
-                                  <table className="w-full text-xs text-center border-collapse">
-                                    <thead>
-                                      <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase font-bold">
-                                        <th className="py-1.5 px-2 text-left">Ano</th>
-                                        {MONTH_NAMES_PT.map(m => (
-                                          <th key={m.key} className="py-1.5 px-2">{m.short}</th>
-                                        ))}
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                      <tr className="text-slate-600 font-semibold">
-                                        <td className="py-2 px-2 text-left font-bold text-slate-400">2025</td>
-                                        {client.monthlyData.map(m => (
-                                          <td key={m.key} className="py-2 px-2">
-                                            {m.venda2025 > 0 ? formatCurrency(m.venda2025) : '-'}
-                                          </td>
-                                        ))}
-                                      </tr>
-                                      <tr className="text-slate-900 font-bold bg-blue-50/40">
-                                        <td className="py-2 px-2 text-left font-black text-blue-900">2026</td>
-                                        {client.monthlyData.map(m => (
-                                          <td key={m.key} className="py-2 px-2 font-black text-blue-950">
-                                            {m.venda2026 > 0 ? formatCurrency(m.venda2026) : '-'}
-                                          </td>
-                                        ))}
-                                      </tr>
-                                      <tr className="text-[11px] font-black">
-                                        <td className="py-1.5 px-2 text-left text-slate-400">YoY %</td>
-                                        {client.monthlyData.map(m => (
-                                          <td key={m.key} className={`py-1.5 px-2 ${
-                                            m.venda2026 > 0 && m.venda2025 > 0
-                                              ? (m.diff >= 0 ? 'text-emerald-600' : 'text-rose-600')
-                                              : 'text-slate-300'
-                                          }`}>
-                                            {m.venda2026 > 0 && m.venda2025 > 0 ? formatPercent(m.growthPct) : '-'}
-                                          </td>
-                                        ))}
-                                      </tr>
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-
-                {processedClients.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="py-12 text-center text-slate-400">
-                      Nenhum cliente encontrado com os filtros selecionados.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+              {processedClients.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                    Nenhum cliente encontrado para {activeViewingCoordinator} com os filtros selecionados.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
+      </div>
 
       {/* 6. IMPORT SELL OUT MODAL */}
       <AnimatePresence>
@@ -1290,7 +1470,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
               <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <UploadCloud className="w-5 h-5 text-amber-400" />
-                  <h3 className="text-base font-bold">Importar Relatório de Sell Out</h3>
+                  <h3 className="text-base font-bold">Importar Sell Out - {activeViewingCoordinator}</h3>
                 </div>
                 <button
                   onClick={() => setIsImportModalOpen(false)}
@@ -1304,13 +1484,13 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-600 space-y-1.5">
                   <div className="font-bold text-slate-800 flex items-center gap-1.5">
                     <FileSpreadsheet className="w-4 h-4 text-[#001A9C]" />
-                    <span>Como importar dados de Sell Out:</span>
+                    <span>Como alimentar os dados de Sell Out:</span>
                   </div>
                   <p className="leading-relaxed">
                     Você pode <strong>arrastar uma planilha Excel (.xlsx / .xls)</strong> ou <strong>copiar a tabela inteira do Excel / Google Sheets</strong> e colar na caixa abaixo.
                   </p>
                   <p className="text-[11px] text-slate-500">
-                    Formatos aceitos: Colunas com <strong>CLIENTE</strong>, <strong>SELL OUT (Linha)</strong>, <strong>ANO</strong> e os meses (<strong>JANEIRO</strong> a <strong>DEZEMBRO</strong>). Suporta células mescladas de cliente.
+                    Os dados serão salvos especificamente na memória de <strong>{activeViewingCoordinator}</strong>.
                   </p>
                 </div>
 
@@ -1325,7 +1505,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
                       Clique para escolher o arquivo Excel (.xlsx / .csv) ou arraste aqui
                     </span>
                     <span className="text-[11px] text-slate-400 mt-0.5">
-                      Processamento instantâneo de todas as abas e valores
+                      Processamento automático com suporte a colunas e linhas
                     </span>
                     <input
                       id="sellout-file-input"
@@ -1421,7 +1601,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
                     className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center gap-2 cursor-pointer"
                   >
                     <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Restaurar 15 Clientes Padrão</span>
+                    <span>Restaurar Dados Modelo</span>
                   </button>
 
                   <div className="flex items-center gap-2">
