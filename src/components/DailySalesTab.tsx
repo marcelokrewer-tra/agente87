@@ -5,6 +5,7 @@ import { getLocalDailySalesIndex, getLocalDailySalesData, DailySnapshotInfo } fr
 import {
   Search,
   TrendingUp,
+  TrendingDown,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
@@ -657,7 +658,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
 
   // Active reps with sales in period count
   const activeRepsWithSales = useMemo(() => {
-    return comparisonData.filter(c => c.periodVendas > 0).length;
+    return comparisonData.filter(c => Math.abs(c.periodVendas) > 0.01).length;
   }, [comparisonData]);
 
   const handleSort = (field: DailySortField) => {
@@ -682,7 +683,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
   const sortedTableData = useMemo(() => {
     return comparisonData
       .filter(item => {
-        if (tableFilterOnlyWithSales && item.periodVendas <= 0) return false;
+        if (tableFilterOnlyWithSales && Math.abs(item.periodVendas) < 0.01) return false;
         if (tableSearch.trim() !== '') {
           const q = tableSearch.toLowerCase();
           const matchName = item.repName.toLowerCase().includes(q);
@@ -1042,7 +1043,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
                   <tr
                     key={rep.repId}
                     className={`hover:bg-slate-50/80 transition-colors ${
-                      rep.periodVendas > 0 ? 'bg-white' : 'bg-slate-50/30 text-slate-400'
+                      rep.periodVendas > 0 ? 'bg-white' : rep.periodVendas < 0 ? 'bg-rose-50/20' : 'bg-slate-50/30 text-slate-400'
                     }`}
                   >
                     <td className="py-3.5 px-4 font-semibold text-slate-600 font-mono">
@@ -1060,10 +1061,23 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
                     <td className="py-3.5 px-4 text-right font-medium text-slate-800">
                       {formatCurrency(rep.endVendas)}
                     </td>
-                    <td className="py-3.5 px-4 text-right bg-emerald-50/40">
+                    <td className={`py-3.5 px-4 text-right ${
+                      rep.periodVendas > 0
+                        ? 'bg-emerald-50/40'
+                        : rep.periodVendas < 0
+                        ? 'bg-rose-50/50'
+                        : 'bg-slate-50/30'
+                    }`}>
                       <div className="flex items-center justify-end gap-1.5">
-                        {rep.periodVendas > 0 && <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />}
-                        <span className={`font-black ${rep.periodVendas > 0 ? 'text-emerald-700 text-sm' : 'text-slate-400'}`}>
+                        {rep.periodVendas > 0 && <TrendingUp className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
+                        {rep.periodVendas < 0 && <TrendingDown className="w-3.5 h-3.5 text-rose-600 shrink-0" />}
+                        <span className={`font-black ${
+                          rep.periodVendas > 0
+                            ? 'text-emerald-700 text-sm'
+                            : rep.periodVendas < 0
+                            ? 'text-rose-600 text-sm'
+                            : 'text-slate-400'
+                        }`}>
                           {formatCurrency(rep.periodVendas)}
                         </span>
                       </div>
