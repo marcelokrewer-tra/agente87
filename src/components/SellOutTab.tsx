@@ -22,8 +22,12 @@ import {
   KeyRound,
   ShieldCheck,
   UserCheck,
+  Users,
   LogOut,
-  ChevronDown
+  ChevronDown,
+  ArrowRight,
+  Sparkles,
+  SlidersHorizontal
 } from 'lucide-react';
 import {
   SellOutRecord,
@@ -46,14 +50,15 @@ interface SellOutTabProps {
 
 export const COORDINATOR_PASSWORDS: Record<string, { name: string; password: string; role: 'coord' | 'master' }> = {
   '0206': { name: 'Adriano Almeida', password: '0206', role: 'coord' },
-  '8787': { name: 'Gerente Geral (Master)', password: '8787', role: 'master' }
+  '1111': { name: 'Igor Pedruzzi', password: '1111', role: 'master' },
+  '8787': { name: 'Igor Pedruzzi', password: '8787', role: 'master' }
 };
 
 export const COORDINATOR_LIST = [
-  { id: 'adriano', name: 'Adriano Almeida', hasData: true },
-  { id: 'dionatan', name: 'Dionatan', hasData: false },
-  { id: 'juan', name: 'Juan', hasData: false },
-  { id: 'julio', name: 'Julio', hasData: false }
+  { id: 'adriano', name: 'Adriano Almeida', shortName: 'Adriano', roleTitle: 'Coordenador Comercial', description: 'Carteira de Clientes Principal' },
+  { id: 'dionatan', name: 'Dionatan', shortName: 'Dionatan', roleTitle: 'Coordenador Comercial', description: 'Carteira Regional Dionatan' },
+  { id: 'juan', name: 'Juan Almeida', shortName: 'Juan', roleTitle: 'Coordenador Comercial', description: 'Carteira Regional Juan' },
+  { id: 'julio', name: 'Julio Warken', shortName: 'Julio', roleTitle: 'Coordenador Comercial', description: 'Carteira Regional Julio' }
 ];
 
 export const SellOutTab: React.FC<SellOutTabProps> = ({
@@ -89,6 +94,9 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
     }
     return 'Adriano Almeida';
   });
+
+  // Modal for Master Manager to pick coordinator
+  const [isCoordinatorModalOpen, setIsCoordinatorModalOpen] = useState<boolean>(false);
 
   // Password modal input
   const [passwordInput, setPasswordInput] = useState('');
@@ -140,6 +148,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
       setAuthenticatedCoordinator('Adriano Almeida');
       setIsMasterUser(false);
       setActiveViewingCoordinator('Adriano Almeida');
+      setIsCoordinatorModalOpen(false);
       localStorage.setItem('tramontina_sell_out_auth_coord', 'Adriano Almeida');
       localStorage.setItem('tramontina_sell_out_is_master', 'false');
       localStorage.setItem('tramontina_sell_out_view_coord', 'Adriano Almeida');
@@ -148,17 +157,15 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
       sessionStorage.setItem('tramontina_sell_out_view_coord', 'Adriano Almeida');
       setPasswordError(null);
       setPasswordInput('');
-    } else if (cleanPwd === '8787' || cleanPwd === '1234') {
-      // Master Manager access
-      setAuthenticatedCoordinator('Gerente Geral (Master)');
+    } else if (cleanPwd === '1111' || cleanPwd === '8787') {
+      // Master Manager access - Igor Pedruzzi
+      setAuthenticatedCoordinator('Igor Pedruzzi');
       setIsMasterUser(true);
-      setActiveViewingCoordinator('Adriano Almeida');
-      localStorage.setItem('tramontina_sell_out_auth_coord', 'Gerente Geral (Master)');
+      setIsCoordinatorModalOpen(true);
+      localStorage.setItem('tramontina_sell_out_auth_coord', 'Igor Pedruzzi');
       localStorage.setItem('tramontina_sell_out_is_master', 'true');
-      localStorage.setItem('tramontina_sell_out_view_coord', 'Adriano Almeida');
-      sessionStorage.setItem('tramontina_sell_out_auth_coord', 'Gerente Geral (Master)');
+      sessionStorage.setItem('tramontina_sell_out_auth_coord', 'Igor Pedruzzi');
       sessionStorage.setItem('tramontina_sell_out_is_master', 'true');
-      sessionStorage.setItem('tramontina_sell_out_view_coord', 'Adriano Almeida');
       setPasswordError(null);
       setPasswordInput('');
     } else {
@@ -169,6 +176,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
   const handleLogout = () => {
     setAuthenticatedCoordinator(null);
     setIsMasterUser(false);
+    setIsCoordinatorModalOpen(false);
     localStorage.removeItem('tramontina_sell_out_auth_coord');
     localStorage.removeItem('tramontina_sell_out_is_master');
     localStorage.removeItem('tramontina_sell_out_view_coord');
@@ -179,10 +187,12 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
 
   const handleSelectCoordinator = (coordName: string) => {
     setActiveViewingCoordinator(coordName);
+    localStorage.setItem('tramontina_sell_out_view_coord', coordName);
     sessionStorage.setItem('tramontina_sell_out_view_coord', coordName);
     setSelectedClient(null);
     setSearchQuery('');
     setExpandedClients({});
+    setIsCoordinatorModalOpen(false);
   };
 
   // Sync with global search if passed
@@ -778,29 +788,51 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
 
         {/* Master Manager Switcher: allows selecting which coordinator's sell out to view */}
         {isMasterUser && (
-          <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2 bg-slate-50/70 p-3 rounded-xl">
-            <div className="flex items-center gap-1.5 text-xs font-black text-[#001A9C]">
-              <ShieldCheck className="w-4 h-4" />
-              <span>Painel Gerencial (Master) - Selecionar Coordenador:</span>
+          <div className="pt-3 border-t border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-gradient-to-r from-blue-50/80 via-slate-50 to-slate-50 p-3.5 rounded-2xl border border-blue-100/80 shadow-3xs">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-[#001A9C] text-white flex items-center justify-center shadow-xs">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-black text-[#001A9C]">Gerente: Igor Pedruzzi</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-[#001A9C]/10 text-[#001A9C]">Master</span>
+                </div>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  Visualizando carteira de: <strong className="text-slate-800 font-bold">{activeViewingCoordinator}</strong>
+                </p>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-1.5 ml-auto">
-              {COORDINATOR_LIST.map(coord => {
-                const isActive = activeViewingCoordinator.toLowerCase() === coord.name.toLowerCase();
-                return (
-                  <button
-                    key={coord.id}
-                    onClick={() => handleSelectCoordinator(coord.name)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                      isActive 
-                        ? 'bg-[#001A9C] text-white shadow-xs' 
-                        : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    <span>{coord.name}</span>
-                    {isActive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
-                  </button>
-                );
-              })}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {COORDINATOR_LIST.map(coord => {
+                  const isActive = activeViewingCoordinator.toLowerCase() === coord.name.toLowerCase();
+                  return (
+                    <button
+                      key={coord.id}
+                      onClick={() => handleSelectCoordinator(coord.name)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        isActive 
+                          ? 'bg-[#001A9C] text-white shadow-xs' 
+                          : 'bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900 border border-slate-200/90'
+                      }`}
+                    >
+                      <span>{coord.name}</span>
+                      {isActive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => setIsCoordinatorModalOpen(true)}
+                className="px-3 py-1.5 bg-white hover:bg-blue-50 text-[#001A9C] hover:text-[#00147a] border border-blue-200 rounded-xl text-xs font-bold transition-all shadow-3xs flex items-center gap-1.5 cursor-pointer ml-1"
+                title="Abrir modal de seleção de coordenador"
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Trocar</span>
+              </button>
             </div>
           </div>
         )}
@@ -1640,6 +1672,132 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
                     </button>
                   </div>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 8. MASTER COORDINATOR SELECTION MODAL */}
+      <AnimatePresence>
+        {isMasterUser && isCoordinatorModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 sm:p-7 space-y-6 overflow-hidden relative"
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-[#001A9C]/10 border border-[#001A9C]/20 flex items-center justify-center text-[#001A9C] shadow-inner">
+                    <ShieldCheck className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-[#001A9C] text-white">
+                        Painel Master
+                      </span>
+                      <span className="text-xs font-bold text-slate-500">
+                        Gerente: Igor Pedruzzi
+                      </span>
+                    </div>
+                    <h3 className="text-xl font-black text-slate-900 tracking-tight mt-0.5">
+                      Selecione o Coordenador
+                    </h3>
+                  </div>
+                </div>
+
+                {activeViewingCoordinator && (
+                  <button
+                    onClick={() => setIsCoordinatorModalOpen(false)}
+                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+                    title="Fechar"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                Escolha a carteira de Sell Out de qual coordenador comercial você deseja visualizar e acompanhar:
+              </p>
+
+              {/* Coordinator Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {COORDINATOR_LIST.map(coord => {
+                  const isActive = activeViewingCoordinator.toLowerCase() === coord.name.toLowerCase();
+                  const initials = coord.name
+                    .split(' ')
+                    .map(n => n[0])
+                    .join('')
+                    .toUpperCase();
+
+                  return (
+                    <button
+                      key={coord.id}
+                      onClick={() => handleSelectCoordinator(coord.name)}
+                      className={`group p-4.5 rounded-2xl border text-left transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between space-y-3 ${
+                        isActive
+                          ? 'border-[#001A9C] bg-gradient-to-br from-blue-50/90 to-blue-50/40 ring-2 ring-[#001A9C]/20 shadow-md shadow-blue-500/5'
+                          : 'border-slate-200/90 bg-white hover:border-blue-300 hover:bg-slate-50/80 shadow-xs'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs transition-all ${
+                            isActive
+                              ? 'bg-[#001A9C] text-white shadow-xs'
+                              : 'bg-slate-100 text-slate-700 group-hover:bg-[#001A9C]/10 group-hover:text-[#001A9C]'
+                          }`}>
+                            {initials}
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-black text-slate-900 group-hover:text-[#001A9C] transition-colors">
+                              {coord.name}
+                            </h4>
+                            <span className="text-[11px] font-semibold text-slate-500 block">
+                              {coord.roleTitle}
+                            </span>
+                          </div>
+                        </div>
+
+                        {isActive ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Ativo
+                          </span>
+                        ) : (
+                          <div className="w-6 h-6 rounded-full bg-slate-100 group-hover:bg-blue-100 flex items-center justify-center text-slate-400 group-hover:text-[#001A9C] transition-all">
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-100/80 text-[11px]">
+                        <span className="text-slate-400 font-medium">{coord.description}</span>
+                        <span className={`font-bold transition-colors ${isActive ? 'text-[#001A9C]' : 'text-slate-500 group-hover:text-[#001A9C]'}`}>
+                          {isActive ? 'Visualizando agora' : 'Acessar carteira →'}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500">
+                <div className="flex items-center gap-2">
+                  <UserCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Você pode trocar de coordenador a qualquer momento na barra superior.</span>
+                </div>
+                {activeViewingCoordinator && (
+                  <button
+                    onClick={() => setIsCoordinatorModalOpen(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                  >
+                    Continuar com {activeViewingCoordinator.split(' ')[0]}
+                  </button>
+                )}
               </div>
             </motion.div>
           </div>
