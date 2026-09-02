@@ -5,6 +5,7 @@ import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import { INITIAL_RAW_DATA, parseTSV } from "./src/rawData";
 import { SalesRecord } from "./src/types";
+import { INITIAL_SELL_OUT_CSV, parseSellOutCSV, SellOutRecord } from "./src/data/sellOutData";
 
 interface MonthData {
   id: string; // e.g. "2026-06"
@@ -23,10 +24,16 @@ export interface DailySalesData {
   records: SalesRecord[];
 }
 
+export interface SellOutDbData {
+  updatedAt: string;
+  coordinators: Record<string, SellOutRecord[]>;
+}
+
 const app = express();
 const PORT = 3000;
 const DB_FILE = path.join(process.cwd(), "monthly_sales_db.json");
 const DAILY_DB_FILE = path.join(process.cwd(), "daily_sales_db.json");
+const SELL_OUT_DB_FILE = path.join(process.cwd(), "sell_out_db.json");
 
 // Middleware
 app.use(express.json({ limit: "50mb" }));
@@ -271,6 +278,150 @@ app.delete("/api/daily-sales/:year/:month/:day", (req, res) => {
   } else {
     res.status(404).json({ error: "Registro diário não encontrado." });
   }
+});
+
+// ==================== SELL OUT PERSISTENT DATABASE ====================
+function normalizeCoordKey(name: string): string {
+  const norm = (name || '').trim().toLowerCase();
+  if (norm.includes('adriano')) return 'Adriano Almeida';
+  if (norm.includes('dionatan')) return 'Dionatan';
+  if (norm.includes('juan')) return 'Juan Almeida';
+  if (norm.includes('julio')) return 'Julio Warken';
+  return (name || 'Adriano Almeida').trim();
+}
+
+function loadSellOutDatabase(): SellOutDbData {
+  try {
+    if (fs.existsSync(SELL_OUT_DB_FILE)) {
+      const content = fs.readFileSync(SELL_OUT_DB_FILE, "utf-8");
+      const parsed = JSON.parse(content);
+      if (parsed && parsed.coordinators && typeof parsed.coordinators === 'object') {
+        return parsed;
+      }
+    }
+  } catch (error) {
+    console.error("Error loading Sell Out JSON database:", error);
+  }
+
+  // Pre-seed full authentic dataset for Adriano Almeida (15 clients in 2025 and 2026)
+  const initialRecords = parseSellOutCSV(INITIAL_SELL_OUT_CSV).map(r => ({
+    ...r,
+    coordenador: r.coordenador || "Adriano Almeida"
+  }));
+
+  const db: SellOutDbData = {
+    updatedAt: new Date().toISOString(),
+    coordinators: {
+      "Adriano Almeida": initialRecords
+    }
+  };
+  saveSellOutDatabase(db);
+  return db;
+}
+
+function saveSellOutDatabase(db: SellOutDbData): void {
+  try {
+    fs.writeFileSync(SELL_OUT_DB_FILE, JSON.stringify(db, null, 2), "utf-8");
+  } catch (error) {
+    console.error("Error saving Sell Out JSON database:", error);
+  }
+}
+
+// 1. Get Sell Out records (by coordinator or all)
+app.get("/api/sell-out", (req, res) => {
+  const db = loadSellOutDatabase();
+  const coordParam = req.query.coordinator as string | undefined;
+
+  if (coordParam) {
+    const targetKey = normalizeCoordKey(coordParam);
+    let records = db.coordinators[targetKey];
+    if (!records && targetKey === 'Adriano Almeida') {
+      records = parseSellOutCSV(INITIAL_SELL_OUT_CSV).map(r => ({
+        ...r,
+        coordenador: 'Adriano Almeida'
+      }));
+      db.coordinators['Adriano Almeida'] = records;
+      saveSellOutDatabase(db);
+    }
+    return res.json({
+      coordinator: targetKey,
+      updatedAt: db.updatedAt,
+      records: records || []
+    });
+  }
+
+  // Return all coordinators with their record counts and data
+  res.json({
+    updatedAt: db.updatedAt,
+    coordinators: db.coordinators
+  });
+});
+
+// 2. Get Sell Out records for a specific coordinator
+app.get("/api/sell-out/:coordinator", (req, res) => {
+  const db = loadSellOutDatabase();
+  const targetKey = normalizeCoordKey(req.params.coordinator);
+  let records = db.coordinators[targetKey];
+
+  if (!records && targetKey === 'Adriano Almeida') {
+    records = parseSellOutCSV(INITIAL_SELL_OUT_CSV).map(r => ({
+      ...r,
+      coordenador: 'Adriano Almeida'
+    }));
+    db.coordinators['Adriano Almeida'] = records;
+    saveSellOutDatabase(db);
+  }
+
+  res.json({
+    coordinator: targetKey,
+    updatedAt: db.updatedAt,
+    records: records || []
+  });
+});
+
+// 3. Post/update Sell Out records (shared publicly across all clients)
+app.post("/api/sell-out", (req, res) => {
+  const { coordinator, records } = req.body;
+
+  if (!records || !Array.isArray(records)) {
+    return res.status(400).json({ error: "Array de registros 'records' é obrigatório." });
+  }
+
+  const targetKey = normalizeCoordKey(coordinator || 'Adriano Almeida');
+  const db = loadSellOutDatabase();
+
+  db.coordinators[targetKey] = records;
+  db.updatedAt = new Date().toISOString();
+
+  saveSellOutDatabase(db);
+  res.json({
+    success: true,
+    coordinator: targetKey,
+    recordsCount: records.length,
+    updatedAt: db.updatedAt
+  });
+});
+
+// 4. Reset Sell Out database to default full dataset
+app.post("/api/sell-out/reset", (req, res) => {
+  const initialRecords = parseSellOutCSV(INITIAL_SELL_OUT_CSV).map(r => ({
+    ...r,
+    coordenador: r.coordenador || "Adriano Almeida"
+  }));
+
+  const db: SellOutDbData = {
+    updatedAt: new Date().toISOString(),
+    coordinators: {
+      "Adriano Almeida": initialRecords
+    }
+  };
+
+  saveSellOutDatabase(db);
+  res.json({
+    success: true,
+    message: "Banco de Sell Out redefinido para a base completa oficial.",
+    recordsCount: initialRecords.length
+  });
 });
 
 // 6. AI Insights Generator powered by Gemini (with Full System Sales DB Access & Local Analytical Fallback)

@@ -537,6 +537,82 @@ export function saveStoredSellOutRecords(records: SellOutRecord[], coordinatorNa
   } catch (e) {
     console.error('Error saving sell out records to localStorage', e);
   }
+
+  // Also asynchronously sync with central server database
+  try {
+    fetch('/api/sell-out', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ coordinator: coordinatorName, records })
+    }).catch(err => console.warn('Background server sell out sync warning:', err));
+  } catch (e) {
+    // Ignore offline error
+  }
+}
+
+/**
+ * Asynchronously fetch Sell Out records from the public server database,
+ * updating local storage cache as well.
+ */
+export async function fetchServerSellOutRecords(coordinatorName: string = 'Adriano Almeida'): Promise<SellOutRecord[]> {
+  try {
+    const encoded = encodeURIComponent(coordinatorName.trim());
+    const response = await fetch(`/api/sell-out/${encoded}`);
+    if (response.ok) {
+      const data = await response.json();
+      if (data && Array.isArray(data.records) && data.records.length > 0) {
+        // Cache to localStorage
+        const targetKey = getCoordinatorStorageKey(coordinatorName);
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(targetKey, JSON.stringify(data.records));
+          } catch (e) {}
+        }
+        return data.records;
+      }
+    }
+  } catch (err) {
+    console.warn('Error fetching sell out records from server, falling back to local storage:', err);
+  }
+
+  // Fallback to local storage or initial CSV
+  return getStoredSellOutRecords(coordinatorName);
+}
+
+/**
+ * Save records to central server database and local storage.
+ */
+export async function saveServerSellOutRecords(records: SellOutRecord[], coordinatorName: string = 'Adriano Almeida'): Promise<boolean> {
+  saveStoredSellOutRecords(records, coordinatorName);
+  try {
+    const response = await fetch('/api/sell-out', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ coordinator: coordinatorName, records })
+    });
+    return response.ok;
+  } catch (err) {
+    console.warn('Error saving sell out to server:', err);
+    return false;
+  }
+}
+
+/**
+ * Reset server Sell Out records to default base.
+ */
+export async function resetServerSellOutRecords(): Promise<SellOutRecord[]> {
+  const initial = parseSellOutCSV(INITIAL_SELL_OUT_CSV);
+  try {
+    await fetch('/api/sell-out/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+  } catch (err) {
+    console.warn('Error resetting server sell out database:', err);
+  }
+  saveStoredSellOutRecords(initial, 'Adriano Almeida');
+  return initial;
 }
 
 /**

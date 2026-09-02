@@ -35,6 +35,9 @@ import {
   MONTH_NAMES_PT,
   getStoredSellOutRecords,
   saveStoredSellOutRecords,
+  fetchServerSellOutRecords,
+  saveServerSellOutRecords,
+  resetServerSellOutRecords,
   exportSellOutRecordsToRawCSV,
   parseSellOutCSV,
   parseSellOutExcel,
@@ -106,11 +109,30 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
   const [records, setRecords] = useState<SellOutRecord[]>(() => 
     getStoredSellOutRecords(activeViewingCoordinator)
   );
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+
+  // Sync data with centralized server database
+  const syncSellOutData = async (coordName: string = activeViewingCoordinator) => {
+    setIsSyncing(true);
+    try {
+      const serverRecords = await fetchServerSellOutRecords(coordName);
+      if (serverRecords && Array.isArray(serverRecords) && serverRecords.length > 0) {
+        setRecords(serverRecords);
+        setLastSyncedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+      }
+    } catch (err) {
+      console.warn('Failed to sync sell out data from server:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Reload records whenever activeViewingCoordinator changes
   useEffect(() => {
     const loaded = getStoredSellOutRecords(activeViewingCoordinator);
     setRecords(loaded);
+    syncSellOutData(activeViewingCoordinator);
   }, [activeViewingCoordinator]);
 
   // Multi-month selection state for Period accumulation
@@ -141,22 +163,24 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
   const [importFeedback, setImportFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Handle password submission
-  const handleAuthenticate = (e: React.FormEvent) => {
+  const handleAuthenticate = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPwd = passwordInput.trim();
     if (cleanPwd === '0206') {
-      setAuthenticatedCoordinator('Adriano Almeida');
+      const coord = 'Adriano Almeida';
+      setAuthenticatedCoordinator(coord);
       setIsMasterUser(false);
-      setActiveViewingCoordinator('Adriano Almeida');
+      setActiveViewingCoordinator(coord);
       setIsCoordinatorModalOpen(false);
-      localStorage.setItem('tramontina_sell_out_auth_coord', 'Adriano Almeida');
+      localStorage.setItem('tramontina_sell_out_auth_coord', coord);
       localStorage.setItem('tramontina_sell_out_is_master', 'false');
-      localStorage.setItem('tramontina_sell_out_view_coord', 'Adriano Almeida');
-      sessionStorage.setItem('tramontina_sell_out_auth_coord', 'Adriano Almeida');
+      localStorage.setItem('tramontina_sell_out_view_coord', coord);
+      sessionStorage.setItem('tramontina_sell_out_auth_coord', coord);
       sessionStorage.setItem('tramontina_sell_out_is_master', 'false');
-      sessionStorage.setItem('tramontina_sell_out_view_coord', 'Adriano Almeida');
+      sessionStorage.setItem('tramontina_sell_out_view_coord', coord);
       setPasswordError(null);
       setPasswordInput('');
+      await syncSellOutData(coord);
     } else if (cleanPwd === '1111' || cleanPwd === '8787') {
       // Master Manager access - Igor Pedruzzi
       setAuthenticatedCoordinator('Igor Pedruzzi');
@@ -168,6 +192,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
       sessionStorage.setItem('tramontina_sell_out_is_master', 'true');
       setPasswordError(null);
       setPasswordInput('');
+      await syncSellOutData(activeViewingCoordinator);
     } else {
       setPasswordError('Senha incorreta.');
     }
@@ -552,7 +577,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
   };
 
   // Handle Import
-  const handleProcessImport = () => {
+  const handleProcessImport = async () => {
     if (!importText.trim()) {
       setImportFeedback({ type: 'error', message: 'Cole os dados da planilha antes de processar.' });
       return;
@@ -572,10 +597,10 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
       }));
 
       setRecords(recordsWithCoord);
-      saveStoredSellOutRecords(recordsWithCoord, activeViewingCoordinator);
+      await saveServerSellOutRecords(recordsWithCoord, activeViewingCoordinator);
       setImportFeedback({ 
         type: 'success', 
-        message: `Sucesso! ${recordsWithCoord.length} linhas de Sell Out importadas e salvas na memória de ${activeViewingCoordinator}!` 
+        message: `Sucesso! ${recordsWithCoord.length} linhas salvas na memória pública centralizada para ${activeViewingCoordinator}!` 
       });
       setTimeout(() => {
         setIsImportModalOpen(false);
@@ -602,10 +627,10 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
           coordenador: r.coordenador || activeViewingCoordinator
         }));
         setRecords(recordsWithCoord);
-        saveStoredSellOutRecords(recordsWithCoord, activeViewingCoordinator);
+        await saveServerSellOutRecords(recordsWithCoord, activeViewingCoordinator);
         setImportFeedback({ 
           type: 'success', 
-          message: `Arquivo ${file.name} processado! ${recordsWithCoord.length} linhas salvas para ${activeViewingCoordinator}.` 
+          message: `Arquivo ${file.name} processado! ${recordsWithCoord.length} linhas salvas na memória pública para ${activeViewingCoordinator}.` 
         });
         setTimeout(() => {
           setIsImportModalOpen(false);
@@ -629,11 +654,10 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
   };
 
   // Reset to initial data
-  const handleResetToDefault = () => {
-    const def = parseSellOutCSV(INITIAL_SELL_OUT_CSV);
+  const handleResetToDefault = async () => {
+    const def = await resetServerSellOutRecords();
     setRecords(def);
-    saveStoredSellOutRecords(def, activeViewingCoordinator);
-    setImportFeedback({ type: 'success', message: 'Clientes padrão restaurados com sucesso!' });
+    setImportFeedback({ type: 'success', message: 'Base oficial de Sell Out (15 clientes) restaurada com sucesso!' });
     setTimeout(() => {
       setIsImportModalOpen(false);
       setImportFeedback(null);
@@ -750,15 +774,29 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
                     <UserCheck className="w-3 h-3" />
                     <span>{activeViewingCoordinator}</span>
                   </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>Memória Pública Ativa ({uniqueClients.length} clientes)</span>
+                  </span>
                 </div>
                 <p className="text-xs text-slate-500 font-medium">
-                  Acompanhamento de Sell Out YoY (2025 vs 2026), crescimento nominal e desempenho por linha de produtos
+                  Acompanhamento de Sell Out YoY (2025 vs 2026) sincronizado em tempo real para todos os computadores
                 </p>
               </div>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => syncSellOutData(activeViewingCoordinator)}
+              disabled={isSyncing}
+              className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all shadow-3xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              title="Sincronizar e carregar dados mais recentes do servidor central"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+            </button>
+
             <button
               onClick={handleExportCSV}
               className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl text-xs font-bold transition-all shadow-3xs flex items-center gap-2 cursor-pointer"
