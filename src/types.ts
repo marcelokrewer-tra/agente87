@@ -9,16 +9,17 @@ export function getMappedGroupName(groupName: string | undefined): string {
   const name = (groupName || '').trim();
   const nameLower = name.toLowerCase();
   
-  if (nameLower === "cut geral monet.") {
-    return "Tramontina Cutelaria";
+  if (nameLower.includes('cutelaria') || nameLower.includes('cut geral') || nameLower.includes('cut.')) {
+    return 'Tramontina Cutelaria';
   }
-  if (nameLower === "garibaldi master mon") {
-    return "Tramontina Master";
+  if (nameLower.includes('pro')) {
+    return 'Tramontina Pro';
   }
-  if (nameLower === "garibaldi pro monet" || nameLower.includes("pro")) {
-    return "Tramontina Pro";
+  if (nameLower.includes('master') || (nameLower.includes('garibaldi') && !nameLower.includes('pro'))) {
+    return 'Tramontina Master';
   }
-  return "Tramontina Multi";
+  // All "SEM GRUPO", "Sem Grupo", "multi", "tramontina multi", undefined or unmapped entries belong to Tramontina Multi
+  return 'Tramontina Multi';
 }
 
 export interface SalesRecord {

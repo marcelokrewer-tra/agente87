@@ -1,16 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { SalesRecord } from '../types';
+import { SalesRecord, getMappedGroupName } from '../types';
 import { getFirebaseConfig, fetchDailySalesIndexFromFirestore, fetchDailySalesDataFromFirestore } from '../lib/firebase';
 import { getLocalDailySalesIndex, getLocalDailySalesData, DailySnapshotInfo } from '../lib/storage';
 import {
   Search,
   TrendingUp,
-  ArrowDownUp,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   Download,
   Printer,
-  ChevronDown,
-  ChevronUp,
-  Layers,
   CheckCircle2,
   AlertCircle
 } from 'lucide-react';
@@ -80,17 +79,7 @@ const MONTHS_LIST = [
 
 const YEARS_LIST = [2025, 2026];
 
-function getMappedGroupName(groupName: string | undefined): string {
-  const name = (groupName || '').trim();
-  const nameLower = name.toLowerCase();
-  if (nameLower.includes('cutelaria')) return 'Tramontina Cutelaria';
-  if (nameLower.includes('master') || nameLower.includes('garibaldi')) {
-    if (nameLower.includes('pro')) return 'Tramontina Pro';
-    return 'Tramontina Master';
-  }
-  if (nameLower.includes('multi')) return 'Tramontina Multi';
-  return name || 'Outros';
-}
+type DailySortField = 'periodVendas' | 'endVendas' | 'startVendas' | 'repName' | 'coordName' | 'quotaTotal' | 'pctTotalEnd';
 
 export const DailySalesTab: React.FC<DailySalesTabProps> = ({
   selectedCoordinator,
@@ -139,9 +128,8 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
   // Table local search, filters and sort
   const [tableSearch, setTableSearch] = useState<string>('');
   const [tableFilterOnlyWithSales, setTableFilterOnlyWithSales] = useState<boolean>(false);
-  const [sortField, setSortField] = useState<'periodSales' | 'endSales' | 'startSales' | 'repName' | 'quota' | 'pctTotal'>('periodSales');
+  const [sortField, setSortField] = useState<DailySortField>('periodVendas');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  const [expandedRepId, setExpandedRepId] = useState<number | null>(null);
 
   // Load available daily snapshots index
   const loadSnapshotsIndex = async () => {
@@ -611,6 +599,24 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
     return comparisonData.filter(c => c.periodVendas > 0).length;
   }, [comparisonData]);
 
+  const handleSort = (field: DailySortField) => {
+    if (sortField === field) {
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection(field === 'repName' || field === 'coordName' ? 'asc' : 'desc');
+    }
+  };
+
+  const renderSortIcon = (field: DailySortField) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500 transition-colors" />;
+    }
+    return sortDirection === 'asc' 
+      ? <ArrowUp className="w-3.5 h-3.5 text-[#001A9C]" />
+      : <ArrowDown className="w-3.5 h-3.5 text-[#001A9C]" />;
+  };
+
   // Filtered and Sorted Table records
   const sortedTableData = useMemo(() => {
     return comparisonData
@@ -626,11 +632,18 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
         return true;
       })
       .sort((a, b) => {
-        let valA: any = a[sortField];
-        let valB: any = b[sortField];
         if (sortField === 'repName') {
-          return sortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+          return sortDirection === 'asc' 
+            ? a.repName.localeCompare(b.repName, 'pt-BR') 
+            : b.repName.localeCompare(a.repName, 'pt-BR');
         }
+        if (sortField === 'coordName') {
+          return sortDirection === 'asc' 
+            ? a.coordName.localeCompare(b.coordName, 'pt-BR') 
+            : b.coordName.localeCompare(a.coordName, 'pt-BR');
+        }
+        const valA = Number(a[sortField]) || 0;
+        const valB = Number(b[sortField]) || 0;
         return sortDirection === 'asc' ? valA - valB : valB - valA;
       });
   }, [comparisonData, tableSearch, tableFilterOnlyWithSales, sortField, sortDirection]);
@@ -886,195 +899,140 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
               <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
                 <th className="py-3 px-4 w-12 text-center">#</th>
                 <th
-                  onClick={() => {
-                    if (sortField === 'repName') setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                    else { setSortField('repName'); setSortDirection('asc'); }
-                  }}
-                  className="py-3 px-4 cursor-pointer hover:text-slate-900 transition-colors"
+                  onClick={() => handleSort('repName')}
+                  className="py-3 px-4 cursor-pointer hover:text-slate-900 transition-colors group select-none"
                 >
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     <span>Representante</span>
-                    <ArrowDownUp className="w-3 h-3" />
+                    {renderSortIcon('repName')}
                   </div>
                 </th>
-                <th className="py-3 px-4">Coordenador</th>
                 <th
-                  onClick={() => {
-                    if (sortField === 'startSales') setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                    else { setSortField('startSales'); setSortDirection('desc'); }
-                  }}
-                  className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors"
+                  onClick={() => handleSort('coordName')}
+                  className="py-3 px-4 cursor-pointer hover:text-slate-900 transition-colors group select-none"
                 >
-                  <div className="flex items-center justify-end gap-1">
+                  <div className="flex items-center gap-1.5">
+                    <span>Coordenador</span>
+                    {renderSortIcon('coordName')}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('startVendas')}
+                  className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors group select-none"
+                >
+                  <div className="flex items-center justify-end gap-1.5">
                     <span>Venda Dia {startDay === 0 ? '0' : String(startDay).padStart(2, '0')}</span>
-                    <ArrowDownUp className="w-3 h-3" />
+                    {renderSortIcon('startVendas')}
                   </div>
                 </th>
                 <th
-                  onClick={() => {
-                    if (sortField === 'endSales') setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                    else { setSortField('endSales'); setSortDirection('desc'); }
-                  }}
-                  className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors"
+                  onClick={() => handleSort('endVendas')}
+                  className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors group select-none"
                 >
-                  <div className="flex items-center justify-end gap-1">
+                  <div className="flex items-center justify-end gap-1.5">
                     <span>Venda Dia {String(endDay).padStart(2, '0')}</span>
-                    <ArrowDownUp className="w-3 h-3" />
+                    {renderSortIcon('endVendas')}
                   </div>
                 </th>
                 <th
-                  onClick={() => {
-                    if (sortField === 'periodSales') setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                    else { setSortField('periodSales'); setSortDirection('desc'); }
-                  }}
-                  className="py-3 px-4 text-right cursor-pointer hover:text-emerald-900 transition-colors bg-emerald-50/50"
+                  onClick={() => handleSort('periodVendas')}
+                  className="py-3 px-4 text-right cursor-pointer hover:text-emerald-900 transition-colors bg-emerald-50/60 group select-none"
                 >
-                  <div className="flex items-center justify-end gap-1 text-emerald-800 font-black">
+                  <div className="flex items-center justify-end gap-1.5 text-emerald-800 font-black">
                     <span>Venda no Período (Δ)</span>
-                    <ArrowDownUp className="w-3 h-3" />
+                    {renderSortIcon('periodVendas')}
                   </div>
                 </th>
                 <th
-                  onClick={() => {
-                    if (sortField === 'quota') setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                    else { setSortField('quota'); setSortDirection('desc'); }
-                  }}
-                  className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors"
+                  onClick={() => handleSort('quotaTotal')}
+                  className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors group select-none"
                 >
-                  <div className="flex items-center justify-end gap-1">
+                  <div className="flex items-center justify-end gap-1.5">
                     <span>Quota Mês</span>
-                    <ArrowDownUp className="w-3 h-3" />
+                    {renderSortIcon('quotaTotal')}
                   </div>
                 </th>
                 <th
-                  onClick={() => {
-                    if (sortField === 'pctTotal') setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                    else { setSortField('pctTotal'); setSortDirection('desc'); }
-                  }}
-                  className="py-3 px-4 text-center cursor-pointer hover:text-slate-900 transition-colors"
+                  onClick={() => handleSort('pctTotalEnd')}
+                  className="py-3 px-4 text-center cursor-pointer hover:text-slate-900 transition-colors group select-none"
                 >
-                  <div className="flex items-center justify-center gap-1">
+                  <div className="flex items-center justify-center gap-1.5">
                     <span>% Ating. Dia {String(endDay).padStart(2, '0')}</span>
-                    <ArrowDownUp className="w-3 h-3" />
+                    {renderSortIcon('pctTotalEnd')}
                   </div>
                 </th>
-                <th className="py-3 px-4 text-center w-10">Detalhes</th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-slate-100">
               {sortedTableData.map((rep, idx) => {
-                const isExpanded = expandedRepId === rep.repId;
                 const hasCustomName = Boolean(customRepNames[rep.repId.toString().trim() || rep.repId]);
 
                 return (
-                  <React.Fragment key={rep.repId}>
-                    <tr
-                      onClick={() => setExpandedRepId(isExpanded ? null : rep.repId)}
-                      className={`hover:bg-slate-50/80 transition-colors cursor-pointer ${
-                        rep.periodVendas > 0 ? 'bg-white' : 'bg-slate-50/30 text-slate-400'
-                      }`}
-                    >
-                      <td className="py-3.5 px-4 text-center font-bold text-slate-400">
-                        {idx + 1}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-slate-900">
-                            {rep.repName}
-                          </span>
-                          <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                            #{rep.repId}
-                          </span>
-                          {hasCustomName && (
-                            <span className="text-[9px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">
-                              Cadastrado
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4 font-medium text-slate-600">
-                        {rep.coordName}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-medium text-slate-600">
-                        {formatCurrency(rep.startVendas)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-medium text-slate-800">
-                        {formatCurrency(rep.endVendas)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right bg-emerald-50/40">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {rep.periodVendas > 0 && <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />}
-                          <span className={`font-black ${rep.periodVendas > 0 ? 'text-emerald-700 text-sm' : 'text-slate-400'}`}>
-                            {formatCurrency(rep.periodVendas)}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-medium text-slate-600">
-                        {formatCurrency(rep.quotaTotal)}
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span
-                          className={`inline-block font-black px-2.5 py-1 rounded-full text-[11px] ${
-                            rep.pctTotalEnd >= 100
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : rep.pctTotalEnd >= 75
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-rose-100 text-rose-800'
-                          }`}
-                        >
-                          {rep.pctTotalEnd.toFixed(1)}%
+                  <tr
+                    key={rep.repId}
+                    className={`hover:bg-slate-50/80 transition-colors ${
+                      rep.periodVendas > 0 ? 'bg-white' : 'bg-slate-50/30 text-slate-400'
+                    }`}
+                  >
+                    <td className="py-3.5 px-4 text-center font-bold text-slate-400">
+                      {idx + 1}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-slate-900">
+                          {rep.repName}
                         </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <button className="p-1 text-slate-400 hover:text-slate-700 transition-colors">
-                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                        </button>
-                      </td>
-                    </tr>
-
-                    {/* Expandable Group Breakdown Row */}
-                    {isExpanded && (
-                      <tr className="bg-slate-50/90">
-                        <td colSpan={9} className="p-4 pl-12 border-y border-slate-100">
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                              <span className="flex items-center gap-1.5">
-                                <Layers className="w-3.5 h-3.5 text-sky-600" />
-                                Detalhamento por Grupo de Produtos no Período (Rep: {rep.repName})
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                Faturamento no Período: {formatCurrency(rep.periodFaturado)}
-                              </span>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                              {rep.groupBreakdown.map((g, gIdx) => (
-                                <div key={gIdx} className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-1">
-                                  <span className="text-[10px] font-extrabold text-slate-400 uppercase block truncate">
-                                    {g.groupName}
-                                  </span>
-                                  <div className="text-sm font-black text-slate-900">
-                                    {formatCurrency(g.periodVendas)}
-                                  </div>
-                                  <div className="text-[10px] text-slate-500 flex justify-between">
-                                    <span>Dia {startDay}: {formatCurrency(g.startVendas)}</span>
-                                    <span>Dia {endDay}: {formatCurrency(g.endVendas)}</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
+                        <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                          #{rep.repId}
+                        </span>
+                        {hasCustomName && (
+                          <span className="text-[9px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">
+                            Cadastrado
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-4 font-medium text-slate-600">
+                      {rep.coordName}
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-medium text-slate-600">
+                      {formatCurrency(rep.startVendas)}
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-medium text-slate-800">
+                      {formatCurrency(rep.endVendas)}
+                    </td>
+                    <td className="py-3.5 px-4 text-right bg-emerald-50/40">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {rep.periodVendas > 0 && <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />}
+                        <span className={`font-black ${rep.periodVendas > 0 ? 'text-emerald-700 text-sm' : 'text-slate-400'}`}>
+                          {formatCurrency(rep.periodVendas)}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-medium text-slate-600">
+                      {formatCurrency(rep.quotaTotal)}
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span
+                        className={`inline-block font-black px-2.5 py-1 rounded-full text-[11px] ${
+                          rep.pctTotalEnd >= 100
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : rep.pctTotalEnd >= 75
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {rep.pctTotalEnd.toFixed(1)}%
+                      </span>
+                    </td>
+                  </tr>
                 );
               })}
 
               {sortedTableData.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     <AlertCircle className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                     <p className="font-bold text-sm text-slate-600">Nenhum dado encontrado para os filtros e dias selecionados.</p>
                     <p className="text-xs text-slate-400 mt-1">Verifique se os relatórios dos dias selecionados foram importados para a memória.</p>
