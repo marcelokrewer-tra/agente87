@@ -58,6 +58,7 @@ interface DailySalesTabProps {
   customRepLocations: Record<string, string>;
   userRole: 'admin' | 'rep' | 'coord';
   userRepId: number | null;
+  allRecords?: SalesRecord[];
   onOpenImport?: () => void;
   onPeriodTotalsChange?: (totals: DailyPeriodTotals) => void;
 }
@@ -93,6 +94,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
   customRepLocations,
   userRole,
   userRepId,
+  allRecords,
   onPeriodTotalsChange
 }) => {
   // Current Brasília Time defaults
@@ -240,6 +242,49 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
     loadDailyData();
   }, [selectedYear, selectedMonth, startDay, endDay]);
 
+  // Build mapping from repId -> regional coordinator (consistent with App.tsx)
+  const repToOrigCoord = useMemo(() => {
+    const map: Record<string, string> = {};
+
+    const populateFromRecords = (records: SalesRecord[]) => {
+      records.forEach(r => {
+        if (!r.repId) return;
+        const key = r.repId.toString().trim();
+        const isPro = (r.groupName || '').toLowerCase().includes('pro');
+        const isMarcelo = (r.coordName || '').toLowerCase().includes('marcelo') || (r.coordName || '').toLowerCase().includes('krewer');
+        
+        // Priority: non-Pro and non-Marcelo coordinator
+        if (!isPro && !isMarcelo && r.coordName && r.coordName.trim()) {
+          map[key] = r.coordName.trim();
+        }
+      });
+    };
+
+    if (allRecords && allRecords.length > 0) {
+      populateFromRecords(allRecords);
+    }
+    populateFromRecords(endRecords);
+    populateFromRecords(startRecords);
+
+    // Secondary pass for any reps without a non-pro coordinator
+    const fallbackFromRecords = (records: SalesRecord[]) => {
+      records.forEach(r => {
+        if (!r.repId) return;
+        const key = r.repId.toString().trim();
+        if (!map[key] && r.coordName && r.coordName.trim()) {
+          map[key] = r.coordName.trim();
+        }
+      });
+    };
+    if (allRecords && allRecords.length > 0) {
+      fallbackFromRecords(allRecords);
+    }
+    fallbackFromRecords(endRecords);
+    fallbackFromRecords(startRecords);
+
+    return map;
+  }, [allRecords, startRecords, endRecords]);
+
   // Helper to filter and adapt record according to sidebar filters
   const filterAndAdaptRecords = (rawRecords: SalesRecord[]) => {
     const isOnlyCD = selectedSalesTypes.includes('CD') && !selectedSalesTypes.includes('VP');
@@ -256,6 +301,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
         return;
       }
 
+      const originalCoordName = repToOrigCoord[repIdKey] || r.originalCoordName || r.coordName || 'Sem Coordenador';
       let coordName = r.coordName;
       const isPro = (r.groupName || '').toLowerCase().includes('pro');
       if (isPro) {
@@ -266,15 +312,15 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
 
       const record: SalesRecord = {
         ...r,
+        originalCoordName,
         coordName,
         repName: customName
       };
 
-      // 1. Coordinator filter
+      // 1. Coordinator filter (match regional coordinator, matching main view behavior)
       if (selectedCoordinator !== 'All') {
-        const origCoord = record.originalCoordName || record.coordName || '';
-        const matchCoord = origCoord.toLowerCase().trim() === selectedCoordinator.toLowerCase().trim() ||
-                           origCoord.toLowerCase().trim().includes(selectedCoordinator.toLowerCase().trim().split(' ')[0]);
+        const matchCoord = originalCoordName.toLowerCase().trim() === selectedCoordinator.toLowerCase().trim() ||
+                           originalCoordName.toLowerCase().trim().includes(selectedCoordinator.toLowerCase().trim().split(' ')[0]);
         if (!matchCoord) return;
       }
 
@@ -342,11 +388,11 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
 
   // Filter start and end records
   const filteredStartRecords = useMemo(() => filterAndAdaptRecords(startRecords), [
-    startRecords, selectedCoordinator, selectedProductGroups, selectedSalesTypes, searchText, selectedRepIdFilter, selectedState, customRepNames, customRepLocations, userRole, userRepId
+    startRecords, repToOrigCoord, selectedCoordinator, selectedProductGroups, selectedSalesTypes, searchText, selectedRepIdFilter, selectedState, customRepNames, customRepLocations, userRole, userRepId
   ]);
 
   const filteredEndRecords = useMemo(() => filterAndAdaptRecords(endRecords), [
-    endRecords, selectedCoordinator, selectedProductGroups, selectedSalesTypes, searchText, selectedRepIdFilter, selectedState, customRepNames, customRepLocations, userRole, userRepId
+    endRecords, repToOrigCoord, selectedCoordinator, selectedProductGroups, selectedSalesTypes, searchText, selectedRepIdFilter, selectedState, customRepNames, customRepLocations, userRole, userRepId
   ]);
 
   // Aggregate by representative and compute subtraction: End Day - Start Day
@@ -402,11 +448,14 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
 
     // Process Start Day records
     filteredStartRecords.forEach(r => {
+      const repKey = r.repId.toString().trim();
+      const regionalCoord = r.originalCoordName || repToOrigCoord[repKey] || 'Sem Coordenador';
+
       if (!repMap.has(r.repId)) {
         repMap.set(r.repId, {
           repId: r.repId,
           repName: r.repName,
-          coordName: r.originalCoordName || r.coordName || 'Sem Coordenador',
+          coordName: regionalCoord,
           quotaCD: 0,
           quotaVP: 0,
           quotaTotal: 0,
@@ -445,11 +494,14 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
 
     // Process End Day records
     filteredEndRecords.forEach(r => {
+      const repKey = r.repId.toString().trim();
+      const regionalCoord = r.originalCoordName || repToOrigCoord[repKey] || 'Sem Coordenador';
+
       if (!repMap.has(r.repId)) {
         repMap.set(r.repId, {
           repId: r.repId,
           repName: r.repName,
-          coordName: r.originalCoordName || r.coordName || 'Sem Coordenador',
+          coordName: regionalCoord,
           quotaCD: 0,
           quotaVP: 0,
           quotaTotal: 0,
@@ -484,7 +536,9 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
       }
       
       entry.repName = r.repName || entry.repName;
-      entry.coordName = r.originalCoordName || r.coordName || entry.coordName;
+      if (regionalCoord && regionalCoord !== 'Sem Coordenador') {
+        entry.coordName = regionalCoord;
+      }
 
       const gName = getMappedGroupName(r.groupName);
       if (!entry.groups.has(gName)) {

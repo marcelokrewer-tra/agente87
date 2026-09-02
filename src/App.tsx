@@ -4866,6 +4866,7 @@ export default function App() {
                 customRepLocations={customRepLocations}
                 userRole={userRole}
                 userRepId={userRepId}
+                allRecords={allRecords}
                 onPeriodTotalsChange={setDailyPeriodTotals}
                 onOpenImport={() => {
                   setActiveTab('importar');
