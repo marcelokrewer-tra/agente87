@@ -79,7 +79,7 @@ const MONTHS_LIST = [
 
 const YEARS_LIST = [2025, 2026];
 
-type DailySortField = 'periodVendas' | 'endVendas' | 'startVendas' | 'repName' | 'coordName' | 'quotaTotal' | 'pctTotalEnd';
+type DailySortField = 'repId' | 'periodVendas' | 'endVendas' | 'startVendas' | 'repName' | 'coordName' | 'quotaTotal' | 'pctTotalEnd';
 
 export const DailySalesTab: React.FC<DailySalesTabProps> = ({
   selectedCoordinator,
@@ -248,19 +248,26 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
     const result: SalesRecord[] = [];
 
     rawRecords.forEach(r => {
+      const repIdKey = r.repId.toString().trim();
+      const customName = (customRepNames[repIdKey] || customRepNames[r.repId.toString()] || customRepNames[r.repId])?.trim();
+
+      // Only display representatives who have a registered name in customRepNames
+      if (!customName) {
+        return;
+      }
+
       let coordName = r.coordName;
       const isPro = (r.groupName || '').toLowerCase().includes('pro');
       if (isPro) {
         coordName = "Marcelo Krewer";
       }
 
-      const customName = customRepNames[r.repId.toString().trim() || r.repId];
-      const repState = customRepLocations[r.repId.toString().trim() || r.repId];
+      const repState = customRepLocations[repIdKey || r.repId];
 
       const record: SalesRecord = {
         ...r,
         coordName,
-        repName: customName || r.repName
+        repName: customName
       };
 
       // 1. Coordinator filter
@@ -604,7 +611,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
       setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortField(field);
-      setSortDirection(field === 'repName' || field === 'coordName' ? 'asc' : 'desc');
+      setSortDirection(field === 'repName' || field === 'coordName' || field === 'repId' ? 'asc' : 'desc');
     }
   };
 
@@ -632,6 +639,9 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
         return true;
       })
       .sort((a, b) => {
+        if (sortField === 'repId') {
+          return sortDirection === 'asc' ? a.repId - b.repId : b.repId - a.repId;
+        }
         if (sortField === 'repName') {
           return sortDirection === 'asc' 
             ? a.repName.localeCompare(b.repName, 'pt-BR') 
@@ -897,7 +907,15 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
-                <th className="py-3 px-4 w-12 text-center">#</th>
+                <th
+                  onClick={() => handleSort('repId')}
+                  className="py-3 px-4 w-24 cursor-pointer hover:text-slate-900 transition-colors group select-none"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>REP ID</span>
+                    {renderSortIcon('repId')}
+                  </div>
+                </th>
                 <th
                   onClick={() => handleSort('repName')}
                   className="py-3 px-4 cursor-pointer hover:text-slate-900 transition-colors group select-none"
@@ -965,9 +983,7 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
             </thead>
 
             <tbody className="divide-y divide-slate-100">
-              {sortedTableData.map((rep, idx) => {
-                const hasCustomName = Boolean(customRepNames[rep.repId.toString().trim() || rep.repId]);
-
+              {sortedTableData.map((rep) => {
                 return (
                   <tr
                     key={rep.repId}
@@ -975,23 +991,11 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
                       rep.periodVendas > 0 ? 'bg-white' : 'bg-slate-50/30 text-slate-400'
                     }`}
                   >
-                    <td className="py-3.5 px-4 text-center font-bold text-slate-400">
-                      {idx + 1}
+                    <td className="py-3.5 px-4 font-semibold text-slate-600 font-mono">
+                      #{rep.repId}
                     </td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className="font-extrabold text-slate-900">
-                          {rep.repName}
-                        </span>
-                        <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                          #{rep.repId}
-                        </span>
-                        {hasCustomName && (
-                          <span className="text-[9px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">
-                            Cadastrado
-                          </span>
-                        )}
-                      </div>
+                    <td className="py-3.5 px-4 font-bold text-slate-900">
+                      {rep.repName}
                     </td>
                     <td className="py-3.5 px-4 font-medium text-slate-600">
                       {rep.coordName}
@@ -1034,8 +1038,16 @@ export const DailySalesTab: React.FC<DailySalesTabProps> = ({
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-slate-400">
                     <AlertCircle className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                    <p className="font-bold text-sm text-slate-600">Nenhum dado encontrado para os filtros e dias selecionados.</p>
-                    <p className="text-xs text-slate-400 mt-1">Verifique se os relatórios dos dias selecionados foram importados para a memória.</p>
+                    <p className="font-bold text-sm text-slate-600">
+                      {Object.keys(customRepNames).length === 0
+                        ? "Nenhum representante cadastrado via 'Importar Nomes'."
+                        : "Nenhum representante com nome cadastrado encontrado para os filtros e dias selecionados."}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {Object.keys(customRepNames).length === 0
+                        ? "Cadastre os nomes dos representantes na aba 'Importar Nomes' para visualizá-los."
+                        : "Verifique se os relatórios dos dias selecionados foram importados para a memória."}
+                    </p>
                   </td>
                 </tr>
               )}
