@@ -247,7 +247,7 @@ export default function App() {
       }
       setAuthError('');
     } else {
-      setAuthError('Senha incorreta. Tente novamente.');
+      setAuthError('Senha incorreta.');
     }
   };
 
@@ -548,7 +548,7 @@ export default function App() {
       setCloudPasswordInput('');
       setCloudPasswordError('');
     } else {
-      setCloudPasswordError('Senha incorreta. Tente novamente.');
+      setCloudPasswordError('Senha incorreta.');
     }
   };
 

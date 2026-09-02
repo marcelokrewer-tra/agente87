@@ -162,7 +162,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
       setPasswordError(null);
       setPasswordInput('');
     } else {
-      setPasswordError('Senha incorreta. Digite 0206 para acessar os dados do Adriano ou a senha master de gerente.');
+      setPasswordError('Senha incorreta.');
     }
   };
 
@@ -670,7 +670,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
               Acesso Restrito ao Sell Out
             </h3>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Digite sua senha de coordenador para desbloquear e gerenciar sua carteira de clientes, ou utilize a senha master de gerente.
+              Digite sua senha de acesso para desbloquear o painel de Sell Out.
             </p>
           </div>
 
@@ -714,10 +714,6 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
               <span>Acessar Painel de Sell Out</span>
             </button>
           </form>
-
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-center gap-2 text-[11px] text-slate-400">
-            <span>Senha do Adriano: <strong className="text-slate-600">0206</strong></span>
-          </div>
         </motion.div>
       </div>
     );
