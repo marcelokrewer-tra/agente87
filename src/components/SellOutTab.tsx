@@ -42,7 +42,8 @@ import {
   exportSellOutRecordsToRawCSV,
   parseSellOutCSV,
   parseSellOutExcel,
-  INITIAL_SELL_OUT_CSV
+  INITIAL_SELL_OUT_CSV,
+  isLineMatch
 } from '../data/sellOutData';
 
 interface SellOutTabProps {
@@ -233,21 +234,6 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
     }
   }, [globalSearch]);
 
-  // Synchronize with sidebar product group filter if user changes it
-  useEffect(() => {
-    if (selectedProductGroups && selectedProductGroups.length > 0) {
-      if (selectedProductGroups.includes('All')) {
-        setActiveLineFilter('GERAL');
-      } else if (selectedProductGroups.includes('Tramontina Multi')) {
-        setActiveLineFilter('TRAMONTINA MULTI');
-      } else if (selectedProductGroups.includes('Tramontina Master')) {
-        setActiveLineFilter('TRAMONTINA MASTER');
-      } else if (selectedProductGroups.includes('Tramontina Pro')) {
-        setActiveLineFilter('TRAMONTINA PRO');
-      }
-    }
-  }, [selectedProductGroups]);
-
   // Determine active months list based on multi-month selection
   const activeMonthsList = useMemo(() => {
     if (periodFilterMode === 'ytd') {
@@ -314,22 +300,19 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
 
   // Filter records by active line filter
   const filteredRawRecords = useMemo(() => {
-    return records.filter(r => {
-      if (activeLineFilter !== 'ALL_LINES') {
-        if (r.linha.toUpperCase() !== activeLineFilter.toUpperCase()) {
-          return false;
-        }
-      }
-      return true;
-    });
+    return records.filter(r => isLineMatch(r.linha, activeLineFilter));
   }, [records, activeLineFilter]);
 
-  // Unique clients in filtered raw records
+  // Unique clients in records (all clients available for active coordinator)
   const uniqueClients = useMemo(() => {
     const clients = new Set<string>();
-    filteredRawRecords.forEach(r => clients.add(r.cliente));
+    records.forEach(r => {
+      if (r.cliente && r.cliente.trim()) {
+        clients.add(r.cliente.trim());
+      }
+    });
     return Array.from(clients).sort();
-  }, [filteredRawRecords]);
+  }, [records]);
 
   // Group by client and calculate YoY analysis
   interface ClientSellOutSummary {
@@ -364,38 +347,41 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
   // Calculate totals first for share calculation
   const totalSellOut2026All = useMemo(() => {
     let sum = 0;
-    filteredRawRecords.filter(r => r.ano === 2026).forEach(r => {
-      sum += sumMonths(r, activeMonthsList);
-    });
+    records
+      .filter(r => r.ano === 2026 && isLineMatch(r.linha, activeLineFilter))
+      .forEach(r => {
+        sum += sumMonths(r, activeMonthsList);
+      });
     return sum;
-  }, [filteredRawRecords, activeMonthsList]);
+  }, [records, activeLineFilter, activeMonthsList]);
 
   const clientSummaries = useMemo<ClientSellOutSummary[]>(() => {
     return uniqueClients.map(cliente => {
       const clientRecords = records.filter(r => r.cliente === cliente);
 
-      let rec2025: SellOutRecord | undefined;
-      let rec2026: SellOutRecord | undefined;
+      const matching2025 = clientRecords.filter(r => r.ano === 2025 && isLineMatch(r.linha, activeLineFilter));
+      const matching2026 = clientRecords.filter(r => r.ano === 2026 && isLineMatch(r.linha, activeLineFilter));
 
-      if (activeLineFilter !== 'ALL_LINES') {
-        rec2025 = clientRecords.find(r => r.ano === 2025 && r.linha.toUpperCase() === activeLineFilter.toUpperCase());
-        rec2026 = clientRecords.find(r => r.ano === 2026 && r.linha.toUpperCase() === activeLineFilter.toUpperCase());
-      } else {
-        rec2025 = clientRecords.find(r => r.ano === 2025 && r.linha.toUpperCase() === 'GERAL');
-        rec2026 = clientRecords.find(r => r.ano === 2026 && r.linha.toUpperCase() === 'GERAL');
-      }
+      const rec2025 = matching2025[0];
+      const rec2026 = matching2026[0];
 
       const coord = rec2026?.coordenador || rec2025?.coordenador || activeViewingCoordinator;
 
-      const venda2025 = rec2025 ? sumMonths(rec2025, activeMonthsList) : 0;
-      const venda2026 = rec2026 ? sumMonths(rec2026, activeMonthsList) : 0;
+      const venda2025 = matching2025.reduce((sum, r) => sum + sumMonths(r, activeMonthsList), 0);
+      const venda2026 = matching2026.reduce((sum, r) => sum + sumMonths(r, activeMonthsList), 0);
       const crescimentoNominal = venda2026 - venda2025;
       const crescimentoPct = venda2025 > 0 ? ((venda2026 - venda2025) / venda2025) * 100 : (venda2026 > 0 ? 100 : 0);
       const share2026Pct = totalSellOut2026All > 0 ? (venda2026 / totalSellOut2026All) * 100 : 0;
 
       const monthlyData = MONTH_NAMES_PT.map(m => {
-        const v2025 = rec2025 ? ((rec2025.meses as any)[m.key] || 0) : 0;
-        const v2026 = rec2026 ? ((rec2026.meses as any)[m.key] || 0) : 0;
+        let v2025 = 0;
+        let v2026 = 0;
+        matching2025.forEach(r => {
+          v2025 += ((r.meses as any)[m.key] || 0);
+        });
+        matching2026.forEach(r => {
+          v2026 += ((r.meses as any)[m.key] || 0);
+        });
         const diff = v2026 - v2025;
         const growthPct = v2025 > 0 ? ((v2026 - v2025) / v2025) * 100 : (v2026 > 0 ? 100 : 0);
 
@@ -410,17 +396,22 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
         };
       });
 
-      const distinctLines = ['GERAL', 'TRAMONTINA MULTI', 'TRAMONTINA MASTER', 'TRAMONTINA PRO'];
-      const linesBreakdown = distinctLines.map(linha => {
-        const r2025 = clientRecords.find(r => r.ano === 2025 && r.linha.toUpperCase() === linha.toUpperCase());
-        const r2026 = clientRecords.find(r => r.ano === 2026 && r.linha.toUpperCase() === linha.toUpperCase());
-        const v25 = r2025 ? sumMonths(r2025, activeMonthsList) : 0;
-        const v26 = r2026 ? sumMonths(r2026, activeMonthsList) : 0;
+      const distinctLines = [
+        { id: 'GERAL', label: 'Geral' },
+        { id: 'TRAMONTINA MULTI', label: 'Multi' },
+        { id: 'TRAMONTINA MASTER', label: 'Master' },
+        { id: 'TRAMONTINA PRO', label: 'Pro' }
+      ];
+      const linesBreakdown = distinctLines.map(lineItem => {
+        const r2025List = clientRecords.filter(r => r.ano === 2025 && isLineMatch(r.linha, lineItem.id));
+        const r2026List = clientRecords.filter(r => r.ano === 2026 && isLineMatch(r.linha, lineItem.id));
+        const v25 = r2025List.reduce((acc, r) => acc + sumMonths(r, activeMonthsList), 0);
+        const v26 = r2026List.reduce((acc, r) => acc + sumMonths(r, activeMonthsList), 0);
         const diff = v26 - v25;
         const growthPct = v25 > 0 ? ((v26 - v25) / v25) * 100 : (v26 > 0 ? 100 : 0);
 
         return {
-          linha,
+          linha: lineItem.id,
           venda2025: v25,
           venda2026: v26,
           diff,
@@ -564,14 +555,20 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
     });
   }, [activeClientSummary, processedClients, activeMonthsList]);
 
+  // Timeline containing ONLY the selected active months for the charts
+  const chartTimeline = useMemo(() => {
+    const filtered = monthlyTimeline.filter(m => activeMonthsList.includes(m.key));
+    return filtered.length > 0 ? filtered : monthlyTimeline;
+  }, [monthlyTimeline, activeMonthsList]);
+
   const maxMonthlyVal = useMemo(() => {
     let max = 1;
-    monthlyTimeline.forEach(m => {
+    chartTimeline.forEach(m => {
       if (m.venda2025 > max) max = m.venda2025;
       if (m.venda2026 > max) max = m.venda2026;
     });
     return max;
-  }, [monthlyTimeline]);
+  }, [chartTimeline]);
 
   // Toggle client row expansion
   const toggleClientExpansion = (cliente: string) => {
@@ -1082,349 +1079,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
         )}
       </div>
 
-      {/* 2. GRÁFICO DE LINHAS DO SELL OUT (2025 vs 2026) */}
-      <div className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-[#001A9C]">
-              {chartViewMode === 'line' ? <LineChartIcon className="w-4.5 h-4.5" /> : <BarChart3 className="w-4.5 h-4.5" />}
-            </div>
-            <div>
-              <h3 className="font-black text-slate-900 text-sm">
-                Gráfico de Sell Out: 2025 vs 2026 {displayedKPIs.isSingleClient ? `(${displayedKPIs.clientName} - ${activeLineFilter})` : `(${activeLineFilter})`}
-              </h3>
-              <p className="text-[11.5px] text-slate-500 font-medium">
-                Comparativo mensal de vendas realizadas homologamente
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Legend */}
-            <div className="flex items-center gap-3 text-xs font-bold mr-1">
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-1 bg-slate-400 rounded-full inline-block" />
-                <span className="text-slate-500">2025</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-1 bg-[#001A9C] rounded-full inline-block" />
-                <span className="text-[#001A9C] font-extrabold">2026</span>
-              </div>
-            </div>
-
-            {/* Toggle Linhas / Barras */}
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/80 text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => setChartViewMode('line')}
-                className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-                  chartViewMode === 'line' 
-                    ? 'bg-white text-[#001A9C] shadow-3xs font-black' 
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <LineChartIcon className="w-3.5 h-3.5" />
-                <span>Linhas</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setChartViewMode('bar')}
-                className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-                  chartViewMode === 'bar' 
-                    ? 'bg-white text-[#001A9C] shadow-3xs font-black' 
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <BarChart3 className="w-3.5 h-3.5" />
-                <span>Barras</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Dynamic Chart Display: Line Chart or Bar Chart */}
-        {chartViewMode === 'line' ? (
-          <div className="pt-2">
-            {/* Responsive SVG Line Chart */}
-            <div className="relative w-full overflow-hidden">
-              {(() => {
-                const svgW = 860;
-                const svgH = 230;
-                const padL = 75;
-                const padR = 35;
-                const padT = 25;
-                const padB = 40;
-                const cW = svgW - padL - padR;
-                const cH = svgH - padT - padB;
-
-                const effectiveMax = Math.max(maxMonthlyVal * 1.15, 100);
-
-                const pts2025 = monthlyTimeline.map((m, i) => {
-                  const x = padL + (i / 11) * cW;
-                  const y = padT + cH - (m.venda2025 / effectiveMax) * cH;
-                  return { x, y, m, i };
-                });
-
-                const pts2026 = monthlyTimeline.map((m, i) => {
-                  const x = padL + (i / 11) * cW;
-                  const y = padT + cH - (m.venda2026 / effectiveMax) * cH;
-                  return { x, y, m, i };
-                });
-
-                const poly2025 = pts2025.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-                const poly2026 = pts2026.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-                const area2026 = `${padL},${padT + cH} ` + poly2026 + ` ${padL + cW},${padT + cH}`;
-
-                const gridLevels = [0, 0.33, 0.66, 1.0];
-
-                const hoveredItem = hoveredMonthIndex !== null ? monthlyTimeline[hoveredMonthIndex] : null;
-
-                return (
-                  <div className="space-y-1">
-                    {/* Interactive info banner on hover */}
-                    <div className="h-6 flex items-center justify-between px-2 text-xs font-medium text-slate-500">
-                      {hoveredItem ? (
-                        <div className="flex items-center gap-3 animate-fade-in">
-                          <span className="font-extrabold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">
-                            {hoveredItem.label}
-                          </span>
-                          <span className="text-slate-600 font-semibold">
-                            2025: <strong className="text-slate-800">{formatCurrency(hoveredItem.venda2025)}</strong>
-                          </span>
-                          <span className="text-[#001A9C] font-semibold">
-                            2026: <strong className="text-[#001A9C]">{formatCurrency(hoveredItem.venda2026)}</strong>
-                          </span>
-                          {hoveredItem.venda2025 > 0 && hoveredItem.venda2026 > 0 && (
-                            <span className={`font-black ${hoveredItem.diff >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                              {hoveredItem.diff >= 0 ? '+' : ''}{formatPercent(hoveredItem.growthPct)} ({formatCurrency(hoveredItem.diff)})
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-slate-400">
-                          Passe o cursor sobre os pontos para visualizar valores detalhados mês a mês
-                        </span>
-                      )}
-                      <span className="text-[11px] text-slate-400">
-                        {activeMonthsList.length} meses selecionados
-                      </span>
-                    </div>
-
-                    <svg viewBox={`0 0 ${svgW} ${svgH}`} className="w-full h-auto overflow-visible select-none">
-                      <defs>
-                        <linearGradient id="sellOutAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#001A9C" stopOpacity="0.18" />
-                          <stop offset="100%" stopColor="#001A9C" stopOpacity="0.01" />
-                        </linearGradient>
-                      </defs>
-
-                      {/* Horizontal Grid lines and Y labels */}
-                      {gridLevels.map((lvl, idx) => {
-                        const y = padT + cH - lvl * cH;
-                        const val = lvl * effectiveMax;
-                        return (
-                          <g key={idx}>
-                            <line
-                              x1={padL}
-                              y1={y}
-                              x2={padL + cW}
-                              y2={y}
-                              stroke="#e2e8f0"
-                              strokeDasharray="3 3"
-                              strokeWidth="1"
-                            />
-                            <text
-                              x={padL - 10}
-                              y={y + 3.5}
-                              textAnchor="end"
-                              className="text-[9.5px] fill-slate-400 font-semibold"
-                            >
-                              {formatCurrency(val)}
-                            </text>
-                          </g>
-                        );
-                      })}
-
-                      {/* Hover vertical guide line */}
-                      {hoveredMonthIndex !== null && (
-                        <line
-                          x1={padL + (hoveredMonthIndex / 11) * cW}
-                          y1={padT}
-                          x2={padL + (hoveredMonthIndex / 11) * cW}
-                          y2={padT + cH}
-                          stroke="#cbd5e1"
-                          strokeDasharray="3 3"
-                          strokeWidth="1.5"
-                        />
-                      )}
-
-                      {/* 2026 Gradient Area under curve */}
-                      <polygon points={area2026} fill="url(#sellOutAreaGrad)" />
-
-                      {/* 2025 Line (Dashed Slate) */}
-                      <polyline
-                        points={poly2025}
-                        fill="none"
-                        stroke="#94a3b8"
-                        strokeWidth="2.5"
-                        strokeDasharray="5 4"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-
-                      {/* 2026 Line (Solid Tramontina Blue) */}
-                      <polyline
-                        points={poly2026}
-                        fill="none"
-                        stroke="#001A9C"
-                        strokeWidth="3.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-
-                      {/* 2025 Data Points */}
-                      {pts2025.map((p, idx) => (
-                        <circle
-                          key={`pt25-${idx}`}
-                          cx={p.x}
-                          cy={p.y}
-                          r={hoveredMonthIndex === idx ? 5 : 3.5}
-                          fill="#ffffff"
-                          stroke="#94a3b8"
-                          strokeWidth={hoveredMonthIndex === idx ? 2.5 : 1.8}
-                          className="transition-all"
-                        />
-                      ))}
-
-                      {/* 2026 Data Points */}
-                      {pts2026.map((p, idx) => {
-                        const isHovered = hoveredMonthIndex === idx;
-                        return (
-                          <circle
-                            key={`pt26-${idx}`}
-                            cx={p.x}
-                            cy={p.y}
-                            r={isHovered ? 6.5 : p.m.venda2026 > 0 ? 5 : 3}
-                            fill="#001A9C"
-                            stroke="#ffffff"
-                            strokeWidth={isHovered ? 3 : 2}
-                            className="transition-all"
-                          />
-                        );
-                      })}
-
-                      {/* X Axis Month Labels and Click/Hover Strips */}
-                      {monthlyTimeline.map((m, idx) => {
-                        const x = padL + (idx / 11) * cW;
-                        const isHovered = hoveredMonthIndex === idx;
-                        return (
-                          <g
-                            key={`col-${idx}`}
-                            className="cursor-pointer"
-                            onMouseEnter={() => setHoveredMonthIndex(idx)}
-                            onMouseLeave={() => setHoveredMonthIndex(null)}
-                            onClick={() => handleToggleMonth(m.key)}
-                          >
-                            {/* Invisible wide hover target */}
-                            <rect
-                              x={x - cW / 24}
-                              y={padT}
-                              width={cW / 12}
-                              height={cH + padB}
-                              fill="transparent"
-                            />
-
-                            {/* Month Label */}
-                            <text
-                              x={x}
-                              y={padT + cH + 20}
-                              textAnchor="middle"
-                              className={`text-[11px] transition-colors ${
-                                isHovered 
-                                  ? 'fill-blue-700 font-black text-xs' 
-                                  : m.isActive 
-                                    ? 'fill-slate-900 font-extrabold' 
-                                    : 'fill-slate-400 font-medium'
-                              }`}
-                            >
-                              {m.short}
-                            </text>
-
-                            {/* Active Period Indicator Dot */}
-                            {m.isActive && (
-                              <circle
-                                cx={x}
-                                cy={padT + cH + 27}
-                                r={2}
-                                fill="#001A9C"
-                              />
-                            )}
-                          </g>
-                        );
-                      })}
-                    </svg>
-                  </div>
-                );
-              })()}
-            </div>
-          </div>
-        ) : (
-          /* Responsive Bar Chart View */
-          <div className="pt-2">
-            <div className="grid grid-cols-6 sm:grid-cols-12 gap-2 sm:gap-3 items-end h-56 pt-6 pb-2 border-b border-slate-100">
-              {monthlyTimeline.map(m => {
-                const h2025Pct = maxMonthlyVal > 0 ? (m.venda2025 / maxMonthlyVal) * 100 : 0;
-                const h2026Pct = maxMonthlyVal > 0 ? (m.venda2026 / maxMonthlyVal) * 100 : 0;
-
-                return (
-                  <div key={m.key} className="flex flex-col items-center h-full justify-end group relative">
-                    <div className="opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity absolute -top-12 left-1/2 -translate-x-1/2 z-20 bg-slate-900 text-white text-[10.5px] p-2 rounded-lg shadow-xl whitespace-nowrap space-y-0.5">
-                      <p className="font-bold">{m.label}</p>
-                      <p className="text-slate-300">2025: {formatCurrency(m.venda2025)}</p>
-                      <p className="text-blue-300">2026: {formatCurrency(m.venda2026)}</p>
-                      {m.venda2025 > 0 && m.venda2026 > 0 && (
-                        <p className={`font-bold ${m.diff >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {formatPercent(m.growthPct)} ({formatCurrency(m.diff)})
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="w-full flex items-end justify-center gap-1 h-full px-0.5">
-                      <div
-                        className="w-1/2 bg-slate-200 hover:bg-slate-300 rounded-t-sm transition-all relative"
-                        style={{ height: `${Math.max(h2025Pct, 4)}%` }}
-                      />
-                      <div
-                        className={`w-1/2 rounded-t-sm transition-all relative ${
-                          m.venda2026 > 0 ? 'bg-[#001A9C] hover:bg-blue-700' : 'bg-slate-100'
-                        }`}
-                        style={{ height: `${Math.max(h2026Pct, m.venda2026 > 0 ? 4 : 1)}%` }}
-                      />
-                    </div>
-
-                    <div className="pt-2 text-center">
-                      <span className={`text-[11px] font-bold block ${
-                        m.isActive ? 'text-slate-900 font-black' : 'text-slate-400'
-                      }`}>
-                        {m.short}
-                      </span>
-                      {m.venda2026 > 0 && m.venda2025 > 0 && (
-                        <span className={`text-[9.5px] font-extrabold block ${
-                          m.diff >= 0 ? 'text-emerald-600' : 'text-rose-600'
-                        }`}>
-                          {formatPercent(m.growthPct)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 3. DEDICATED SELL OUT KPIS (POSICIONADOS ABAIXO DO GRÁFICO) */}
+      {/* 2. DEDICATED SELL OUT KPIS (POSICIONADOS ACIMA DO GRÁFICO) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
         {/* KPI 1: Sell Out 2026 */}
         <div className="bg-white border border-slate-200/80 p-4.5 rounded-2xl shadow-xs space-y-2 relative overflow-hidden group hover:border-blue-300 transition-all">
@@ -1507,6 +1162,358 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
             </span>
           </div>
         </div>
+      </div>
+
+      {/* 3. GRÁFICO DO SELL OUT (2025 vs 2026 - APENAS MESES SELECIONADOS) */}
+      <div className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-[#001A9C]">
+              {chartViewMode === 'line' ? <LineChartIcon className="w-4.5 h-4.5" /> : <BarChart3 className="w-4.5 h-4.5" />}
+            </div>
+            <div>
+              <h3 className="font-black text-slate-900 text-sm">
+                Gráfico de Sell Out: 2025 vs 2026 {displayedKPIs.isSingleClient ? `(${displayedKPIs.clientName} - ${activeLineFilter})` : `(${activeLineFilter})`}
+              </h3>
+              <p className="text-[11.5px] text-slate-500 font-medium">
+                Comparativo mensal homologado ({activeMonthsList.length} {activeMonthsList.length === 1 ? 'mês selecionado' : 'meses selecionados'})
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Legend */}
+            <div className="flex items-center gap-3 text-xs font-bold mr-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-1 bg-slate-400 rounded-full inline-block" />
+                <span className="text-slate-500">2025</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-1 bg-[#001A9C] rounded-full inline-block" />
+                <span className="text-[#001A9C] font-extrabold">2026</span>
+              </div>
+            </div>
+
+            {/* Toggle Linhas / Barras */}
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/80 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setChartViewMode('line')}
+                className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                  chartViewMode === 'line' 
+                    ? 'bg-white text-[#001A9C] shadow-3xs font-black' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <LineChartIcon className="w-3.5 h-3.5" />
+                <span>Linhas</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartViewMode('bar')}
+                className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                  chartViewMode === 'bar' 
+                    ? 'bg-white text-[#001A9C] shadow-3xs font-black' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <BarChart3 className="w-3.5 h-3.5" />
+                <span>Barras</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Dynamic Chart Display: Line Chart or Bar Chart showing selected months */}
+        {chartViewMode === 'line' ? (
+          <div className="pt-2">
+            {/* Responsive SVG Line Chart */}
+            <div className="relative w-full overflow-hidden">
+              {(() => {
+                const svgW = 860;
+                const svgH = 230;
+                const padL = 75;
+                const padR = 35;
+                const padT = 25;
+                const padB = 40;
+                const cW = svgW - padL - padR;
+                const cH = svgH - padT - padB;
+
+                const effectiveMax = Math.max(maxMonthlyVal * 1.15, 100);
+                const count = chartTimeline.length;
+
+                const pts2025 = chartTimeline.map((m, i) => {
+                  const x = count > 1 ? padL + (i / (count - 1)) * cW : padL + cW / 2;
+                  const y = padT + cH - (m.venda2025 / effectiveMax) * cH;
+                  return { x, y, m, i };
+                });
+
+                const pts2026 = chartTimeline.map((m, i) => {
+                  const x = count > 1 ? padL + (i / (count - 1)) * cW : padL + cW / 2;
+                  const y = padT + cH - (m.venda2026 / effectiveMax) * cH;
+                  return { x, y, m, i };
+                });
+
+                const poly2025 = pts2025.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+                const poly2026 = pts2026.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+                const area2026 = count > 1 
+                  ? `${pts2026[0].x.toFixed(1)},${padT + cH} ` + poly2026 + ` ${pts2026[count - 1].x.toFixed(1)},${padT + cH}`
+                  : '';
+
+                const gridLevels = [0, 0.33, 0.66, 1.0];
+
+                const hoveredItem = hoveredMonthIndex !== null && hoveredMonthIndex < chartTimeline.length 
+                  ? chartTimeline[hoveredMonthIndex] 
+                  : null;
+
+                return (
+                  <div className="space-y-1">
+                    {/* Interactive info banner on hover */}
+                    <div className="h-6 flex items-center justify-between px-2 text-xs font-medium text-slate-500">
+                      {hoveredItem ? (
+                        <div className="flex items-center gap-3 animate-fade-in">
+                          <span className="font-extrabold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">
+                            {hoveredItem.label}
+                          </span>
+                          <span className="text-slate-600 font-semibold">
+                            2025: <strong className="text-slate-800">{formatCurrency(hoveredItem.venda2025)}</strong>
+                          </span>
+                          <span className="text-[#001A9C] font-semibold">
+                            2026: <strong className="text-[#001A9C]">{formatCurrency(hoveredItem.venda2026)}</strong>
+                          </span>
+                          {hoveredItem.venda2025 > 0 && hoveredItem.venda2026 > 0 && (
+                            <span className={`font-black ${hoveredItem.diff >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {hoveredItem.diff >= 0 ? '+' : ''}{formatPercent(hoveredItem.growthPct)} ({formatCurrency(hoveredItem.diff)})
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-slate-400">
+                          Passe o cursor sobre os pontos para visualizar valores detalhados mês a mês
+                        </span>
+                      )}
+                      <span className="text-[11px] text-slate-400">
+                        {chartTimeline.length} {chartTimeline.length === 1 ? 'mês exibido' : 'meses exibidos'}
+                      </span>
+                    </div>
+
+                    <svg viewBox={`0 0 ${svgW} ${svgH}`} className="w-full h-auto overflow-visible select-none">
+                      <defs>
+                        <linearGradient id="sellOutAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#001A9C" stopOpacity="0.18" />
+                          <stop offset="100%" stopColor="#001A9C" stopOpacity="0.01" />
+                        </linearGradient>
+                      </defs>
+
+                      {/* Horizontal Grid lines and Y labels */}
+                      {gridLevels.map((lvl, idx) => {
+                        const y = padT + cH - lvl * cH;
+                        const val = lvl * effectiveMax;
+                        return (
+                          <g key={idx}>
+                            <line
+                              x1={padL}
+                              y1={y}
+                              x2={padL + cW}
+                              y2={y}
+                              stroke="#e2e8f0"
+                              strokeDasharray="3 3"
+                              strokeWidth="1"
+                            />
+                            <text
+                              x={padL - 10}
+                              y={y + 3.5}
+                              textAnchor="end"
+                              className="text-[9.5px] fill-slate-400 font-semibold"
+                            >
+                              {formatCurrency(val)}
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      {/* Hover vertical guide line */}
+                      {hoveredMonthIndex !== null && hoveredMonthIndex < pts2026.length && (
+                        <line
+                          x1={pts2026[hoveredMonthIndex].x}
+                          y1={padT}
+                          x2={pts2026[hoveredMonthIndex].x}
+                          y2={padT + cH}
+                          stroke="#cbd5e1"
+                          strokeDasharray="3 3"
+                          strokeWidth="1.5"
+                        />
+                      )}
+
+                      {/* 2026 Gradient Area under curve */}
+                      {count > 1 && (
+                        <polygon points={area2026} fill="url(#sellOutAreaGrad)" />
+                      )}
+
+                      {/* 2025 Line (Dashed Slate) */}
+                      {count > 1 && (
+                        <polyline
+                          points={poly2025}
+                          fill="none"
+                          stroke="#94a3b8"
+                          strokeWidth="2.5"
+                          strokeDasharray="5 4"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      )}
+
+                      {/* 2026 Line (Solid Tramontina Blue) */}
+                      {count > 1 && (
+                        <polyline
+                          points={poly2026}
+                          fill="none"
+                          stroke="#001A9C"
+                          strokeWidth="3.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      )}
+
+                      {/* 2025 Data Points */}
+                      {pts2025.map((p, idx) => (
+                        <circle
+                          key={`pt25-${idx}`}
+                          cx={p.x}
+                          cy={p.y}
+                          r={hoveredMonthIndex === idx ? 5 : 3.5}
+                          fill="#ffffff"
+                          stroke="#94a3b8"
+                          strokeWidth={hoveredMonthIndex === idx ? 2.5 : 1.8}
+                          className="transition-all"
+                        />
+                      ))}
+
+                      {/* 2026 Data Points */}
+                      {pts2026.map((p, idx) => {
+                        const isHovered = hoveredMonthIndex === idx;
+                        return (
+                          <circle
+                            key={`pt26-${idx}`}
+                            cx={p.x}
+                            cy={p.y}
+                            r={isHovered ? 6.5 : p.m.venda2026 > 0 ? 5 : 3}
+                            fill="#001A9C"
+                            stroke="#ffffff"
+                            strokeWidth={isHovered ? 3 : 2}
+                            className="transition-all"
+                          />
+                        );
+                      })}
+
+                      {/* X Axis Month Labels and Click/Hover Strips */}
+                      {chartTimeline.map((m, idx) => {
+                        const p = pts2026[idx];
+                        const isHovered = hoveredMonthIndex === idx;
+                        const colW = count > 1 ? cW / (count - 1) : cW;
+                        return (
+                          <g
+                            key={`col-${m.key}`}
+                            className="cursor-pointer"
+                            onMouseEnter={() => setHoveredMonthIndex(idx)}
+                            onMouseLeave={() => setHoveredMonthIndex(null)}
+                            onClick={() => handleToggleMonth(m.key)}
+                          >
+                            {/* Invisible wide hover target */}
+                            <rect
+                              x={p.x - Math.min(colW / 2, 40)}
+                              y={padT}
+                              width={Math.min(colW, 80)}
+                              height={cH + padB}
+                              fill="transparent"
+                            />
+
+                            {/* Month Label */}
+                            <text
+                              x={p.x}
+                              y={padT + cH + 20}
+                              textAnchor="middle"
+                              className={`text-[11px] transition-colors ${
+                                isHovered 
+                                  ? 'fill-blue-700 font-black text-xs' 
+                                  : 'fill-slate-900 font-extrabold'
+                              }`}
+                            >
+                              {m.short}
+                            </text>
+
+                            {/* Active Period Indicator Dot */}
+                            <circle
+                              cx={p.x}
+                              cy={padT + cH + 27}
+                              r={2}
+                              fill="#001A9C"
+                            />
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        ) : (
+          /* Responsive Bar Chart View showing selected months */
+          <div className="pt-2">
+            <div className="flex items-end justify-around gap-2 sm:gap-4 h-56 pt-6 pb-2 border-b border-slate-100">
+              {chartTimeline.map(m => {
+                const h2025Pct = maxMonthlyVal > 0 ? (m.venda2025 / maxMonthlyVal) * 100 : 0;
+                const h2026Pct = maxMonthlyVal > 0 ? (m.venda2026 / maxMonthlyVal) * 100 : 0;
+
+                return (
+                  <div
+                    key={m.key}
+                    className="flex-1 max-w-[90px] flex flex-col items-center h-full justify-end group relative cursor-pointer"
+                    onClick={() => handleToggleMonth(m.key)}
+                  >
+                    <div className="opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity absolute -top-12 left-1/2 -translate-x-1/2 z-20 bg-slate-900 text-white text-[10.5px] p-2 rounded-lg shadow-xl whitespace-nowrap space-y-0.5">
+                      <p className="font-bold">{m.label}</p>
+                      <p className="text-slate-300">2025: {formatCurrency(m.venda2025)}</p>
+                      <p className="text-blue-300">2026: {formatCurrency(m.venda2026)}</p>
+                      {m.venda2025 > 0 && m.venda2026 > 0 && (
+                        <p className={`font-bold ${m.diff >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {formatPercent(m.growthPct)} ({formatCurrency(m.diff)})
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="w-full flex items-end justify-center gap-1.5 h-full px-1">
+                      <div
+                        className="w-1/2 bg-slate-200 hover:bg-slate-300 rounded-t-sm transition-all relative"
+                        style={{ height: `${Math.max(h2025Pct, 4)}%` }}
+                      />
+                      <div
+                        className={`w-1/2 rounded-t-sm transition-all relative ${
+                          m.venda2026 > 0 ? 'bg-[#001A9C] hover:bg-blue-700' : 'bg-slate-100'
+                        }`}
+                        style={{ height: `${Math.max(h2026Pct, m.venda2026 > 0 ? 4 : 1)}%` }}
+                      />
+                    </div>
+
+                    <div className="pt-2 text-center">
+                      <span className="text-[11px] font-extrabold block text-slate-900">
+                        {m.short}
+                      </span>
+                      {m.venda2026 > 0 && m.venda2025 > 0 && (
+                        <span className={`text-[9.5px] font-extrabold block ${
+                          m.diff >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                        }`}>
+                          {formatPercent(m.growthPct)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 4. MAIN CONTENT DISPLAY: TABLE */}

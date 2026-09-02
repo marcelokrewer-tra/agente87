@@ -335,12 +335,12 @@ app.get("/api/sell-out", (req, res) => {
   if (coordParam) {
     const targetKey = normalizeCoordKey(coordParam);
     let records = db.coordinators[targetKey];
-    if (!records && targetKey === 'Adriano Almeida') {
+    if (!records || records.length === 0) {
       records = parseSellOutCSV(INITIAL_SELL_OUT_CSV).map(r => ({
         ...r,
-        coordenador: 'Adriano Almeida'
+        coordenador: targetKey
       }));
-      db.coordinators['Adriano Almeida'] = records;
+      db.coordinators[targetKey] = records;
       saveSellOutDatabase(db);
     }
     return res.json({
@@ -363,12 +363,12 @@ app.get("/api/sell-out/:coordinator", (req, res) => {
   const targetKey = normalizeCoordKey(req.params.coordinator);
   let records = db.coordinators[targetKey];
 
-  if (!records && targetKey === 'Adriano Almeida') {
+  if (!records || records.length === 0) {
     records = parseSellOutCSV(INITIAL_SELL_OUT_CSV).map(r => ({
       ...r,
-      coordenador: 'Adriano Almeida'
+      coordenador: targetKey
     }));
-    db.coordinators['Adriano Almeida'] = records;
+    db.coordinators[targetKey] = records;
     saveSellOutDatabase(db);
   }
 
