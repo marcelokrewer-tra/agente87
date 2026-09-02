@@ -2984,20 +2984,25 @@ export default function App() {
           </div>
 
           {/* Form */}
-          <form onSubmit={handleAuthSubmit} className="space-y-5">
+          <form onSubmit={handleAuthSubmit} autoComplete="off" className="space-y-5">
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block text-center">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block text-center" htmlFor="main_access_password">
                 Senha de Acesso
               </label>
               <input
+                id="main_access_password"
+                name="main_access_password"
                 type="password"
                 value={passwordInput}
+                autoComplete="new-password"
+                data-lpignore="true"
+                spellCheck={false}
                 onChange={(e) => {
                   setPasswordInput(e.target.value);
                   if (authError) setAuthError('');
                 }}
-                placeholder="••••"
-                className="w-full tracking-widest text-center text-lg font-bold py-3 px-4 bg-slate-50 border border-slate-200 focus:border-[#001A9C] focus:bg-white rounded-xl sm:rounded-2xl text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-4 focus:ring-[#001A9C]/5 transition-all font-mono"
+                placeholder="Digite sua senha"
+                className="w-full tracking-wider text-center text-sm font-bold py-3 px-4 bg-slate-50 border border-slate-200 focus:border-[#001A9C] focus:bg-white rounded-xl sm:rounded-2xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-[#001A9C]/5 transition-all font-sans"
                 autoFocus
               />
               {authError && (
@@ -6401,20 +6406,25 @@ export default function App() {
               </div>
 
               {/* Form Content */}
-              <form onSubmit={handleCloudPasswordSubmit} className="space-y-4">
+              <form onSubmit={handleCloudPasswordSubmit} autoComplete="off" className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block" htmlFor="cloud_db_password">
                     Senha de Acesso
                   </label>
                   <input
+                    id="cloud_db_password"
+                    name="cloud_db_password"
                     type="password"
                     required
                     value={cloudPasswordInput}
+                    autoComplete="new-password"
+                    data-lpignore="true"
+                    spellCheck={false}
                     onChange={(e) => {
                       setCloudPasswordInput(e.target.value);
                       if (cloudPasswordError) setCloudPasswordError('');
                     }}
-                    placeholder="••••••••"
+                    placeholder="Digite a senha do banco"
                     className="w-full text-xs bg-slate-50 border border-slate-200 py-2.5 px-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/15 focus:border-[#001A9C]/30 text-slate-800 font-semibold transition-all"
                     autoFocus
                   />

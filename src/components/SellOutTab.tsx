@@ -65,14 +65,17 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
   // Auth state for coordinator password access
   const [authenticatedCoordinator, setAuthenticatedCoordinator] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('tramontina_sell_out_auth_coord') || null;
+      return localStorage.getItem('tramontina_sell_out_auth_coord') || 
+             sessionStorage.getItem('tramontina_sell_out_auth_coord') || 
+             null;
     }
     return null;
   });
 
   const [isMasterUser, setIsMasterUser] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('tramontina_sell_out_is_master') === 'true';
+      return (localStorage.getItem('tramontina_sell_out_is_master') === 'true') || 
+             (sessionStorage.getItem('tramontina_sell_out_is_master') === 'true');
     }
     return false;
   });
@@ -80,7 +83,9 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
   // Target coordinator whose data is currently being viewed
   const [activeViewingCoordinator, setActiveViewingCoordinator] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('tramontina_sell_out_view_coord') || 'Adriano Almeida';
+      return localStorage.getItem('tramontina_sell_out_view_coord') || 
+             sessionStorage.getItem('tramontina_sell_out_view_coord') || 
+             'Adriano Almeida';
     }
     return 'Adriano Almeida';
   });
@@ -135,6 +140,9 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
       setAuthenticatedCoordinator('Adriano Almeida');
       setIsMasterUser(false);
       setActiveViewingCoordinator('Adriano Almeida');
+      localStorage.setItem('tramontina_sell_out_auth_coord', 'Adriano Almeida');
+      localStorage.setItem('tramontina_sell_out_is_master', 'false');
+      localStorage.setItem('tramontina_sell_out_view_coord', 'Adriano Almeida');
       sessionStorage.setItem('tramontina_sell_out_auth_coord', 'Adriano Almeida');
       sessionStorage.setItem('tramontina_sell_out_is_master', 'false');
       sessionStorage.setItem('tramontina_sell_out_view_coord', 'Adriano Almeida');
@@ -145,6 +153,9 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
       setAuthenticatedCoordinator('Gerente Geral (Master)');
       setIsMasterUser(true);
       setActiveViewingCoordinator('Adriano Almeida');
+      localStorage.setItem('tramontina_sell_out_auth_coord', 'Gerente Geral (Master)');
+      localStorage.setItem('tramontina_sell_out_is_master', 'true');
+      localStorage.setItem('tramontina_sell_out_view_coord', 'Adriano Almeida');
       sessionStorage.setItem('tramontina_sell_out_auth_coord', 'Gerente Geral (Master)');
       sessionStorage.setItem('tramontina_sell_out_is_master', 'true');
       sessionStorage.setItem('tramontina_sell_out_view_coord', 'Adriano Almeida');
@@ -158,6 +169,9 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
   const handleLogout = () => {
     setAuthenticatedCoordinator(null);
     setIsMasterUser(false);
+    localStorage.removeItem('tramontina_sell_out_auth_coord');
+    localStorage.removeItem('tramontina_sell_out_is_master');
+    localStorage.removeItem('tramontina_sell_out_view_coord');
     sessionStorage.removeItem('tramontina_sell_out_auth_coord');
     sessionStorage.removeItem('tramontina_sell_out_is_master');
     sessionStorage.removeItem('tramontina_sell_out_view_coord');
@@ -660,21 +674,26 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
             </p>
           </div>
 
-          <form onSubmit={handleAuthenticate} className="space-y-4 text-left">
+          <form onSubmit={handleAuthenticate} autoComplete="off" className="space-y-4 text-left">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 block">
+              <label className="text-xs font-bold text-slate-700 block" htmlFor="sellout_secret_pin">
                 Senha de Acesso:
               </label>
               <div className="relative">
                 <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
+                  id="sellout_secret_pin"
+                  name="sellout_secret_pin"
                   type="password"
                   value={passwordInput}
+                  autoComplete="new-password"
+                  data-lpignore="true"
+                  spellCheck={false}
                   onChange={e => {
                     setPasswordInput(e.target.value);
                     if (passwordError) setPasswordError(null);
                   }}
-                  placeholder="Digite a senha (Ex: 0206)"
+                  placeholder="Digite a senha"
                   className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C] tracking-widest text-center"
                   autoFocus
                 />
