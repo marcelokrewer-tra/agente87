@@ -33,6 +33,7 @@ import {
   getStoredSellOutRecords,
   saveStoredSellOutRecords,
   parseSellOutCSV,
+  parseSellOutExcel,
   INITIAL_SELL_OUT_CSV
 } from '../data/sellOutData';
 
@@ -450,30 +451,70 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
     }));
   };
 
-  // Handle CSV Import
+  // Handle CSV / TSV / Excel Import
   const handleProcessImport = () => {
     if (!importText.trim()) {
-      setImportFeedback({ type: 'error', message: 'Cole os dados do relatório antes de processar.' });
+      setImportFeedback({ type: 'error', message: 'Cole os dados do relatório ou selecione um arquivo antes de processar.' });
       return;
     }
 
     try {
       const parsed = parseSellOutCSV(importText);
       if (parsed.length === 0) {
-        setImportFeedback({ type: 'error', message: 'Nenhum registro válido encontrado. Verifique o cabeçalho e colunas.' });
+        setImportFeedback({ type: 'error', message: 'Nenhum registro válido identificado. Verifique se os dados contêm colunas com nomes de clientes e meses.' });
         return;
       }
 
       setRecords(parsed);
       saveStoredSellOutRecords(parsed);
-      setImportFeedback({ type: 'success', message: `${parsed.length} linhas de Sell Out importadas com sucesso!` });
+      setImportFeedback({ 
+        type: 'success', 
+        message: `Sucesso! ${parsed.length} linhas de Sell Out importadas com ${new Set(parsed.map(r => r.cliente)).size} clientes salvos!` 
+      });
       setTimeout(() => {
         setIsImportModalOpen(false);
         setImportFeedback(null);
         setImportText('');
-      }, 1200);
+      }, 1400);
     } catch (e: any) {
-      setImportFeedback({ type: 'error', message: `Erro ao processar: ${e?.message || 'Formato inválido'}` });
+      setImportFeedback({ type: 'error', message: `Erro ao processar dados: ${e?.message || 'Formato incompatível'}` });
+    }
+  };
+
+  // Handle Excel/CSV File Upload
+  const handleFileUpload = async (file: File) => {
+    try {
+      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+        const buffer = await file.arrayBuffer();
+        const parsed = parseSellOutExcel(buffer);
+        if (parsed.length === 0) {
+          setImportFeedback({ type: 'error', message: 'A planilha Excel não contém linhas válidas no formato esperado.' });
+          return;
+        }
+        setRecords(parsed);
+        saveStoredSellOutRecords(parsed);
+        setImportFeedback({ 
+          type: 'success', 
+          message: `Arquivo ${file.name} processado! ${parsed.length} linhas e ${new Set(parsed.map(r => r.cliente)).size} clientes salvos.` 
+        });
+        setTimeout(() => {
+          setIsImportModalOpen(false);
+          setImportFeedback(null);
+          setImportText('');
+        }, 1400);
+      } else {
+        const text = await file.text();
+        setImportText(text);
+        const parsed = parseSellOutCSV(text);
+        if (parsed.length > 0) {
+          setImportFeedback({
+            type: 'success',
+            message: `${parsed.length} linhas detectadas no arquivo. Clique em "Processar e Salvar" para confirmar.`
+          });
+        }
+      }
+    } catch (err: any) {
+      setImportFeedback({ type: 'error', message: `Erro ao ler arquivo: ${err?.message || 'Arquivo inválido'}` });
     }
   };
 
@@ -482,7 +523,12 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
     const def = parseSellOutCSV(INITIAL_SELL_OUT_CSV);
     setRecords(def);
     saveStoredSellOutRecords(def);
-    setImportFeedback({ type: 'success', message: 'Dados padrão restaurados!' });
+    setImportFeedback({ type: 'success', message: '15 clientes com dados completos de 2025 e 2026 restaurados!' });
+    setTimeout(() => {
+      setIsImportModalOpen(false);
+      setImportFeedback(null);
+      setImportText('');
+    }, 1200);
   };
 
   // Export to CSV
@@ -1254,19 +1300,108 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
                 </button>
               </div>
 
-              <div className="p-5 space-y-4">
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Cole abaixo o conteúdo em formato CSV/TSV contendo as colunas de 
-                  <strong> CLIENTE; COORDENADOR; SELL OUT; ANO; JANEIRO..DEZEMBRO</strong>.
-                </p>
+              <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-600 space-y-1.5">
+                  <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <FileSpreadsheet className="w-4 h-4 text-[#001A9C]" />
+                    <span>Como importar dados de Sell Out:</span>
+                  </div>
+                  <p className="leading-relaxed">
+                    Você pode <strong>arrastar uma planilha Excel (.xlsx / .xls)</strong> ou <strong>copiar a tabela inteira do Excel / Google Sheets</strong> e colar na caixa abaixo.
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Formatos aceitos: Colunas com <strong>CLIENTE</strong>, <strong>SELL OUT (Linha)</strong>, <strong>ANO</strong> e os meses (<strong>JANEIRO</strong> a <strong>DEZEMBRO</strong>). Suporta células mescladas de cliente.
+                  </p>
+                </div>
 
-                <textarea
-                  value={importText}
-                  onChange={e => setImportText(e.target.value)}
-                  placeholder="Cole aqui o CSV de Sell Out..."
-                  rows={8}
-                  className="w-full p-3 font-mono text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C]"
-                />
+                {/* File Upload Dropzone */}
+                <div>
+                  <label 
+                    htmlFor="sellout-file-input"
+                    className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 hover:border-[#001A9C] bg-slate-50/60 hover:bg-blue-50/40 rounded-xl p-4 cursor-pointer transition-all group"
+                  >
+                    <UploadCloud className="w-7 h-7 text-slate-400 group-hover:text-[#001A9C] mb-1.5 transition-colors" />
+                    <span className="text-xs font-bold text-slate-700 group-hover:text-[#001A9C]">
+                      Clique para escolher o arquivo Excel (.xlsx / .csv) ou arraste aqui
+                    </span>
+                    <span className="text-[11px] text-slate-400 mt-0.5">
+                      Processamento instantâneo de todas as abas e valores
+                    </span>
+                    <input
+                      id="sellout-file-input"
+                      type="file"
+                      accept=".xlsx,.xls,.csv,.tsv,.txt"
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileUpload(file);
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {/* Or Paste text */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                    <span>Ou cole o texto copiado da planilha:</span>
+                    {importText.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => setImportText('')}
+                        className="text-[11px] text-rose-600 hover:underline font-normal cursor-pointer"
+                      >
+                        Limpar texto
+                      </button>
+                    )}
+                  </div>
+                  <textarea
+                    value={importText}
+                    onChange={e => {
+                      setImportText(e.target.value);
+                      if (importFeedback) setImportFeedback(null);
+                    }}
+                    placeholder="Cole aqui as linhas copiadas do Excel (Ex: MERCANTE   GERAL   2025   R$ 1.542.067...)"
+                    rows={6}
+                    className="w-full p-3 font-mono text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#001A9C]/20 focus:border-[#001A9C]"
+                  />
+                </div>
+
+                {/* Live Preview Box if text is pasted */}
+                {(() => {
+                  if (!importText.trim()) return null;
+                  try {
+                    const parsed = parseSellOutCSV(importText);
+                    if (parsed.length === 0) {
+                      return (
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+                          <span>Texto colado detectado, mas nenhuma linha válida foi identificada ainda. Verifique o cabeçalho.</span>
+                        </div>
+                      );
+                    }
+                    const clients = Array.from(new Set(parsed.map(r => r.cliente)));
+                    const years = Array.from(new Set(parsed.map(r => r.ano))).sort();
+                    return (
+                      <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs text-emerald-900 space-y-2">
+                        <div className="flex items-center justify-between font-bold">
+                          <div className="flex items-center gap-1.5">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                            <span>Pré-visualização dos dados:</span>
+                          </div>
+                          <span className="bg-emerald-200/70 text-emerald-900 px-2 py-0.5 rounded-full text-[11px]">
+                            {parsed.length} linhas reconhecidas
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-[11px] text-emerald-800">
+                          <div><strong>{clients.length} Clientes:</strong> {clients.slice(0, 6).join(', ')}{clients.length > 6 ? ` e mais ${clients.length - 6}...` : ''}</div>
+                          <div>• <strong>Anos:</strong> {years.join(', ')}</div>
+                        </div>
+                      </div>
+                    );
+                  } catch {
+                    return null;
+                  }
+                })()}
 
                 {importFeedback && (
                   <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
@@ -1286,13 +1421,16 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
                     className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center gap-2 cursor-pointer"
                   >
                     <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Restaurar Dados Padrão</span>
+                    <span>Restaurar 15 Clientes Padrão</span>
                   </button>
 
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setIsImportModalOpen(false)}
+                      onClick={() => {
+                        setIsImportModalOpen(false);
+                        setImportFeedback(null);
+                      }}
                       className="px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 font-bold text-xs rounded-xl transition-all cursor-pointer"
                     >
                       Cancelar
@@ -1303,7 +1441,7 @@ export const SellOutTab: React.FC<SellOutTabProps> = ({
                       className="px-5 py-2 bg-[#001A9C] hover:bg-[#00147a] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
                     >
                       <Check className="w-4 h-4" />
-                      <span>Processar Importação</span>
+                      <span>Processar e Salvar</span>
                     </button>
                   </div>
                 </div>
