@@ -47,6 +47,7 @@ import { KPIGauge } from './components/KPIGauge';
 import { ImportDataTab } from './components/ImportDataTab';
 import { DailySalesTab } from './components/DailySalesTab';
 import { SellOutTab } from './components/SellOutTab';
+import { PresentationTab } from './components/PresentationTab';
 import { UserManagementTab, SystemUser, DEFAULT_USERS } from './components/UserManagementTab';
 import { TramontinaLogo } from './components/TramontinaLogo';
 import { generateSalesPresentation } from './presentation';
@@ -840,7 +841,7 @@ export default function App() {
   ] as const;
   
   // Dashboard Core Navigation Tabs
-  const [activeTab, setActiveTab] = useState<'geral' | 'representantes' | 'comparativo' | 'vendas_dia' | 'sell_out' | 'detalhado' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao' | 'usuarios'>('geral');
+  const [activeTab, setActiveTab] = useState<'geral' | 'representantes' | 'comparativo' | 'vendas_dia' | 'sell_out' | 'detalhado' | 'apresentacao' | 'previa' | 'importar' | 'nomes' | 'vendas_estado' | 'localizacao' | 'usuarios'>('geral');
   const [isImportDropdownOpen, setIsImportDropdownOpen] = useState(false);
   const [dailyPeriodTotals, setDailyPeriodTotals] = useState<any>(null);
 
@@ -858,6 +859,7 @@ export default function App() {
       vendas_dia: 'Vendas por Dia',
       sell_out: 'Análise Sell Out',
       detalhado: 'Explorador de Dados',
+      apresentacao: 'Apresentação',
       previa: 'Configuração de Prévias',
       importar: 'Importação de Dados',
       nomes: 'Nomes de Representantes',
@@ -4125,7 +4127,8 @@ export default function App() {
                 { id: 'sell_out', label: 'Análise Sell Out', icon: <ShoppingBag className="w-4 h-4 text-amber-600" /> },
                 { id: 'vendas_dia', label: 'Vendas por Dia', icon: <CalendarDays className="w-4 h-4 text-sky-600" /> },
                 { id: 'vendas_estado', label: 'Regiões', icon: <MapIcon className="w-4 h-4" /> },
-                { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> }
+                { id: 'detalhado', label: 'Tabela Detalhada', icon: <FileText className="w-4 h-4" /> },
+                { id: 'apresentacao', label: 'Apresentação', icon: <Presentation className="w-4 h-4 text-purple-600" /> }
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -4213,7 +4216,7 @@ export default function App() {
           )}
 
           {/* EMPTY STATE IF NO DATA IN ACTIVE PERIOD */}
-          {allRecords.length === 0 && !['previa', 'importar', 'nomes', 'localizacao', 'usuarios', 'vendas_dia', 'sell_out'].includes(activeTab) && (
+          {allRecords.length === 0 && !['previa', 'importar', 'nomes', 'localizacao', 'usuarios', 'vendas_dia', 'sell_out', 'apresentacao'].includes(activeTab) && (
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -5084,6 +5087,32 @@ export default function App() {
 
               </div>
             </motion.div>
+          )}
+
+          {/* TAB: APRESENTAÇÃO */}
+          {activeTab === 'apresentacao' && (
+            <PresentationTab
+              selectedYear={selectedYear}
+              selectedMonth={selectedMonth}
+              isAccumulated={isAccumulated}
+              accumulateStartMonth={accumulateStartMonth}
+              accumulateEndMonth={accumulateEndMonth}
+              filteredRecords={filteredRecords}
+              allRecords={allRecords}
+              prevYearRecords={prevYearRecords}
+              prevYearFilteredRecords={prevYearFilteredRecords}
+              isLoadingPrevYear={isLoadingPrevYear}
+              selectedCoordinator={selectedCoordinator}
+              selectedProductGroups={selectedProductGroups}
+              selectedSalesTypes={selectedSalesTypes}
+              selectedState={selectedState}
+              selectedRepIdFilter={selectedRepIdFilter}
+              searchText={searchText}
+              customRepNames={customRepNames}
+              customRepLocations={customRepLocations}
+              userRole={userRole}
+              userRepId={userRepId}
+            />
           )}
 
           {/* TAB 4.5: CONFIGURE PREVIEW EXPECTATIONS */}
